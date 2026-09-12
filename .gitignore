@@ -1,1 +1,14 @@
 test.sh
+
+# Archives and backups
+*.tar.gz
+*.zip
+*.tar
+
+# Temporary files and scratch
+*.tmp
+*.bak
+
+# OS and Editor metadata
+.DS_Store
+Thumbs.db

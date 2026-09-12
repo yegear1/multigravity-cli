@@ -19,6 +19,7 @@ param (
 
 $REAL_USERPROFILE = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $env:USERPROFILE }
 $BASE = if ($env:MULTIGRAVITY_HOME) { $env:MULTIGRAVITY_HOME } else { "$REAL_USERPROFILE\AntigravityProfiles" }
+$VERSION = "1.3.0"
 
 function Find-Antigravity {
     $override = if ($env:MULTIGRAVITY_APP) { $env:MULTIGRAVITY_APP } else { $env:AGY_APP }
@@ -26,10 +27,13 @@ function Find-Antigravity {
 
     $paths = @(
         "$env:LOCALAPPDATA\Programs\Antigravity\Antigravity.exe",
+        "$env:LOCALAPPDATA\Programs\antigravity\antigravity.exe",
         "$env:PROGRAMFILES\Antigravity\Antigravity.exe",
         "${env:ProgramFiles(x86)}\Antigravity\Antigravity.exe",
         "$env:LOCALAPPDATA\Programs\agy\agy.exe",
-        "$env:PROGRAMFILES\agy\agy.exe"
+        "$env:PROGRAMFILES\agy\agy.exe",
+        "$REAL_USERPROFILE\scoop\apps\antigravity\current\antigravity.exe",
+        "$REAL_USERPROFILE\scoop\apps\agy\current\agy.exe"
     )
     foreach ($p in $paths) {
         if (Test-Path $p) { return $p }
@@ -255,6 +259,7 @@ function Write-Usage {
     Write-Host "  doctor                      Run a system diagnosis"
     Write-Host "  stats                       Show storage usage per profile"
     Write-Host "  completion                  Show setup instructions for shell completion"
+    Write-Host "  version                     Show multigravity version"
     Write-Host "  <name>                      Launch Antigravity with the given profile"
     Write-Host "  help                        Show this help"
     Write-Host ""
@@ -808,7 +813,9 @@ function Invoke-DoctorCli {
 }
 
 function Invoke-UpdateCli {
-    $script_url = "https://raw.githubusercontent.com/sujitagarwal/multigravity-cli/main/multigravity.ps1"
+    $repo = if ($env:MULTIGRAVITY_REPO) { $env:MULTIGRAVITY_REPO } else { "yegear1/multigravity-cli" }
+    $branch = if ($env:MULTIGRAVITY_BRANCH) { $env:MULTIGRAVITY_BRANCH } else { "main" }
+    $script_url = "https://raw.githubusercontent.com/$repo/$branch/multigravity.ps1"
     $target = $MyInvocation.MyCommand.Path
     if ([string]::IsNullOrEmpty($target)) {
         $cmdObj = Get-Command multigravity -ErrorAction SilentlyContinue
@@ -831,6 +838,10 @@ function Invoke-UpdateCli {
     }
 }
 
+function Invoke-VersionCli {
+    Write-Host "multigravity v$VERSION (fork: yegear1/multigravity-cli)"
+}
+
 function Invoke-HelpCompletion {
     Write-Host "To enable autocompletion in PowerShell, add the following to your `$PROFILE:"
     Write-Host ""
@@ -845,7 +856,7 @@ function Invoke-GenerateCompletion {
         @"
 Register-ArgumentCompleter -Native -CommandName multigravity -ScriptBlock {
     param(`$wordToComplete, `$commandAst, `$cursorPosition)
-    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'update', 'doctor', 'stats', 'completion', 'help')
+    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
     `$profiles = if (Test-Path '$BASE') { Get-ChildItem -Directory -Path '$BASE' | Select-Object -ExpandProperty Name } else { @() }
     (`$opts + `$profiles) | Where-Object { `$_ -like "`$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new(`$_, `$_, 'ParameterValue', `$_)
@@ -1343,6 +1354,9 @@ switch ($cmd) {
         } else {
             Invoke-HelpCompletion
         }
+    }
+    { $_ -in @("version", "--version", "-v") } {
+        Invoke-VersionCli
     }
     "help"   { Write-Usage }
     "--help" { Write-Usage }

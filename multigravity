@@ -5,6 +5,7 @@ shopt -s nullglob
 
 REAL_HOME="${HOME}"
 BASE="${MULTIGRAVITY_HOME:-$HOME/AntigravityProfiles}"
+VERSION="1.3.0"
 cmd="${1-}"
 
 abort() {
@@ -141,6 +142,8 @@ find_app() {
       for candidate in \
         "/Applications/Antigravity.app" \
         "$HOME/Applications/Antigravity.app" \
+        "/Applications/Agy.app" \
+        "$HOME/Applications/Agy.app" \
         "antigravity" \
         "agy" \
         "/usr/local/bin/agy" \
@@ -156,6 +159,15 @@ find_app() {
       for candidate in \
         "antigravity" \
         "agy" \
+        "$HOME/apps/antigravity/antigravity" \
+        "$HOME/apps/antigravity/bin/antigravity" \
+        "$HOME/apps/agy/agy" \
+        "$HOME/apps/agy/bin/agy" \
+        "$HOME/.local/share/antigravity/antigravity" \
+        "/opt/antigravity/antigravity" \
+        "/opt/antigravity/bin/antigravity" \
+        "/opt/agy/agy" \
+        "/opt/agy/bin/agy" \
         "/usr/share/antigravity/antigravity" \
         "/usr/bin/antigravity" \
         "/usr/local/bin/antigravity" \
@@ -1467,7 +1479,9 @@ ai_cmd() {
 }
 
 update_cli() {
-  local script_url="https://raw.githubusercontent.com/sujitagarwal/multigravity-cli/main/multigravity"
+  local repo="${MULTIGRAVITY_REPO:-yegear1/multigravity-cli}"
+  local branch="${MULTIGRAVITY_BRANCH:-main}"
+  local script_url="https://raw.githubusercontent.com/$repo/$branch/multigravity"
   local target
   target="$(script_path)"
 
@@ -1484,6 +1498,10 @@ update_cli() {
     rm -f "$target.tmp"
     abort "failed to download update"
   fi
+}
+
+version_cli() {
+  echo "multigravity v$VERSION (fork: yegear1/multigravity-cli)"
 }
 
 help_completion() {
@@ -1536,6 +1554,7 @@ _multigravity() {
         'doctor:Run system diagnosis'
         'stats:Show profile storage usage'
         'completion:Setup shell completion'
+        'version:Show multigravity version'
         'help:Show help'
     )
     local curcontext="$curcontext" state line
@@ -1578,7 +1597,7 @@ _multigravity_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="new color stop restart clean list status rename delete clone template export import ai update doctor stats completion help"
+    opts="new color stop restart clean list status rename delete clone template export import ai update doctor stats completion version help"
 
     if [[ ${COMP_CWORD} -eq 1 ]] ; then
         local profiles=$(multigravity list --raw 2>/dev/null)
@@ -1734,6 +1753,7 @@ Commands:
   doctor                      Run a system diagnosis
   stats                       Show storage usage per profile
   completion                  Show setup instructions for shell completion
+  version                     Show multigravity version
   <name> [args...]            Launch Antigravity with the given profile
   help                        Show this help
 
@@ -1747,6 +1767,9 @@ EOF
 }
 
 case "$cmd" in
+  version | --version | -v)
+    version_cli
+    ;;
   new)
     shift
     new_profile "$@"

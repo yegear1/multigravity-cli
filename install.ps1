@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-$REPO = "sujitagarwal/multigravity-cli"
-$BRANCH = "main"
+$REPO = if ($env:MULTIGRAVITY_REPO) { $env:MULTIGRAVITY_REPO } else { "yegear1/multigravity-cli" }
+$BRANCH = if ($env:MULTIGRAVITY_BRANCH) { $env:MULTIGRAVITY_BRANCH } else { "main" }
 $RAW = "https://raw.githubusercontent.com/$REPO/$BRANCH"
 $INSTALL_DIR = "$env:USERPROFILE\.local\bin"
 
