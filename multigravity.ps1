@@ -17,13 +17,19 @@ param (
     [string[]]$ForwardArgs
 )
 
-$BASE = if ($env:MULTIGRAVITY_HOME) { $env:MULTIGRAVITY_HOME } else { "$env:USERPROFILE\AntigravityProfiles" }
+$REAL_USERPROFILE = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $env:USERPROFILE }
+$BASE = if ($env:MULTIGRAVITY_HOME) { $env:MULTIGRAVITY_HOME } else { "$REAL_USERPROFILE\AntigravityProfiles" }
 
 function Find-Antigravity {
+    $override = if ($env:MULTIGRAVITY_APP) { $env:MULTIGRAVITY_APP } else { $env:AGY_APP }
+    if ($override -and (Test-Path $override)) { return $override }
+
     $paths = @(
         "$env:LOCALAPPDATA\Programs\Antigravity\Antigravity.exe",
         "$env:PROGRAMFILES\Antigravity\Antigravity.exe",
-        "${env:ProgramFiles(x86)}\Antigravity\Antigravity.exe"
+        "${env:ProgramFiles(x86)}\Antigravity\Antigravity.exe",
+        "$env:LOCALAPPDATA\Programs\agy\agy.exe",
+        "$env:PROGRAMFILES\agy\agy.exe"
     )
     foreach ($p in $paths) {
         if (Test-Path $p) { return $p }
@@ -32,11 +38,14 @@ function Find-Antigravity {
     # Try to find in PATH
     $exeCommand = Get-Command antigravity.exe -ErrorAction SilentlyContinue
     if ($exeCommand) { return $exeCommand.Source }
+
+    $agyCommand = Get-Command agy.exe -ErrorAction SilentlyContinue
+    if ($agyCommand) { return $agyCommand.Source }
     
     return $null
 }
 
-$APP = if ($env:MULTIGRAVITY_APP) { $env:MULTIGRAVITY_APP } else { Find-Antigravity }
+$APP = Find-Antigravity
 
 function Get-TemplatesDir {
     return "$BASE\.templates"
@@ -47,12 +56,173 @@ function Get-SystemDataDir {
 }
 
 function Get-SystemExtensionsDir {
-    return "$env:USERPROFILE\.antigravity\extensions"
+    return "$REAL_USERPROFILE\.antigravity\extensions"
 }
 
 function Test-SharedProfile {
     param($name)
     return Test-Path "$BASE\$name\.shared"
+}
+
+function Link-DevDotfiles {
+    param($profileDir)
+    if (Test-Path "$profileDir\.isolated_dotfiles") { return }
+
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    $gitConfig = "$realUser\.gitconfig"
+    $sshDir    = "$realUser\.ssh"
+
+    if ((Test-Path $gitConfig) -and !(Test-Path "$profileDir\.gitconfig")) {
+        New-Item -ItemType SymbolicLink -Path "$profileDir\.gitconfig" -Target $gitConfig -ErrorAction SilentlyContinue | Out-Null
+    }
+    if ((Test-Path $sshDir) -and !(Test-Path "$profileDir\.ssh")) {
+        New-Item -ItemType Junction -Path "$profileDir\.ssh" -Target $sshDir -ErrorAction SilentlyContinue | Out-Null
+    }
+}
+
+function Resolve-ProfileColor {
+    param([string]$colorName)
+    $inputStr = $colorName.Trim().ToLower()
+
+    switch ($inputStr) {
+        "blue"                { return @{ Primary = "#1e40af"; Secondary = "#172554" } }
+        "navy"                { return @{ Primary = "#1e3a8a"; Secondary = "#0f172a" } }
+        "green"               { return @{ Primary = "#166534"; Secondary = "#14532d" } }
+        "emerald"             { return @{ Primary = "#065f46"; Secondary = "#064e3b" } }
+        "teal"                { return @{ Primary = "#115e59"; Secondary = "#134e4a" } }
+        "cyan"                { return @{ Primary = "#155e75"; Secondary = "#164e63" } }
+        "red"                 { return @{ Primary = "#991b1b"; Secondary = "#7f1d1d" } }
+        "rose"                { return @{ Primary = "#9f1239"; Secondary = "#881337" } }
+        "purple"              { return @{ Primary = "#6b21a8"; Secondary = "#581c87" } }
+        "violet"              { return @{ Primary = "#5b21b6"; Secondary = "#4c1d95" } }
+        "indigo"              { return @{ Primary = "#3730a3"; Secondary = "#312e81" } }
+        "pink"                { return @{ Primary = "#9d174d"; Secondary = "#831843" } }
+        "orange"              { return @{ Primary = "#9a3412"; Secondary = "#7c2d12" } }
+        { $_ -in @("amber", "yellow") } { return @{ Primary = "#854d0e"; Secondary = "#713f12" } }
+        { $_ -in @("slate", "gray", "grey") } { return @{ Primary = "#334155"; Secondary = "#1e293b" } }
+        default {
+            $hex = $inputStr.TrimStart("#")
+            if ($hex -match "^[0-9a-fA-F]{6}$") {
+                return @{ Primary = "#$hex"; Secondary = "#$hex" }
+            }
+            return $null
+        }
+    }
+}
+
+function Set-ProfileColor {
+    param([string]$profileName, [string]$colorArg)
+
+    $profileDir = "$BASE\$profileName"
+    if (!(Test-Path $profileDir)) {
+        Write-Error "Error: profile '$profileName' does not exist"
+        exit 1
+    }
+
+    $userDir = "$profileDir\AppData\Roaming\Antigravity\User"
+    New-Item -ItemType Directory -Force -Path $userDir | Out-Null
+    $settingsFile = "$userDir\settings.json"
+
+    # If settings.json is a symlink, uncouple it safely
+    $item = Get-Item -Path $settingsFile -ErrorAction SilentlyContinue
+    if ($item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        $content = Get-Content -Raw -Path $settingsFile -ErrorAction SilentlyContinue
+        Remove-Item -Force -Path $settingsFile
+        if ($content) { Set-Content -Path $settingsFile -Value $content -Encoding UTF8 }
+    }
+
+    $settingsObj = [ordered]@{}
+    if (Test-Path $settingsFile) {
+        try {
+            $jsonRaw = Get-Content -Raw -Path $settingsFile -Encoding UTF8
+            if ($jsonRaw.Trim()) {
+                $settingsObj = $jsonRaw | ConvertFrom-Json -AsHashtable
+            }
+        } catch {
+            $settingsObj = [ordered]@{}
+        }
+    }
+
+    if ($colorArg -eq "--clear") {
+        if ($settingsObj.ContainsKey("workbench.colorCustomizations")) {
+            $colors = $settingsObj["workbench.colorCustomizations"]
+            $keysToRemove = @(
+                "titleBar.activeBackground", "titleBar.activeForeground",
+                "titleBar.inactiveBackground", "titleBar.inactiveForeground",
+                "activityBar.background", "activityBar.foreground",
+                "activityBar.inactiveForeground", "statusBar.background",
+                "statusBar.foreground"
+            )
+            foreach ($k in $keysToRemove) {
+                if ($colors.ContainsKey($k)) { $colors.Remove($k) }
+            }
+            if ($colors.Count -eq 0) {
+                $settingsObj.Remove("workbench.colorCustomizations")
+            }
+        }
+        $settingsObj | ConvertTo-Json -Depth 10 | Set-Content -Path $settingsFile -Encoding UTF8
+        Write-Host "Cleared color customizations for profile '$profileName'."
+        return
+    }
+
+    $res = Resolve-ProfileColor $colorArg
+    if (!$res) {
+        Write-Error "Error: invalid color '$colorArg'. Use a recognized name (blue, green, red, purple, orange, cyan, pink, emerald, indigo, slate) or hex '#RRGGBB'."
+        exit 1
+    }
+
+    if (!$settingsObj.ContainsKey("workbench.colorCustomizations")) {
+        $settingsObj["workbench.colorCustomizations"] = [ordered]@{}
+    }
+    $colors = $settingsObj["workbench.colorCustomizations"]
+    $colors["titleBar.activeBackground"]   = $res.Primary
+    $colors["titleBar.activeForeground"]   = "#ffffff"
+    $colors["titleBar.inactiveBackground"] = $res.Secondary
+    $colors["titleBar.inactiveForeground"] = "#d1d5db"
+    $colors["activityBar.background"]      = $res.Secondary
+    $colors["activityBar.foreground"]      = "#ffffff"
+    $colors["activityBar.inactiveForeground"] = "#9ca3af"
+    $colors["statusBar.background"]        = $res.Primary
+    $colors["statusBar.foreground"]        = "#ffffff"
+
+    $settingsObj | ConvertTo-Json -Depth 10 | Set-Content -Path $settingsFile -Encoding UTF8
+    Write-Host "Set theme color for profile '$profileName' to $colorArg."
+}
+
+function Invoke-ColorProfile {
+    param([string]$profileName, [string]$colorArg)
+
+    if ([string]::IsNullOrWhiteSpace($profileName)) {
+        Write-Error "Error: usage: multigravity color <profile> [color|--clear]"
+        exit 1
+    }
+    Validate-Name $profileName
+
+    $profileDir = "$BASE\$profileName"
+    if (!(Test-Path $profileDir)) {
+        Write-Error "Error: profile '$profileName' does not exist"
+        exit 1
+    }
+
+    if ([string]::IsNullOrWhiteSpace($colorArg)) {
+        $settingsFile = "$profileDir\AppData\Roaming\Antigravity\User\settings.json"
+        if (Test-Path $settingsFile) {
+            try {
+                $obj = (Get-Content -Raw -Path $settingsFile -Encoding UTF8) | ConvertFrom-Json
+                $curr = $obj.'workbench.colorCustomizations'.'titleBar.activeBackground'
+                if ($curr) {
+                    Write-Host "Profile '$profileName' color: $curr"
+                    return
+                }
+            } catch {}
+        }
+        Write-Host "Profile '$profileName' has no custom color set."
+        return
+    }
+
+    Set-ProfileColor $profileName $colorArg
 }
 
 function Write-Usage {
@@ -62,16 +232,25 @@ function Write-Usage {
     Write-Host "  new <name> [options]        Create a new profile + Start Menu shortcut"
     Write-Host "      --shared                Share extensions & settings; isolate only accounts"
     Write-Host "      --from <template>        Seed from a saved template"
+    Write-Host "      --isolated-dotfiles     Do not link user .gitconfig/.ssh into profile"
+    Write-Host "      --color <color>         Set UI theme color (e.g. blue, green, red, '#1e3a8a')"
+    Write-Host "  color <name> [color|--clear] View or change window theme color"
+    Write-Host "  stop <name> [--force]       Stop a running profile gracefully"
+    Write-Host "  restart <name> [args...]    Restart a profile"
+    Write-Host "  clean <name|--all>          Clean profile caches to free up disk space"
     Write-Host "  list                        List existing profiles"
     Write-Host "  status                      Show running state, type, and last-used per profile"
     Write-Host "  rename <old> <new>          Rename a profile (updates shortcut if present)"
-    Write-Host "  delete <name>               Delete a profile and its data"
+    Write-Host "  delete <name> [--force]     Delete a profile and its data"
     Write-Host "  clone <src> <dest>          Copy an existing profile"
     Write-Host "  template save <profile> <name>   Save a profile as a reusable template"
     Write-Host "  template list               List saved templates"
     Write-Host "  template delete <name>      Remove a template"
-    Write-Host "  export <name> [path]        Archive a profile to a .zip file"
+    Write-Host "  export <name> [path] [--include-cache] Archive a profile to a .zip file"
     Write-Host "  import <archive> [name]     Restore a profile from a .zip archive"
+    Write-Host "  ai export <name> [path]     Export AI conversations & brains (credentials sanitized)"
+    Write-Host "  ai import <archive> <name>  Import AI conversations into an existing profile"
+    Write-Host "  ai list <name>              List AI conversations in a profile"
     Write-Host "  update                      Update multigravity to the latest version"
     Write-Host "  doctor                      Run a system diagnosis"
     Write-Host "  stats                       Show storage usage per profile"
@@ -80,6 +259,11 @@ function Write-Usage {
     Write-Host "  help                        Show this help"
     Write-Host ""
     Write-Host "Profile names: alphanumeric and hyphens only (e.g. work, personal, test-1)"
+    Write-Host ""
+    Write-Host "Environment:"
+    Write-Host "  MULTIGRAVITY_APP      Override the Antigravity app path or command"
+    Write-Host "  AGY_APP               Alias for MULTIGRAVITY_APP"
+    Write-Host "  MULTIGRAVITY_HOME     Override the profile storage directory"
 }
 
 function Validate-Name {
@@ -101,6 +285,8 @@ function Invoke-CreateProfile {
     New-Item -ItemType Directory -Force -Path "$PROFILE_DIR\.antigravity\extensions" | Out-Null
     New-Item -ItemType Directory -Force -Path "$PROFILE_DIR\AppData\Roaming" | Out-Null
     New-Item -ItemType Directory -Force -Path "$PROFILE_DIR\AppData\Local" | Out-Null
+
+    Link-DevDotfiles $PROFILE_DIR
 }
 
 function Invoke-CreateSharedProfile {
@@ -137,6 +323,8 @@ function Invoke-CreateSharedProfile {
     } else {
         New-Item -ItemType Directory -Force -Path $extDir | Out-Null
     }
+
+    Link-DevDotfiles $profileDir
 }
 
 function Invoke-LaunchProfile {
@@ -149,13 +337,16 @@ function Invoke-LaunchProfile {
     }
 
     if ([string]::IsNullOrEmpty($APP) -or !(Test-Path $APP)) {
-        Write-Error "Error: Antigravity.exe not found"
+        Write-Error "Error: Antigravity.exe (or agy.exe) not found"
         exit 1
     }
 
+    Link-DevDotfiles $PROFILE_DIR
+
     Write-Host "Launching Antigravity profile '$PROFILE'"
     
-    # Launch Antigravity with isolated USERPROFILE
+    # Preserve real user profile in env and launch Antigravity with isolated USERPROFILE
+    $env:REAL_USERPROFILE = $REAL_USERPROFILE
     $env:USERPROFILE = $PROFILE_DIR
     $env:APPDATA = "$PROFILE_DIR\AppData\Roaming"
     $env:LOCALAPPDATA = "$PROFILE_DIR\AppData\Local"
@@ -216,13 +407,17 @@ function Invoke-CreateShortcut {
 function Invoke-NewProfile {
     param($name, [string[]]$extraArgs)
 
-    $shared      = $false
-    $fromTpl     = ""
+    $shared            = $false
+    $fromTpl           = ""
+    $isolatedDotfiles  = $false
+    $color             = ""
     $i = 0
     while ($i -lt $extraArgs.Count) {
         switch ($extraArgs[$i]) {
-            "--shared" { $shared = $true }
-            "--from"   { $i++; if ($i -lt $extraArgs.Count) { $fromTpl = $extraArgs[$i] } }
+            "--shared"            { $shared = $true }
+            "--from"              { $i++; if ($i -lt $extraArgs.Count) { $fromTpl = $extraArgs[$i] } }
+            "--isolated-dotfiles" { $isolatedDotfiles = $true }
+            "--color"             { $i++; if ($i -lt $extraArgs.Count) { $color = $extraArgs[$i] } }
         }
         $i++
     }
@@ -241,6 +436,11 @@ function Invoke-NewProfile {
     }
 
     New-Item -ItemType Directory -Force -Path $BASE | Out-Null
+    New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+
+    if ($isolatedDotfiles) {
+        New-Item -ItemType File -Force -Path "$profileDir\.isolated_dotfiles" | Out-Null
+    }
 
     if ($fromTpl) {
         $tplPath = "$(Get-TemplatesDir)\$fromTpl"
@@ -249,25 +449,118 @@ function Invoke-NewProfile {
             exit 1
         }
         Write-Host "Creating profile '$name' from template '$fromTpl'..."
-        Copy-Item -Path $tplPath -Destination $profileDir -Recurse
+        Copy-Item -Path "$tplPath\*" -Destination $profileDir -Recurse -Force
+        if (!$isolatedDotfiles) { Link-DevDotfiles $profileDir }
     } elseif ($shared) {
         Invoke-CreateSharedProfile $name
     } else {
         Invoke-CreateProfile $name
     }
 
+    if ($color) {
+        Set-ProfileColor $name $color
+    }
+
     Write-Host "Created profile '$name'"
     Invoke-CreateShortcut $name
 }
 
+function Get-ProfileProcesses {
+    param($profileName)
+    $matched = @()
+    $procs = Get-Process -Name "Antigravity", "agy" -ErrorAction SilentlyContinue
+    if ($procs) {
+        foreach ($proc in $procs) {
+            try {
+                $cl = (Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.Id)" -ErrorAction SilentlyContinue).CommandLine
+                if ($cl -and ($cl -like "*$profileName*")) {
+                    $matched += $proc
+                }
+            } catch {}
+        }
+    }
+    return $matched
+}
+
+function Test-ProfileRunning {
+    param($profileName)
+    $procs = Get-ProfileProcesses $profileName
+    return ($procs -and ($procs.Count -gt 0))
+}
+
+function Stop-Profile {
+    param($profileName, [switch]$Force)
+    Validate-Name $profileName
+
+    $profileDir = "$BASE\$profileName"
+    if (!(Test-Path $profileDir)) {
+        Write-Error "Error: profile '$profileName' does not exist"
+        exit 1
+    }
+
+    $procs = Get-ProfileProcesses $profileName
+    if (!$procs -or ($procs.Count -eq 0)) {
+        Write-Host "Profile '$profileName' is not running."
+        return
+    }
+
+    Write-Host "Stopping profile '$profileName'..."
+
+    if ($Force) {
+        $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+        Write-Host "Profile '$profileName' forcefully stopped."
+        return
+    }
+
+    foreach ($p in $procs) {
+        try { $p.CloseMainWindow() | Out-Null } catch {}
+    }
+
+    $waited = 0
+    while ($waited -lt 15) {
+        Start-Sleep -Milliseconds 200
+        $waited++
+        $stillRunning = Get-ProfileProcesses $profileName
+        if (!$stillRunning -or ($stillRunning.Count -eq 0)) {
+            Write-Host "Profile '$profileName' stopped gracefully."
+            return
+        }
+    }
+
+    Write-Host "Terminating remaining processes for profile '$profileName'..."
+    $still = Get-ProfileProcesses $profileName
+    if ($still) {
+        $still | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host "Profile '$profileName' stopped."
+}
+
+function Restart-Profile {
+    param($profileName, [string[]]$forwardArgs)
+    Validate-Name $profileName
+    Stop-Profile $profileName
+    Start-Sleep -Milliseconds 500
+    Invoke-LaunchProfile $profileName $forwardArgs
+}
+
 function Invoke-DeleteProfile {
-    param($PROFILE)
+    param($PROFILE, [switch]$Force)
     Validate-Name $PROFILE
 
     $PROFILE_DIR = "$BASE\$PROFILE"
     if (!(Test-Path $PROFILE_DIR)) {
         Write-Error "Error: profile '$PROFILE' does not exist"
         exit 1
+    }
+
+    if (Test-ProfileRunning $PROFILE) {
+        if ($Force) {
+            Write-Host "Profile '$PROFILE' is running. Stopping it first (-Force)..."
+            Stop-Profile $PROFILE -Force
+        } else {
+            Write-Error "Error: cannot delete profile '$PROFILE' because it is currently running. Stop it first with: multigravity stop $PROFILE (or use --force)"
+            exit 1
+        }
     }
 
     $confirm = Read-Host "Delete profile '$PROFILE' and all its data? [y/N]"
@@ -305,6 +598,11 @@ function Invoke-RenameProfile {
     }
     if (Test-Path $NEW_DIR) {
         Write-Error "Error: profile '$NEW' already exists"
+        exit 1
+    }
+
+    if (Test-ProfileRunning $OLD) {
+        Write-Error "Error: cannot rename profile '$OLD' because it is currently running. Stop it first with: multigravity stop $OLD"
         exit 1
     }
 
@@ -352,6 +650,89 @@ function Get-FolderSize {
     else { "$size B" }
 }
 
+function Clean-SingleProfile {
+    param($name, [switch]$Silent)
+    $pDir = "$BASE\$name"
+    if (!(Test-Path $pDir)) { return }
+
+    $before = Get-FolderSize $pDir
+
+    $cacheDirs = @(
+        "$pDir\AppData\Local\Antigravity\Cache",
+        "$pDir\AppData\Local\Antigravity\Code Cache",
+        "$pDir\AppData\Local\Antigravity\GPUCache",
+        "$pDir\AppData\Local\Antigravity\DawnGraphiteCache",
+        "$pDir\AppData\Local\Antigravity\DawnWebGPUCache",
+        "$pDir\AppData\Local\Antigravity\Crashpad",
+        "$pDir\AppData\Local\Temp",
+        "$pDir\AppData\Roaming\Antigravity\logs",
+        "$pDir\AppData\Roaming\Antigravity\CachedData",
+        "$pDir\AppData\Roaming\Antigravity\CachedExtensions",
+        "$pDir\AppData\Roaming\Antigravity\Service Worker\CacheStorage",
+        "$pDir\AppData\Roaming\Antigravity\Service Worker\ScriptCache",
+        "$pDir\.cache",
+        "$pDir\.gemini\antigravity\crashes",
+        "$pDir\.npm\_cacache"
+    )
+
+    foreach ($dir in $cacheDirs) {
+        if (Test-Path $dir) {
+            try {
+                Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+            } catch {}
+        }
+    }
+
+    New-Item -ItemType Directory -Force -Path "$pDir\AppData\Local\Temp" -ErrorAction SilentlyContinue | Out-Null
+    New-Item -ItemType Directory -Force -Path "$pDir\.cache" -ErrorAction SilentlyContinue | Out-Null
+
+    $after = Get-FolderSize $pDir
+    if (!$Silent) {
+        Write-Host "Cleaned cache for '$name' ($before -> $after)"
+    }
+}
+
+function Invoke-CleanProfile {
+    param($target)
+    if ([string]::IsNullOrWhiteSpace($target)) {
+        Write-Error "Error: usage: multigravity clean <profile|--all>"
+        exit 1
+    }
+
+    if ($target -eq "--all") {
+        if (!(Test-Path $BASE)) {
+            Write-Host "No profiles found."
+            return
+        }
+        $profiles = Get-ChildItem -Directory -Path $BASE -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne ".templates" }
+        $count = 0
+        foreach ($p in $profiles) {
+            $name = $p.Name
+            if (Test-ProfileRunning $name) {
+                Write-Host "Skipping '$name': profile is currently running"
+                continue
+            }
+            Clean-SingleProfile $name
+            $count++
+        }
+        Write-Host "Cleaned $count profile(s)."
+    } else {
+        Validate-Name $target
+        $pDir = "$BASE\$target"
+        if (!(Test-Path $pDir)) {
+            Write-Error "Error: profile '$target' does not exist"
+            exit 1
+        }
+
+        if (Test-ProfileRunning $target) {
+            Write-Error "Error: profile '$target' is currently running — stop it first (multigravity stop $target)"
+            exit 1
+        }
+
+        Clean-SingleProfile $target
+    }
+}
+
 function Invoke-ProfileStats {
     if (!(Test-Path $BASE)) {
         Write-Host "No profiles found."
@@ -381,11 +762,11 @@ function Invoke-DoctorCli {
 
     Write-Host "Checking multigravity environment..."
 
-    # 1. Antigravity Installation
+    # 1. Antigravity / Agy Installation
     if ($APP -and (Test-Path $APP)) {
-        Write-Host "  [OK] Antigravity: Found at $APP"
+        Write-Host "  [OK] Antigravity/Agy: Found at $APP"
     } else {
-        Write-Host "  [FAIL] Antigravity: Not found. Ensure it is installed or set MULTIGRAVITY_APP."
+        Write-Host "  [FAIL] Antigravity/Agy: Not found. Ensure it is installed or set MULTIGRAVITY_APP or AGY_APP."
         $errors++
     }
 
@@ -464,7 +845,7 @@ function Invoke-GenerateCompletion {
         @"
 Register-ArgumentCompleter -Native -CommandName multigravity -ScriptBlock {
     param(`$wordToComplete, `$commandAst, `$cursorPosition)
-    `$opts = @('new', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'update', 'doctor', 'stats', 'completion', 'help')
+    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'update', 'doctor', 'stats', 'completion', 'help')
     `$profiles = if (Test-Path '$BASE') { Get-ChildItem -Directory -Path '$BASE' | Select-Object -ExpandProperty Name } else { @() }
     (`$opts + `$profiles) | Where-Object { `$_ -like "`$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new(`$_, `$_, 'ParameterValue', `$_)
@@ -530,16 +911,7 @@ function Invoke-StatusProfiles {
             Where-Object { $_.Name -ne ".templates" }
 
     foreach ($d in $dirs) {
-        $running = "no"
-        $procs = Get-Process -Name "Antigravity" -ErrorAction SilentlyContinue
-        if ($procs) {
-            foreach ($proc in $procs) {
-                try {
-                    $cl = (Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.Id)" -ErrorAction SilentlyContinue).CommandLine
-                    if ($cl -and $cl -like "*$($d.Name)*") { $running = "yes"; break }
-                } catch {}
-            }
-        }
+        $running = if (Test-ProfileRunning $d.Name) { "yes" } else { "no" }
 
         $ptype    = if (Test-Path "$($d.FullName)\.shared") { "shared" } else { "full" }
         $lastUsed = $d.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
@@ -556,7 +928,7 @@ function Invoke-StatusProfiles {
 }
 
 function Invoke-ExportProfile {
-    param($name, $outPath)
+    param($name, $outPath, [switch]$IncludeCache)
     if ([string]::IsNullOrWhiteSpace($name)) { Write-Error "Error: profile name required"; exit 1 }
     Validate-Name $name
 
@@ -566,7 +938,46 @@ function Invoke-ExportProfile {
     if ([string]::IsNullOrWhiteSpace($outPath)) { $outPath = ".\$name.zip" }
 
     Write-Host "Exporting '$name' to $outPath ..."
-    Compress-Archive -Path $profileDir -DestinationPath $outPath -Force
+
+    if ($IncludeCache) {
+        Compress-Archive -Path $profileDir -DestinationPath $outPath -Force
+    } else {
+        $tempStaging = Join-Path $env:TEMP "_mg_export_$(Get-Random)"
+        try {
+            $stageDir = Join-Path $tempStaging $name
+            New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
+            Copy-Item -Path "$profileDir\*" -Destination $stageDir -Recurse -Force
+            
+            $cacheDirs = @(
+                "$stageDir\AppData\Local\Antigravity\Cache",
+                "$stageDir\AppData\Local\Antigravity\Code Cache",
+                "$stageDir\AppData\Local\Antigravity\GPUCache",
+                "$stageDir\AppData\Local\Antigravity\DawnGraphiteCache",
+                "$stageDir\AppData\Local\Antigravity\DawnWebGPUCache",
+                "$stageDir\AppData\Local\Antigravity\Crashpad",
+                "$stageDir\AppData\Local\Temp",
+                "$stageDir\AppData\Roaming\Antigravity\logs",
+                "$stageDir\AppData\Roaming\Antigravity\CachedData",
+                "$stageDir\AppData\Roaming\Antigravity\CachedExtensions",
+                "$stageDir\AppData\Roaming\Antigravity\Service Worker\CacheStorage",
+                "$stageDir\AppData\Roaming\Antigravity\Service Worker\ScriptCache",
+                "$stageDir\.cache",
+                "$stageDir\.gemini\antigravity\crashes",
+                "$stageDir\.npm\_cacache"
+            )
+            foreach ($cd in $cacheDirs) {
+                if (Test-Path $cd) {
+                    Remove-Item -Path $cd -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+
+            Compress-Archive -Path $stageDir -DestinationPath $outPath -Force
+        } finally {
+            if (Test-Path $tempStaging) {
+                Remove-Item -Path $tempStaging -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
     Write-Host "Done."
 }
 
@@ -609,12 +1020,280 @@ function Invoke-ImportProfile {
     Write-Host "Imported profile '$name'"
 }
 
+function Invoke-AiListProfile {
+    param($name)
+    if ([string]::IsNullOrWhiteSpace($name)) { Write-Error "Error: profile name required"; exit 1 }
+    Validate-Name $name
+
+    $pDir = "$BASE\$name"
+    if (!(Test-Path $pDir)) { Write-Error "Error: profile '$name' does not exist"; exit 1 }
+
+    $geminiDir = "$pDir\.gemini\antigravity"
+    if (!(Test-Path "$geminiDir\conversations") -and !(Test-Path "$geminiDir\brain")) {
+        Write-Host "Profile '$name' has no saved AI chats."
+        return
+    }
+
+    Write-Host "AI Conversations in profile '$name':"
+    Write-Host ("{0,-38} {1,-32} {2}" -f "CONVERSATION ID", "TITLE", "ARTIFACTS")
+    Write-Host ("{0,-38} {1,-32} {2}" -f "---------------", "-----", "---------")
+
+    $dbFiles = Get-ChildItem -Path "$geminiDir\conversations" -Filter "*.db" -ErrorAction SilentlyContinue
+    if (!$dbFiles -or $dbFiles.Count -eq 0) {
+        Write-Host "No conversations found."
+        return
+    }
+
+    foreach ($db in $dbFiles) {
+        $uuid = $db.BaseName
+        $title = "(untitled conversation)"
+        $annot = "$geminiDir\annotations\$uuid.pbtxt"
+        if (Test-Path $annot) {
+            $content = Get-Content $annot -Raw -ErrorAction SilentlyContinue
+            if ($content -match 'title:\s*"([^"]+)"') {
+                $title = $matches[1]
+            }
+        }
+        if ($title.Length -gt 30) {
+            $title = $title.Substring(0, 27) + "..."
+        }
+
+        $artCount = "none"
+        $brainDir = "$geminiDir\brain\$uuid"
+        if (Test-Path $brainDir) {
+            $mds = Get-ChildItem -Path $brainDir -Filter "*.md" -ErrorAction SilentlyContinue
+            if ($mds -and $mds.Count -gt 0) {
+                $artCount = "{0} file(s)" -f $mds.Count
+            }
+        }
+
+        Write-Host ("{0,-38} {1,-32} {2}" -f $uuid, $title, $artCount)
+    }
+
+    Write-Host ""
+    Write-Host ("Total conversations: {0}" -f $dbFiles.Count)
+}
+
+function Invoke-AiExportProfile {
+    param($name, $outPath)
+    if ([string]::IsNullOrWhiteSpace($name)) { Write-Error "Error: profile name required"; exit 1 }
+    Validate-Name $name
+
+    $pDir = "$BASE\$name"
+    if (!(Test-Path $pDir)) { Write-Error "Error: profile '$name' does not exist"; exit 1 }
+
+    $geminiDir = "$pDir\.gemini\antigravity"
+    if (!(Test-Path $geminiDir)) {
+        Write-Error "Error: profile '$name' has no AI data (.gemini\antigravity does not exist)"
+        exit 1
+    }
+
+    if ([string]::IsNullOrWhiteSpace($outPath)) { $outPath = ".\$name-ai-chats.zip" }
+
+    Write-Host "Exporting AI chats from '$name' to $outPath ..."
+
+    $tempStaging = Join-Path $env:TEMP "_mg_aiexport_$(Get-Random)"
+    try {
+        New-Item -ItemType Directory -Force -Path $tempStaging | Out-Null
+        $items = @("conversations", "brain", "annotations", "knowledge", "antigravity_state.pbtxt", "agyhub_summaries_proto.pb")
+        $copiedCount = 0
+        foreach ($item in $items) {
+            $src = Join-Path $geminiDir $item
+            if (Test-Path $src) {
+                Copy-Item -Path $src -Destination $tempStaging -Recurse -Force
+                $copiedCount++
+            }
+        }
+
+        if ($copiedCount -eq 0) {
+            Write-Error "Error: no AI conversation or brain data found in profile '$name'"
+            exit 1
+        }
+
+        $sensitive = Get-ChildItem -Path $tempStaging -Recurse -File | Where-Object {
+            $_.Name -like "*token*" -or $_.Name -like "*oauth*" -or $_.Name -like "*auth*" -or $_.Name -eq "installation_id"
+        }
+        foreach ($s in $sensitive) {
+            Remove-Item -Path $s.FullName -Force -ErrorAction SilentlyContinue
+        }
+
+        Compress-Archive -Path "$tempStaging\*" -DestinationPath $outPath -Force
+        
+        $convs = Get-ChildItem -Path "$geminiDir\conversations" -Filter "*.db" -ErrorAction SilentlyContinue
+        $convCount = if ($convs) { $convs.Count } else { 0 }
+        Write-Host "Successfully exported $convCount conversation(s) to $outPath (credentials sanitized)."
+    } finally {
+        if (Test-Path $tempStaging) {
+            Remove-Item -Path $tempStaging -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Invoke-AiImportProfile {
+    param($archivePath, $name)
+    if ([string]::IsNullOrWhiteSpace($archivePath) -or [string]::IsNullOrWhiteSpace($name)) {
+        Write-Error "Error: usage: multigravity ai import <archive.zip> <profile>"; exit 1
+    }
+    if (!(Test-Path $archivePath)) {
+        Write-Error "Error: file not found: $archivePath"; exit 1
+    }
+    Validate-Name $name
+
+    $pDir = "$BASE\$name"
+    if (!(Test-Path $pDir)) {
+        Write-Error "Error: profile '$name' does not exist"; exit 1
+    }
+
+    if (Test-ProfileRunning $name) {
+        Write-Error "Error: profile '$name' is currently running — stop it first (multigravity stop $name)"
+        exit 1
+    }
+
+    $targetGemini = "$pDir\.gemini\antigravity"
+    New-Item -ItemType Directory -Force -Path $targetGemini | Out-Null
+
+    Write-Host "Importing AI chats into '$name'..."
+
+    $tempStaging = Join-Path $env:TEMP "_mg_aiimport_$(Get-Random)"
+    try {
+        New-Item -ItemType Directory -Force -Path $tempStaging | Out-Null
+        Expand-Archive -Path $archivePath -DestinationPath $tempStaging -Force
+
+        $sensitive = Get-ChildItem -Path $tempStaging -Recurse -File | Where-Object {
+            $_.Name -like "*token*" -or $_.Name -like "*oauth*" -or $_.Name -like "*auth*" -or $_.Name -eq "installation_id"
+        }
+        foreach ($s in $sensitive) {
+            Remove-Item -Path $s.FullName -Force -ErrorAction SilentlyContinue
+        }
+
+        Copy-Item -Path "$tempStaging\*" -Destination $targetGemini -Recurse -Force
+
+        $convs = Get-ChildItem -Path "$targetGemini\conversations" -Filter "*.db" -ErrorAction SilentlyContinue
+        $convCount = if ($convs) { $convs.Count } else { 0 }
+        Write-Host "Successfully imported AI chats into profile '$name' ($convCount conversation(s) now available)."
+    } finally {
+        if (Test-Path $tempStaging) {
+            Remove-Item -Path $tempStaging -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Invoke-AiCmd {
+    param($sub, $arg1, $arg2)
+    switch ($sub) {
+        "export" { Invoke-AiExportProfile $arg1 $arg2 }
+        "import" { Invoke-AiImportProfile $arg1 $arg2 }
+        "list"   { Invoke-AiListProfile $arg1 }
+        default  {
+            Write-Error "Error: usage: multigravity ai <export|import|list> [args...]"
+            exit 1
+        }
+    }
+}
+
+function Invoke-InteractiveMenu {
+    if (!(Test-Path $BASE)) {
+        Write-Host "No profiles found."
+        Write-Host "Create your first profile with: multigravity new <name>"
+        return
+    }
+
+    $profiles = @(Get-ChildItem -Directory -Path $BASE -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne ".templates" })
+    if ($profiles.Count -eq 0) {
+        Write-Host "No profiles found."
+        Write-Host "Create your first profile with: multigravity new <name>"
+        return
+    }
+
+    Write-Host ""
+    Write-Host "Multigravity — Select Profile:" -ForegroundColor Cyan
+    Write-Host ""
+
+    for ($i = 0; $i -lt $profiles.Count; $i++) {
+        $p = $profiles[$i]
+        $name = $p.Name
+        $isRunning = Test-ProfileRunning $name
+        $runStatus = if ($isRunning) { "● running" } else { "○ idle" }
+        $ptype = if (Test-Path "$($p.FullName)\.shared") { "shared" } else { "isolated" }
+
+        $settingsFile = "$($p.FullName)\AppData\Roaming\Antigravity\User\settings.json"
+        $colorLabel = ""
+        if (Test-Path $settingsFile) {
+            try {
+                $raw = Get-Content $settingsFile -Raw | ConvertFrom-Json
+                $c = $raw.'workbench.colorCustomizations'.'titleBar.activeBackground'
+                if ($c) { $colorLabel = "[$c]" }
+            } catch {}
+        }
+
+        $num = "[{0}]" -f ($i + 1)
+        if ($isRunning) {
+            Write-Host ("  {0,-5} {1,-18} " -f $num, $name) -NoNewline
+            Write-Host ("{0,-10} " -f $runStatus) -ForegroundColor Green -NoNewline
+            Write-Host ("({0}) {1}" -f $ptype, $colorLabel)
+        } else {
+            Write-Host ("  {0,-5} {1,-18} {2,-10} ({3}) {4}" -f $num, $name, $runStatus, $ptype, $colorLabel)
+        }
+    }
+
+    Write-Host ""
+    Write-Host "  [n]   Create new profile"
+    Write-Host "  [q]   Quit"
+    Write-Host ""
+
+    $choice = (Read-Host ("Select [1-{0}, n, q]" -f $profiles.Count)).Trim()
+    if ([string]::IsNullOrWhiteSpace($choice) -or $choice -eq "q" -or $choice -eq "Q") {
+        return
+    }
+
+    if ($choice -eq "n" -or $choice -eq "N") {
+        $newName = (Read-Host "Enter new profile name").Trim()
+        if (![string]::IsNullOrWhiteSpace($newName)) {
+            Invoke-NewProfile $newName
+        }
+        return
+    }
+
+    if ($choice -match "^\d+$") {
+        $idx = [int]$choice - 1
+        if ($idx -ge 0 -and $idx -lt $profiles.Count) {
+            $selected = $profiles[$idx].Name
+            Invoke-LaunchProfile $selected @()
+            return
+        }
+    }
+
+    $match = $profiles | Where-Object { $_.Name -eq $choice } | Select-Object -First 1
+    if ($match) {
+        Invoke-LaunchProfile $match.Name @()
+        return
+    }
+
+    Write-Host "Invalid selection: $choice"
+}
+
 switch ($cmd) {
     "new" {
         $extra = @()
         if ($arg2)       { $extra += $arg2 }
         if ($ForwardArgs) { $extra += $ForwardArgs }
         Invoke-NewProfile $arg1 $extra
+    }
+    "color" {
+        Invoke-ProfileColorCmd $arg1 $arg2
+    }
+    "stop" {
+        $force = ($arg2 -eq "--force" -or $arg2 -eq "-f")
+        Stop-Profile $arg1 -Force:$force
+    }
+    "restart" {
+        $extra = @()
+        if ($arg2)       { $extra += $arg2 }
+        if ($ForwardArgs) { $extra += $ForwardArgs }
+        Restart-Profile $arg1 $extra
+    }
+    "clean" {
+        Invoke-CleanProfile $arg1
     }
     "list" {
         Invoke-ListProfiles
@@ -626,7 +1305,8 @@ switch ($cmd) {
         Invoke-RenameProfile $arg1 $arg2
     }
     "delete" {
-        Invoke-DeleteProfile $arg1
+        $force = ($arg2 -eq "--force" -or $arg2 -eq "-f")
+        Invoke-DeleteProfile $arg1 -Force:$force
     }
     "clone" {
         Invoke-CloneProfile $arg1 $arg2
@@ -635,10 +1315,18 @@ switch ($cmd) {
         Invoke-TemplateCmd $arg1 $arg2 ($ForwardArgs | Select-Object -First 1)
     }
     "export" {
-        Invoke-ExportProfile $arg1 $arg2
+        $all = @()
+        if ($arg2) { $all += $arg2 }
+        if ($ForwardArgs) { $all += $ForwardArgs }
+        $inc = ($all -contains "--include-cache")
+        $pathArg = ($all | Where-Object { $_ -ne "--include-cache" } | Select-Object -First 1)
+        Invoke-ExportProfile $arg1 $pathArg -IncludeCache:$inc
     }
     "import" {
         Invoke-ImportProfile $arg1 $arg2
+    }
+    "ai" {
+        Invoke-AiCmd $arg1 $arg2 ($ForwardArgs | Select-Object -First 1)
     }
     "update" {
         Invoke-UpdateCli
@@ -660,8 +1348,12 @@ switch ($cmd) {
     "--help" { Write-Usage }
     "-h"     { Write-Usage }
     "" {
-        Write-Usage
-        exit 1
+        if ([System.Console]::IsInputRedirected -or [System.Console]::IsOutputRedirected) {
+            Write-Usage
+            exit 1
+        } else {
+            Invoke-InteractiveMenu
+        }
     }
     default {
         $AllArgs = @()
