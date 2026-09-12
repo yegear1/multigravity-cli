@@ -6,6 +6,8 @@
 
 No more logging in and out. Launch as many profiles as you need, all at once.
 
+**English** | [Português](README.pt-br.md)
+
 [![GitHub repository](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/yegear1/multigravity-cli)
 [![GitHub profile](https://img.shields.io/badge/GitHub-Profile-lightgrey?logo=github)](https://github.com/yegear1)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
