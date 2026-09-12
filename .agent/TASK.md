@@ -30,6 +30,7 @@
 | [02.3] | Otimização de backup (`export` sem caches) e comando `clean` | Pending | 2026-09-12 |
 | [03.1] | Menu TUI / Seletor interativo ao invocar `multigravity` sem argumentos | Pending | 2026-09-12 |
 | [03.2] | Migração e Exportação/Importação granular de chats de IA sem dados de autenticação | Pending | 2026-09-12 |
+| [03.3] | Documentação completa do fork (README.md), URLs e adição de licença MIT | Pending | 2026-09-12 |
 
 ---
 
