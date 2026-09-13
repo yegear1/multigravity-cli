@@ -2485,7 +2485,10 @@ if not port:
     ]
 
     try:
-        headless_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p_env = dict(os.environ)
+        if p_dir:
+            p_env["HOME"] = p_dir
+        headless_proc = subprocess.Popen(cmd, env=p_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(30):
             time.sleep(0.1)
             try:

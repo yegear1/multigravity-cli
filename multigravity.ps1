@@ -2018,7 +2018,8 @@ function Invoke-PrimeCmd {
             }
             exit 1
         }
-        $pGemini = if ($targetProfile) { "$BASE\$targetProfile\.gemini" } else { "$env:USERPROFILE\.gemini" }
+        $pDir = if ($targetProfile) { "$BASE\$targetProfile" } else { $null }
+        $pGemini = if ($pDir) { "$pDir\.gemini" } else { "$env:USERPROFILE\.gemini" }
         $tempCsrf = [guid]::NewGuid().ToString()
         $headlessArgs = @(
             "--standalone",
@@ -2031,7 +2032,9 @@ function Invoke-PrimeCmd {
             "--api_server_url", "https://generativelanguage.googleapis.com",
             "--cloud_code_endpoint", "https://daily-cloudcode-pa.googleapis.com"
         )
+        $origProfile = $env:USERPROFILE
         try {
+            if ($pDir) { $env:USERPROFILE = $pDir }
             $headlessProc = Start-Process -FilePath $lsBin -ArgumentList $headlessArgs -PassThru -WindowStyle Hidden
             for ($i = 0; $i -lt 30; $i++) {
                 Start-Sleep -Milliseconds 100
@@ -2057,6 +2060,8 @@ function Invoke-PrimeCmd {
         } catch {
             if (!$Quiet) { Write-Error "Failed to start headless language server: $_" }
             exit 1
+        } finally {
+            $env:USERPROFILE = $origProfile
         }
     }
 

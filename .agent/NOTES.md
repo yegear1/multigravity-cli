@@ -108,4 +108,6 @@
     - Linux/macOS: Cron (`--install-cron` / `--uninstall-cron`) rodando a cada 30 minutos e Systemd User Timer (`--install-systemd` / `--uninstall-systemd`).
     - Windows: Tarefas agendadas nativas via `schtasks.exe` (`--install-task` / `--uninstall-task`).
   - **Atenção ao `$HOME`:** No Linux/macOS dentro do terminal integrado do Antigravity, a variável `$HOME` é redirecionada para a raiz do perfil (`~/AntigravityProfiles/<name>`). O watchdog e os instaladores de cron/systemd utilizam estritamente `${REAL_HOME:-$HOME}` para referenciar o diretório do usuário host.
+  - **Isolamento de Credenciais em Modo Headless:** O binário `language_server` localiza `jetski-standalone-oauth-token` e os segredos do Keyring sempre relativos à variável de ambiente `HOME` (Linux/macOS) ou `USERPROFILE` (Windows), e não apenas pelo argumento `--gemini_dir`. Portanto, ao subir instâncias headless de múltiplos perfis, é mandatório exportar `HOME="$p_dir"` / `$env:USERPROFILE = $pDir` para garantir que cada perfil leia seu respectivo token e não misture cotas com a instalação global ou com outros perfis.
+
 
