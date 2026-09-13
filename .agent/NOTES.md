@@ -130,5 +130,12 @@
 - **Paridade de Plataformas:**
   - Implementação idêntica e simultânea no script Bash (`multigravity`) e PowerShell (`multigravity.ps1`).
 
+### 2026-09-13 [Task 02.5] Sincronização de Credenciais (gh e git-credentials) e Preservação de PATH de Usuário
 
-
+- **Contexto:** Perfis isolados forçam `HOME="$profile_path"`, o que deixava o GitHub CLI deslogado (`gh auth status` falhava por ausência de `~/.config/gh`), ignorava credenciais HTTPS salvas em `~/.git-credentials`, e omitia diretórios de binários instalados no usuário (`~/.local/bin`, `~/.cargo/bin`, etc.) no terminal integrado.
+- **Decisão:**
+  - **Credenciais do GitHub CLI:** Compartilhar por padrão `$REAL_HOME/.config/gh` (Linux/macOS) e `%APPDATA%\GitHub CLI` (Windows) via symlink/junction na criação e lançamento de perfis (`link_gh_config` / `Link-GhConfig`).
+  - **Git HTTPS:** Sincronizar `$REAL_HOME/.git-credentials` em `link_dev_dotfiles` / `Link-DevDotfiles`.
+  - **Opt-out Granular:** Criar comando `multigravity gh <status|share|isolate> <profile>` e flag `--isolated-gh` (sentinela `.isolated_gh`), além de respeitar `--isolated-dotfiles`.
+  - **Preservação de PATH:** Injetar no ambiente de lançamento do Antigravity (`launch_profile` / `Invoke-LaunchProfile`) os diretórios de binários de usuário existentes (`~/.local/bin`, `~/.cargo/bin`, etc.), garantindo que os executáveis do usuário host funcionem de imediato no terminal integrado sem duplicar binários.
+  - **Paridade de Plataformas:** Implementado com 100% de paridade entre Bash (`multigravity`) e PowerShell (`multigravity.ps1`).

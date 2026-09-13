@@ -273,6 +273,11 @@ link_dev_dotfiles() {
   if [ -d "$user_home/.gnupg" ] && [ ! -e "$profile_path/.gnupg" ]; then
     ln -s "$user_home/.gnupg" "$profile_path/.gnupg"
   fi
+
+  # Link .git-credentials for HTTPS credentials/tokens if present
+  if [ -f "$user_home/.git-credentials" ] && [ ! -e "$profile_path/.git-credentials" ]; then
+    ln -s "$user_home/.git-credentials" "$profile_path/.git-credentials"
+  fi
 }
 
 link_mcp_config() {
@@ -544,6 +549,83 @@ config_cmd() {
   esac
 }
 
+link_gh_config() {
+  local profile_path=$1
+
+  if [ -f "$profile_path/.isolated_dotfiles" ] || [ -f "$profile_path/.isolated_gh" ]; then
+    return 0
+  fi
+
+  local user_home="${REAL_HOME:-$HOME}"
+  local host_gh="$user_home/.config/gh"
+  local target_config_dir="$profile_path/.config"
+  local target_gh="$target_config_dir/gh"
+
+  if [ -d "$host_gh" ] && [ ! -e "$target_gh" ]; then
+    mkdir -p "$target_config_dir"
+    ln -s "$host_gh" "$target_gh"
+  fi
+}
+
+gh_cmd() {
+  local action="${1-}" profile="${2-}"
+  [ -n "$action" ] && [ -n "$profile" ] || abort "usage: multigravity gh <status|share|isolate> <profile>"
+  validate_name "$profile"
+
+  local profile_path
+  profile_path="$(profile_dir "$profile")"
+  [ -d "$profile_path" ] || abort "profile '$profile' does not exist"
+
+  local user_home="${REAL_HOME:-$HOME}"
+  local host_gh="$user_home/.config/gh"
+  local target_gh="$profile_path/.config/gh"
+
+  case "$action" in
+    status)
+      if [ -f "$profile_path/.isolated_gh" ]; then
+        print_info "Profile '$profile' has isolated GitHub CLI credentials (--isolated-gh active)."
+      elif [ -f "$profile_path/.isolated_dotfiles" ]; then
+        print_info "Profile '$profile' has isolated dotfiles (--isolated-dotfiles active)."
+      elif [ -L "$target_gh" ]; then
+        local target
+        target="$(readlink "$target_gh" 2>/dev/null || true)"
+        print_info "Profile '$profile' shares host GitHub CLI credentials -> $target"
+      elif [ -d "$target_gh" ]; then
+        print_info "Profile '$profile' has standalone local GitHub CLI credentials."
+      else
+        print_info "Profile '$profile' has no GitHub CLI credentials configured."
+      fi
+      ;;
+    share)
+      rm -f "$profile_path/.isolated_gh"
+      if [ -L "$target_gh" ]; then
+        print_info "Profile '$profile' is already sharing host GitHub CLI credentials."
+      else
+        if [ -d "$target_gh" ]; then
+          mv "$target_gh" "$target_gh.bak"
+          print_info "Backed up existing gh directory to gh.bak"
+        fi
+        link_gh_config "$profile_path"
+        print_info "Profile '$profile' is now sharing host GitHub CLI credentials."
+      fi
+      ;;
+    isolate)
+      touch "$profile_path/.isolated_gh"
+      if [ -L "$target_gh" ]; then
+        rm -f "$target_gh"
+        if [ -d "$host_gh" ]; then
+          cp -r "$host_gh" "$target_gh"
+          print_info "Copied host GitHub CLI credentials to standalone directory for '$profile'."
+        fi
+      fi
+      print_info "Profile '$profile' is now isolated from host GitHub CLI credentials updates."
+      ;;
+    *)
+      abort "usage: multigravity gh <status|share|isolate> <profile>"
+      ;;
+  esac
+}
+
 resolve_profile_color() {
   local input
   input="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -745,6 +827,7 @@ create_profile_layout() {
   link_mcp_config "$profile_path"
   link_skills_config "$profile_path"
   link_user_config "$profile_path"
+  link_gh_config "$profile_path"
 }
 
 create_shared_layout() {
@@ -800,6 +883,7 @@ create_shared_layout() {
   link_mcp_config "$profile_path"
   link_skills_config "$profile_path"
   link_user_config "$profile_path"
+  link_gh_config "$profile_path"
 }
 
 script_path() {
@@ -982,14 +1066,29 @@ launch_profile() {
 
   print_info "Launching Antigravity profile '$profile'"
 
+  # Ensure host user-level binary directories are accessible in PATH
+  local u_home="${REAL_HOME:-$HOME}"
+  local host_bin_dirs=(
+    "$u_home/.local/bin"
+    "$u_home/.cargo/bin"
+    "$u_home/.bun/bin"
+    "$u_home/go/bin"
+  )
+  for b_dir in "${host_bin_dirs[@]}"; do
+    if [ -d "$b_dir" ] && [[ ":$PATH:" != *":$b_dir:"* ]]; then
+      PATH="$b_dir:$PATH"
+    fi
+  done
+
   case "$(platform)" in
     darwin)
-      REAL_HOME="$REAL_HOME" HOME="$profile_path" open -n "$app" --args \
+      PATH="$PATH" REAL_HOME="$REAL_HOME" HOME="$profile_path" open -n "$app" --args \
         --user-data-dir "$data_dir" \
         --extensions-dir "$ext_dir" \
         "$@"
       ;;
     linux)
+      PATH="$PATH" \
       REAL_HOME="$REAL_HOME" \
       HOME="$profile_path" \
       XDG_CONFIG_HOME="$profile_path/.config" \
@@ -1038,7 +1137,7 @@ list_profiles() {
 }
 
 new_profile() {
-  local profile="" shared=false from_tpl="" isolated_dotfiles=false isolated_mcp=false isolated_skills=false isolated_config=false color=""
+  local profile="" shared=false from_tpl="" isolated_dotfiles=false isolated_mcp=false isolated_skills=false isolated_config=false isolated_gh=false color=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1048,6 +1147,7 @@ new_profile() {
       --isolated-mcp)       isolated_mcp=true ;;
       --isolated-skills)    isolated_skills=true ;;
       --isolated-config)    isolated_config=true ;;
+      --isolated-gh)        isolated_gh=true ;;
       --color)              color="${2-}"; shift ;;
       -*)                   abort "unknown option: $1" ;;
       *)                    profile="$1" ;;
@@ -1082,6 +1182,9 @@ new_profile() {
   if [ "$isolated_config" = true ]; then
     touch "$profile_path/.isolated_config"
   fi
+  if [ "$isolated_gh" = true ]; then
+    touch "$profile_path/.isolated_gh"
+  fi
 
   if [ -n "$from_tpl" ]; then
     local tpl_path
@@ -1093,6 +1196,7 @@ new_profile() {
     [ "$isolated_mcp" = false ] && link_mcp_config "$profile_path"
     [ "$isolated_skills" = false ] && link_skills_config "$profile_path"
     [ "$isolated_config" = false ] && link_user_config "$profile_path"
+    [ "$isolated_gh" = false ] && link_gh_config "$profile_path"
   elif [ "$shared" = true ]; then
     create_shared_layout "$profile_path"
   else
@@ -2880,6 +2984,9 @@ try:
             with urllib.request.urlopen(msg_req, context=ctx, timeout=10) as r:
                 r.read()
 
+            # Brief grace delay to allow the LLM response stream to finish saving in SQLite
+            time.sleep(3)
+
             b_state["last_primed_at"] = datetime.now(timezone.utc).isoformat()
             b_state["last_reset_time"] = rst_str
             b_state["last_cascade_id"] = cascade_id
@@ -2980,6 +3087,7 @@ _multigravity() {
         'mcp:Manage MCP server configuration (status, share, isolate)'
         'skills:Manage skills and plugins configuration (status, share, isolate)'
         'config:Manage config.json and permissions sharing (status, share, isolate)'
+        'gh:Manage GitHub CLI credentials sharing (status, share, isolate)'
         'quota:Show AI token limits, usage percentage, and reset time'
         'prime:Prime weekly token quota and manage reset automations'
         'update:Update multigravity'
@@ -3025,6 +3133,11 @@ _multigravity() {
                     subcommands=('status:Show config sharing status' 'share:Share host config.json' 'isolate:Isolate config.json locally')
                     _describe -t subcommands 'subcommand' subcommands
                     ;;
+                gh)
+                    local -a subcommands
+                    subcommands=('status:Show GitHub CLI sharing status' 'share:Share host GitHub CLI credentials' 'isolate:Isolate GitHub CLI credentials locally')
+                    _describe -t subcommands 'subcommand' subcommands
+                    ;;
                 quota|prime|color|stop|restart|rename|delete|clone|help)
                     local -a profiles
                     profiles=($(multigravity list --raw 2>/dev/null))
@@ -3044,7 +3157,7 @@ _multigravity_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="new color stop restart clean list status rename delete clone template export import ai mcp skills config quota prime update doctor stats completion version help"
+    opts="new color stop restart clean list status rename delete clone template export import ai mcp skills config gh quota prime update doctor stats completion version help"
 
     if [[ ${COMP_CWORD} -eq 1 ]] ; then
         local profiles=$(multigravity list --raw 2>/dev/null)
@@ -3071,6 +3184,10 @@ _multigravity_completions() {
             return 0
             ;;
         config)
+            COMPREPLY=( $(compgen -W "status share isolate" -- "${cur}") )
+            return 0
+            ;;
+        gh)
             COMPREPLY=( $(compgen -W "status share isolate" -- "${cur}") )
             return 0
             ;;
@@ -3193,6 +3310,7 @@ Commands:
       --isolated-mcp          Do not share system MCP server configurations
       --isolated-skills       Do not share system skills and plugins
       --isolated-config       Do not share system config.json and AI permissions
+      --isolated-gh           Do not share system GitHub CLI credentials
       --color <color>         Set UI theme color (e.g. blue, green, red, "#1e3a8a")
   color <name> [color|--clear] View or change window theme color
   stop <name> [--force]       Stop a running profile gracefully
@@ -3217,6 +3335,7 @@ Commands:
   mcp <status|share|isolate> <profile> Manage MCP server configuration sharing
   skills <status|share|isolate> <profile> Manage skills and plugins configuration sharing
   config <status|share|isolate> <profile> Manage config.json and permission grants sharing
+  gh <status|share|isolate> <profile> Manage GitHub CLI credentials sharing
   quota [profile]             Show AI token limits, usage percentage, and reset time
   prime [profile] [options]   Auto-prime weekly token limit on reset (jitter & cron/systemd)
       --force                 Force send priming prompt immediately
@@ -3311,6 +3430,10 @@ case "$cmd" in
   config)
     shift
     config_cmd "$@"
+    ;;
+  gh)
+    shift
+    gh_cmd "$@"
     ;;
   quota)
     shift

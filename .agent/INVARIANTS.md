@@ -67,3 +67,11 @@
 - **Symlink Seguro e Tempo Real:** Vincular `~/.gemini/config/config.json` por symlink garante que concessões concedidas em qualquer janela reflitam imediatamente em todos os outros perfis em tempo real.
 - **Opt-out (.isolated_config):** Qualquer perfil contendo o arquivo sentinela `.isolated_config` mantém seu próprio `config.json` desvinculado do host.
 - **Preservação de Dados:** Migrações ou trocas para modo compartilhado via CLI realizam backup prévio (`config.json.bak`) de arquivos existentes.
+
+---
+
+## 7. Compartilhamento de Credenciais de Dev e Preservação de PATH
+
+- **Git e GitHub CLI (`gh`):** A autenticação do `gh` (`~/.config/gh` no Linux/macOS ou `%APPDATA%\GitHub CLI` no Windows) e o arquivo `~/.git-credentials` são compartilhados por symlink/junction por padrão para permitir pull/push e operações dev no terminal integrado sem atrito.
+- **Opt-out granular (.isolated_gh):** Perfis contendo o arquivo sentinela `.isolated_gh` ou `.isolated_dotfiles` mantêm suas credenciais do GitHub CLI estritamente isoladas, permitindo perfis dedicados a múltiplas contas/identidades.
+- **Preservação de PATH de Usuário:** O Antigravity enriquece o `PATH` com os diretórios de binários de usuário do host (`~/.local/bin`, `~/.cargo/bin`, etc.) no momento do lançamento (`launch_profile`), assegurando acesso aos executáveis do usuário sem quebrar o isolamento de `HOME`.

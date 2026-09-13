@@ -21,6 +21,7 @@
 | [02.2] | Telemetria e Monitoramento de Cotas e Tokens (multigravity quota) | feat(quota) | 2026-09-13 |
 | [02.3] | Automação de Reset de Cota Semanal (multigravity prime & watchdog) | feat(prime), fix(prime) | 2026-09-13 |
 | [02.4] | Prime Dual-Bucket (Gemini + Claude/GPT), prompts.json Externo e Jitters Independentes | feat(prime) | 2026-09-13 |
+| [02.5] | Sincronização de credenciais GitHub CLI (gh), git-credentials e herança de PATH de usuário | feat(credentials) | 2026-09-13 |
 
 ---
 

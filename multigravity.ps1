@@ -110,6 +110,10 @@ function Link-DevDotfiles {
     if ((Test-Path $sshDir) -and !(Test-Path "$profileDir\.ssh")) {
         New-Item -ItemType Junction -Path "$profileDir\.ssh" -Target $sshDir -ErrorAction SilentlyContinue | Out-Null
     }
+    $gitCreds = "$realUser\.git-credentials"
+    if ((Test-Path $gitCreds) -and !(Test-Path "$profileDir\.git-credentials")) {
+        New-Item -ItemType SymbolicLink -Path "$profileDir\.git-credentials" -Target $gitCreds -ErrorAction SilentlyContinue | Out-Null
+    }
 }
 
 function Link-McpConfig {
@@ -192,6 +196,37 @@ function Link-UserConfig {
             New-Item -ItemType Directory -Force -Path $targetConfigDir | Out-Null
         }
         New-Item -ItemType SymbolicLink -Path $targetConfig -Target $hostConfig -ErrorAction SilentlyContinue | Out-Null
+    }
+}
+
+function Link-GhConfig {
+    param($profileDir)
+    if ((Test-Path "$profileDir\.isolated_dotfiles") -or (Test-Path "$profileDir\.isolated_gh")) { return }
+
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    # GitHub CLI stores auth in %APPDATA%\GitHub CLI on Windows
+    $hostGhAppdata = "$realUser\AppData\Roaming\GitHub CLI"
+    $targetAppdataDir = "$profileDir\AppData\Roaming"
+    $targetGhAppdata = "$targetAppdataDir\GitHub CLI"
+
+    if ((Test-Path $hostGhAppdata) -and !(Test-Path $targetGhAppdata)) {
+        if (!(Test-Path $targetAppdataDir)) {
+            New-Item -ItemType Directory -Force -Path $targetAppdataDir | Out-Null
+        }
+        New-Item -ItemType Junction -Path $targetGhAppdata -Target $hostGhAppdata -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    # Also link ~/.config/gh if present (common in cross-platform/WSL setups)
+    $hostGhConfig = "$realUser\.config\gh"
+    $targetConfigDir = "$profileDir\.config"
+    $targetGhConfig = "$targetConfigDir\gh"
+    if ((Test-Path $hostGhConfig) -and !(Test-Path $targetGhConfig)) {
+        if (!(Test-Path $targetConfigDir)) {
+            New-Item -ItemType Directory -Force -Path $targetConfigDir | Out-Null
+        }
+        New-Item -ItemType Junction -Path $targetGhConfig -Target $hostGhConfig -ErrorAction SilentlyContinue | Out-Null
     }
 }
 
@@ -349,6 +384,7 @@ function Write-Usage {
     Write-Host "      --isolated-mcp          Do not share system MCP server configurations"
     Write-Host "      --isolated-skills       Do not share system skills and plugins"
     Write-Host "      --isolated-config       Do not share system config.json and AI permissions"
+    Write-Host "      --isolated-gh           Do not share system GitHub CLI credentials"
     Write-Host "      --color <color>         Set UI theme color (e.g. blue, green, red, '#1e3a8a')"
     Write-Host "  color <name> [color|--clear] View or change window theme color"
     Write-Host "  stop <name> [--force]       Stop a running profile gracefully"
@@ -373,6 +409,7 @@ function Write-Usage {
     Write-Host "  mcp <status|share|isolate> <name> Manage MCP server configuration sharing"
     Write-Host "  skills <status|share|isolate> <name> Manage skills and plugins configuration sharing"
     Write-Host "  config <status|share|isolate> <name> Manage config.json and permission grants sharing"
+    Write-Host "  gh <status|share|isolate> <name> Manage GitHub CLI credentials sharing"
     Write-Host "  quota [name]                Show AI token limits, usage percentage, and reset time"
     Write-Host "  prime [name] [options]      Auto-prime weekly token cycle on reset with random jitter"
     Write-Host "      --check                 Check if prime is needed without executing"
@@ -422,6 +459,7 @@ function Invoke-CreateProfile {
     Link-McpConfig $PROFILE_DIR
     Link-SkillsConfig $PROFILE_DIR
     Link-UserConfig $PROFILE_DIR
+    Link-GhConfig $PROFILE_DIR
 }
 
 function Invoke-CreateSharedProfile {
@@ -463,6 +501,7 @@ function Invoke-CreateSharedProfile {
     Link-McpConfig $profileDir
     Link-SkillsConfig $profileDir
     Link-UserConfig $profileDir
+    Link-GhConfig $profileDir
 }
 
 function Invoke-LaunchProfile {
@@ -483,10 +522,26 @@ function Invoke-LaunchProfile {
     Link-McpConfig $PROFILE_DIR
     Link-SkillsConfig $PROFILE_DIR
     Link-UserConfig $PROFILE_DIR
+    Link-GhConfig $PROFILE_DIR
 
     Write-Host "Launching Antigravity profile '$PROFILE'"
     
     # Preserve real user profile in env and launch Antigravity with isolated USERPROFILE
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    $userBinDirs = @(
+        "$realUser\.cargo\bin",
+        "$realUser\.local\bin",
+        "$realUser\AppData\Local\Programs\Python",
+        "$realUser\AppData\Local\Microsoft\WinGet\Links"
+    )
+    foreach ($ub in $userBinDirs) {
+        if ((Test-Path $ub) -and ($env:Path -notlike "*$ub*")) {
+            $env:Path = "$ub;$env:Path"
+        }
+    }
+
     $env:REAL_USERPROFILE = $REAL_USERPROFILE
     $env:USERPROFILE = $PROFILE_DIR
     $env:APPDATA = "$PROFILE_DIR\AppData\Roaming"
@@ -554,6 +609,7 @@ function Invoke-NewProfile {
     $isolatedMcp       = $false
     $isolatedSkills    = $false
     $isolatedConfig    = $false
+    $isolatedGh        = $false
     $color             = ""
     $i = 0
     while ($i -lt $extraArgs.Count) {
@@ -564,6 +620,7 @@ function Invoke-NewProfile {
             "--isolated-mcp"      { $isolatedMcp = $true }
             "--isolated-skills"   { $isolatedSkills = $true }
             "--isolated-config"   { $isolatedConfig = $true }
+            "--isolated-gh"       { $isolatedGh = $true }
             "--color"             { $i++; if ($i -lt $extraArgs.Count) { $color = $extraArgs[$i] } }
         }
         $i++
@@ -597,6 +654,9 @@ function Invoke-NewProfile {
     if ($isolatedConfig) {
         New-Item -ItemType File -Force -Path "$profileDir\.isolated_config" | Out-Null
     }
+    if ($isolatedGh) {
+        New-Item -ItemType File -Force -Path "$profileDir\.isolated_gh" | Out-Null
+    }
 
     if ($fromTpl) {
         $tplPath = "$(Get-TemplatesDir)\$fromTpl"
@@ -610,6 +670,7 @@ function Invoke-NewProfile {
         if (!$isolatedMcp) { Link-McpConfig $profileDir }
         if (!$isolatedSkills) { Link-SkillsConfig $profileDir }
         if (!$isolatedConfig) { Link-UserConfig $profileDir }
+        if (!$isolatedGh) { Link-GhConfig $profileDir }
     } elseif ($shared) {
         Invoke-CreateSharedProfile $name
     } else {
@@ -1010,7 +1071,7 @@ function Invoke-GenerateCompletion {
         @"
 Register-ArgumentCompleter -Native -CommandName multigravity -ScriptBlock {
     param(`$wordToComplete, `$commandAst, `$cursorPosition)
-    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'mcp', 'skills', 'config', 'quota', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
+    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'mcp', 'skills', 'config', 'gh', 'quota', 'prime', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
     `$profiles = if (Test-Path '$BASE') { Get-ChildItem -Directory -Path '$BASE' | Select-Object -ExpandProperty Name } else { @() }
     (`$opts + `$profiles) | Where-Object { `$_ -like "`$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new(`$_, `$_, 'ParameterValue', `$_)
@@ -1708,6 +1769,84 @@ function Invoke-ConfigCmd {
     }
 }
 
+function Invoke-GhCmd {
+    param($action, $profile)
+
+    if ([string]::IsNullOrEmpty($action) -or [string]::IsNullOrEmpty($profile)) {
+        Write-Error "Error: usage: multigravity gh <status|share|isolate> <profile>"
+        exit 1
+    }
+
+    Validate-Name $profile
+
+    $profilePath = "$BASE\$profile"
+    if (!(Test-Path $profilePath)) {
+        Write-Error "Error: profile '$profile' does not exist"
+        exit 1
+    }
+
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    $hostGh = "$realUser\AppData\Roaming\GitHub CLI"
+    $targetGh = "$profilePath\AppData\Roaming\GitHub CLI"
+
+    switch ($action) {
+        "status" {
+            if (Test-Path "$profilePath\.isolated_gh") {
+                Write-Host "Profile '$profile' has isolated GitHub CLI credentials (--isolated-gh active)."
+            } elseif (Test-Path "$profilePath\.isolated_dotfiles") {
+                Write-Host "Profile '$profile' has isolated dotfiles (--isolated-dotfiles active)."
+            } elseif (Test-Path $targetGh) {
+                $ghItem = Get-Item -Path $targetGh -ErrorAction SilentlyContinue
+                $isShared = $ghItem -and ($ghItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+                if ($isShared) {
+                    $ghTarget = if ($ghItem.Target) { $ghItem.Target } else { "(symlink/junction)" }
+                    Write-Host "Profile '$profile' shares host GitHub CLI credentials -> $ghTarget"
+                } else {
+                    Write-Host "Profile '$profile' has standalone local GitHub CLI credentials."
+                }
+            } else {
+                Write-Host "Profile '$profile' has no GitHub CLI credentials configured."
+            }
+        }
+        "share" {
+            if (Test-Path "$profilePath\.isolated_gh") {
+                Remove-Item -Force -Path "$profilePath\.isolated_gh" -ErrorAction SilentlyContinue
+            }
+            $ghItem = Get-Item -Path $targetGh -ErrorAction SilentlyContinue
+            $alreadyShared = $ghItem -and ($ghItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+
+            if ($alreadyShared) {
+                Write-Host "Profile '$profile' is already sharing host GitHub CLI credentials."
+            } else {
+                if ((Test-Path $targetGh) -and !($ghItem -and ($ghItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint))) {
+                    Move-Item -Path $targetGh -Destination "$targetGh.bak" -Force
+                    Write-Host "Backed up existing GitHub CLI directory to 'GitHub CLI.bak'"
+                }
+                Link-GhConfig $profilePath
+                Write-Host "Profile '$profile' is now sharing host GitHub CLI credentials."
+            }
+        }
+        "isolate" {
+            New-Item -ItemType File -Force -Path "$profilePath\.isolated_gh" | Out-Null
+            $ghItem = Get-Item -Path $targetGh -ErrorAction SilentlyContinue
+            if ($ghItem -and ($ghItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                Remove-Item -Force -Path $targetGh -ErrorAction SilentlyContinue
+                if (Test-Path $hostGh) {
+                    Copy-Item -Path $hostGh -Destination $targetGh -Recurse -Force
+                    Write-Host "Copied host GitHub CLI credentials to standalone directory for '$profile'."
+                }
+            }
+            Write-Host "Profile '$profile' is now isolated from host GitHub CLI credentials updates."
+        }
+        default {
+            Write-Error "Error: usage: multigravity gh <status|share|isolate> <profile>"
+            exit 1
+        }
+    }
+}
+
 function Invoke-QuotaCmd {
     param($targetProfile)
 
@@ -2394,6 +2533,9 @@ function Invoke-PrimeCmd {
             $msgJson = ConvertTo-Json $msgBodyObj -Depth 5
             Invoke-RestMethod -Uri $msgUrl -Method Post -Headers $headers -Body $msgJson -TimeoutSec 10 -ErrorAction Stop | Out-Null
 
+            # Brief grace delay to allow the LLM response stream to finish saving in SQLite
+            Start-Sleep -Seconds 3
+
             $bState["last_primed_at"] = [DateTime]::UtcNow.ToString("o")
             $bState["last_reset_time"] = $resetTimeStr
             $bState["last_cascade_id"] = $cascadeId
@@ -2564,6 +2706,9 @@ switch ($cmd) {
     }
     "config" {
         Invoke-ConfigCmd $arg1 $arg2
+    }
+    "gh" {
+        Invoke-GhCmd $arg1 $arg2
     }
     "quota" {
         Invoke-QuotaCmd $arg1
