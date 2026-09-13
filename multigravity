@@ -439,6 +439,81 @@ skills_cmd() {
   esac
 }
 
+link_user_config() {
+  local profile_path=$1
+
+  if [ -f "$profile_path/.isolated_config" ]; then
+    return 0
+  fi
+
+  local user_home="${REAL_HOME:-$HOME}"
+  local host_config="$user_home/.gemini/config/config.json"
+  local target_config_dir="$profile_path/.gemini/config"
+  local target_config="$target_config_dir/config.json"
+
+  if [ -f "$host_config" ] && [ ! -e "$target_config" ]; then
+    mkdir -p "$target_config_dir"
+    ln -s "$host_config" "$target_config"
+  fi
+}
+
+config_cmd() {
+  local action="${1-}" profile="${2-}"
+  [ -n "$action" ] && [ -n "$profile" ] || abort "usage: multigravity config <status|share|isolate> <profile>"
+  validate_name "$profile"
+
+  local profile_path
+  profile_path="$(profile_dir "$profile")"
+  [ -d "$profile_path" ] || abort "profile '$profile' does not exist"
+
+  local user_home="${REAL_HOME:-$HOME}"
+  local host_config="$user_home/.gemini/config/config.json"
+  local target_config="$profile_path/.gemini/config/config.json"
+
+  case "$action" in
+    status)
+      if [ -f "$profile_path/.isolated_config" ]; then
+        print_info "Profile '$profile' has isolated configuration (--isolated-config active)."
+      elif [ -L "$target_config" ]; then
+        local target
+        target="$(readlink "$target_config" 2>/dev/null || true)"
+        print_info "Profile '$profile' shares host config.json -> $target"
+      elif [ -f "$target_config" ]; then
+        print_info "Profile '$profile' has a standalone local config.json."
+      else
+        print_info "Profile '$profile' has no config.json configured."
+      fi
+      ;;
+    share)
+      rm -f "$profile_path/.isolated_config"
+      if [ -L "$target_config" ]; then
+        print_info "Profile '$profile' is already sharing host config.json."
+      else
+        if [ -f "$target_config" ]; then
+          mv "$target_config" "$target_config.bak"
+          print_info "Backed up existing config.json to config.json.bak"
+        fi
+        link_user_config "$profile_path"
+        print_info "Profile '$profile' is now sharing host config.json."
+      fi
+      ;;
+    isolate)
+      touch "$profile_path/.isolated_config"
+      if [ -L "$target_config" ]; then
+        rm -f "$target_config"
+        if [ -f "$host_config" ]; then
+          cp "$host_config" "$target_config"
+          print_info "Copied host config.json to standalone file for '$profile'."
+        fi
+      fi
+      print_info "Profile '$profile' is now isolated from host config updates."
+      ;;
+    *)
+      abort "usage: multigravity config <status|share|isolate> <profile>"
+      ;;
+  esac
+}
+
 resolve_profile_color() {
   local input
   input="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -639,6 +714,7 @@ create_profile_layout() {
   link_dev_dotfiles "$profile_path"
   link_mcp_config "$profile_path"
   link_skills_config "$profile_path"
+  link_user_config "$profile_path"
 }
 
 create_shared_layout() {
@@ -693,6 +769,7 @@ create_shared_layout() {
   link_dev_dotfiles "$profile_path"
   link_mcp_config "$profile_path"
   link_skills_config "$profile_path"
+  link_user_config "$profile_path"
 }
 
 script_path() {
@@ -931,7 +1008,7 @@ list_profiles() {
 }
 
 new_profile() {
-  local profile="" shared=false from_tpl="" isolated_dotfiles=false isolated_mcp=false isolated_skills=false color=""
+  local profile="" shared=false from_tpl="" isolated_dotfiles=false isolated_mcp=false isolated_skills=false isolated_config=false color=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -940,6 +1017,7 @@ new_profile() {
       --isolated-dotfiles)  isolated_dotfiles=true ;;
       --isolated-mcp)       isolated_mcp=true ;;
       --isolated-skills)    isolated_skills=true ;;
+      --isolated-config)    isolated_config=true ;;
       --color)              color="${2-}"; shift ;;
       -*)                   abort "unknown option: $1" ;;
       *)                    profile="$1" ;;
@@ -971,6 +1049,9 @@ new_profile() {
   if [ "$isolated_skills" = true ]; then
     touch "$profile_path/.isolated_skills"
   fi
+  if [ "$isolated_config" = true ]; then
+    touch "$profile_path/.isolated_config"
+  fi
 
   if [ -n "$from_tpl" ]; then
     local tpl_path
@@ -981,6 +1062,7 @@ new_profile() {
     [ "$isolated_dotfiles" = false ] && link_dev_dotfiles "$profile_path"
     [ "$isolated_mcp" = false ] && link_mcp_config "$profile_path"
     [ "$isolated_skills" = false ] && link_skills_config "$profile_path"
+    [ "$isolated_config" = false ] && link_user_config "$profile_path"
   elif [ "$shared" = true ]; then
     create_shared_layout "$profile_path"
   else
@@ -1881,6 +1963,7 @@ _multigravity() {
         'ai:Manage AI chats and brains (export, import, list)'
         'mcp:Manage MCP server configuration (status, share, isolate)'
         'skills:Manage skills and plugins configuration (status, share, isolate)'
+        'config:Manage config.json and permissions sharing (status, share, isolate)'
         'update:Update multigravity'
         'doctor:Run system diagnosis'
         'stats:Show profile storage usage'
@@ -1919,6 +2002,11 @@ _multigravity() {
                     subcommands=('status:Show skills/plugins sharing status' 'share:Share host skills and plugins' 'isolate:Isolate skills and plugins locally')
                     _describe -t subcommands 'subcommand' subcommands
                     ;;
+                config)
+                    local -a subcommands
+                    subcommands=('status:Show config sharing status' 'share:Share host config.json' 'isolate:Isolate config.json locally')
+                    _describe -t subcommands 'subcommand' subcommands
+                    ;;
                 color|stop|restart|rename|delete|clone|help)
                     local -a profiles
                     profiles=($(multigravity list --raw 2>/dev/null))
@@ -1938,7 +2026,7 @@ _multigravity_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="new color stop restart clean list status rename delete clone template export import ai mcp skills update doctor stats completion version help"
+    opts="new color stop restart clean list status rename delete clone template export import ai mcp skills config update doctor stats completion version help"
 
     if [[ ${COMP_CWORD} -eq 1 ]] ; then
         local profiles=$(multigravity list --raw 2>/dev/null)
@@ -1961,6 +2049,10 @@ _multigravity_completions() {
             return 0
             ;;
         skills)
+            COMPREPLY=( $(compgen -W "status share isolate" -- "${cur}") )
+            return 0
+            ;;
+        config)
             COMPREPLY=( $(compgen -W "status share isolate" -- "${cur}") )
             return 0
             ;;
@@ -2082,6 +2174,7 @@ Commands:
       --isolated-dotfiles     Do not link system .gitconfig/.ssh into profile
       --isolated-mcp          Do not share system MCP server configurations
       --isolated-skills       Do not share system skills and plugins
+      --isolated-config       Do not share system config.json and AI permissions
       --color <color>         Set UI theme color (e.g. blue, green, red, "#1e3a8a")
   color <name> [color|--clear] View or change window theme color
   stop <name> [--force]       Stop a running profile gracefully
@@ -2103,6 +2196,7 @@ Commands:
   ai list <profile>           List AI conversations in a profile
   mcp <status|share|isolate> <profile> Manage MCP server configuration sharing
   skills <status|share|isolate> <profile> Manage skills and plugins configuration sharing
+  config <status|share|isolate> <profile> Manage config.json and permission grants sharing
   update                      Update multigravity to the latest version
   doctor                      Run a system diagnosis
   stats                       Show storage usage per profile
@@ -2181,6 +2275,10 @@ case "$cmd" in
   skills)
     shift
     skills_cmd "$@"
+    ;;
+  config)
+    shift
+    config_cmd "$@"
     ;;
   update)
     update_cli

@@ -17,6 +17,7 @@
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
 | [00.0] | Release v1.4.1 (Shared MCP & Skills, Direct AI Sync, Windows Parity) | v1.4.1 | 2026-09-13 |
+| [02.1] | Compartilhamento e Sincronização Automática de config.json e Permissões | feat(config) | 2026-09-13 |
 
 ---
 

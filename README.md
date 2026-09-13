@@ -86,6 +86,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity new <name> --isolated-dotfiles` | Do not link host `.gitconfig` or `.ssh` into profile |
 | `multigravity new <name> --isolated-mcp` | Do not share host Model Context Protocol (MCP) servers |
 | `multigravity new <name> --isolated-skills` | Do not share host global skills and plugins |
+| `multigravity new <name> --isolated-config` | Do not share host config.json and AI permission grants |
 | `multigravity <name> [args...]` | Launch a profile (passes arguments to the IDE) |
 | `multigravity stop <name> [--force]` | Gracefully stop a running profile (or force kill) |
 | `multigravity restart <name>` | Restart a running profile |
@@ -111,6 +112,9 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity skills status <name>` | Check skills & plugins configuration sharing status |
 | `multigravity skills share <name>` | Share host skills & plugins (`~/.gemini/config/skills`, `plugins`) |
 | `multigravity skills isolate <name>` | Isolate profile with a private copy of skills & plugins |
+| `multigravity config status <name>` | Check config.json and permission grants sharing status |
+| `multigravity config share <name>` | Share host config.json and permissions (`~/.gemini/config/config.json`) |
+| `multigravity config isolate <name>` | Isolate profile with a private copy of config.json |
 
 ### Templates
 
@@ -210,6 +214,24 @@ multigravity new client-x --isolated-skills
 # Switch an existing profile between shared and isolated modes
 multigravity skills isolate work
 multigravity skills share work
+```
+
+---
+
+## Config & Permissions Sharing (`config.json`)
+
+By default, all profiles link to the host system's configuration (`~/.gemini/config/config.json`), sharing global permission grants (such as "Always allow" approvals for read-only Git, shell commands, or MCP tools) and UI preferences in real-time across windows without duplicating approvals:
+
+```bash
+# Check config & permissions sharing status for a profile
+multigravity config status work
+
+# Create a profile with isolated config and permissions
+multigravity new client-x --isolated-config
+
+# Switch an existing profile between shared and isolated modes
+multigravity config isolate work
+multigravity config share work
 ```
 
 ---

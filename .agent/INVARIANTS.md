@@ -57,3 +57,13 @@
 - **Customizações Globais vs Tokens:** Skills residem em `~/.gemini/config/skills/` e Plugins em `~/.gemini/config/plugins/`. Tratam-se apenas de arquivos de instrução markdown (`SKILL.md`), scripts e templates (`plugin.json`), sem nenhum token ou credencial.
 - **Symlink Seguro:** Vincular `~/.gemini/config/skills` e `~/.gemini/config/plugins` por symlink (ou Junction no Windows) permite compartilhar o ecossistema de habilidades do assistente sem expor sessões ou credenciais.
 - **Opt-out (.isolated_skills):** Perfis contendo o arquivo sentinela `.isolated_skills` mantêm suas pastas `skills/` e `plugins/` totalmente isoladas e privadas.
+
+---
+
+## 6. Compartilhamento de Configuração e Permissões (`config.json`)
+
+- **Permissões Globais do Assistente:** As permissões de execução (aprovações persistidas de ferramentas MCP, comandos shell e Git concedidas via *"Always allow"*) são salvas em `~/.gemini/config/config.json` no campo `.userSettings.globalPermissionGrants.allow`.
+- **Inexistência de Credenciais:** O `config.json` armazena apenas preferências de interface (ex: `conversationWidth`, `themeMode`) e o array de grants de segurança. Tokens OAuth ou senhas nunca são gravados neste arquivo.
+- **Symlink Seguro e Tempo Real:** Vincular `~/.gemini/config/config.json` por symlink garante que concessões concedidas em qualquer janela reflitam imediatamente em todos os outros perfis em tempo real.
+- **Opt-out (.isolated_config):** Qualquer perfil contendo o arquivo sentinela `.isolated_config` mantém seu próprio `config.json` desvinculado do host.
+- **Preservação de Dados:** Migrações ou trocas para modo compartilhado via CLI realizam backup prévio (`config.json.bak`) de arquivos existentes.

@@ -71,3 +71,12 @@
   - **Sanitização Absoluta:** O empacotamento exclui ativamente arquivos de credenciais como `jetski-standalone-oauth-token`, `*token*`, `*oauth*`, `*auth*`, `*credential*` e `installation_id`.
   - **Mescla Não-Destrutiva:** No `import`, os chats e brains recebidos são mesclados dentro do perfil de destino sem deletar conversas preexistentes.
   - **Trava de Segurança:** A importação bloqueia a operação se o perfil de destino estiver aberto, impedindo corrupção por escrita concorrente no SQLite da IA.
+
+### 2026-09-13 [Task 02.1] Compartilhamento e Sincronização Automática de config.json e Permissões
+
+- **Contexto:** Permissões do assistente de IA (comandos shell e ferramentas MCP aprovadas com "Always allow") residem em `~/.gemini/config/config.json`. Em perfis isolados, o usuário era obrigado a reaprovar individualmente cada comando read-only ou ferramenta MCP em cada nova janela de perfil.
+- **Decisão:**
+  - Compartilhar `~/.gemini/config/config.json` via link simbólico por padrão na criação e lançamento de perfis (`link_user_config` / `Link-UserConfig`).
+  - Implementar comando `multigravity config <status|share|isolate> <profile>` para gerenciar o vínculo e permitir opt-out via `--isolated-config` / `.isolated_config`.
+  - Preservar integridade dos perfis existentes criando backup `config.json.bak` antes da substituição por symlink.
+  - Garantir paridade 100% entre Bash e PowerShell.

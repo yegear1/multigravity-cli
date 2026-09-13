@@ -156,6 +156,25 @@ function Link-SkillsConfig {
     }
 }
 
+function Link-UserConfig {
+    param($profileDir)
+    if (Test-Path "$profileDir\.isolated_config") { return }
+
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    $hostConfig = "$realUser\.gemini\config\config.json"
+    $targetConfigDir = "$profileDir\.gemini\config"
+    $targetConfig = "$targetConfigDir\config.json"
+
+    if ((Test-Path $hostConfig) -and !(Test-Path $targetConfig)) {
+        if (!(Test-Path $targetConfigDir)) {
+            New-Item -ItemType Directory -Force -Path $targetConfigDir | Out-Null
+        }
+        New-Item -ItemType SymbolicLink -Path $targetConfig -Target $hostConfig -ErrorAction SilentlyContinue | Out-Null
+    }
+}
+
 function Resolve-ProfileColor {
     param([string]$colorName)
     $inputStr = $colorName.Trim().ToLower()
@@ -309,6 +328,7 @@ function Write-Usage {
     Write-Host "      --isolated-dotfiles     Do not link user .gitconfig/.ssh into profile"
     Write-Host "      --isolated-mcp          Do not share system MCP server configurations"
     Write-Host "      --isolated-skills       Do not share system skills and plugins"
+    Write-Host "      --isolated-config       Do not share system config.json and AI permissions"
     Write-Host "      --color <color>         Set UI theme color (e.g. blue, green, red, '#1e3a8a')"
     Write-Host "  color <name> [color|--clear] View or change window theme color"
     Write-Host "  stop <name> [--force]       Stop a running profile gracefully"
@@ -330,6 +350,7 @@ function Write-Usage {
     Write-Host "  ai list <name>              List AI conversations in a profile"
     Write-Host "  mcp <status|share|isolate> <name> Manage MCP server configuration sharing"
     Write-Host "  skills <status|share|isolate> <name> Manage skills and plugins configuration sharing"
+    Write-Host "  config <status|share|isolate> <name> Manage config.json and permission grants sharing"
     Write-Host "  update                      Update multigravity to the latest version"
     Write-Host "  doctor                      Run a system diagnosis"
     Write-Host "  stats                       Show storage usage per profile"
@@ -369,6 +390,7 @@ function Invoke-CreateProfile {
     Link-DevDotfiles $PROFILE_DIR
     Link-McpConfig $PROFILE_DIR
     Link-SkillsConfig $PROFILE_DIR
+    Link-UserConfig $PROFILE_DIR
 }
 
 function Invoke-CreateSharedProfile {
@@ -409,6 +431,7 @@ function Invoke-CreateSharedProfile {
     Link-DevDotfiles $profileDir
     Link-McpConfig $profileDir
     Link-SkillsConfig $profileDir
+    Link-UserConfig $profileDir
 }
 
 function Invoke-LaunchProfile {
@@ -428,6 +451,7 @@ function Invoke-LaunchProfile {
     Link-DevDotfiles $PROFILE_DIR
     Link-McpConfig $PROFILE_DIR
     Link-SkillsConfig $PROFILE_DIR
+    Link-UserConfig $PROFILE_DIR
 
     Write-Host "Launching Antigravity profile '$PROFILE'"
     
@@ -498,6 +522,7 @@ function Invoke-NewProfile {
     $isolatedDotfiles  = $false
     $isolatedMcp       = $false
     $isolatedSkills    = $false
+    $isolatedConfig    = $false
     $color             = ""
     $i = 0
     while ($i -lt $extraArgs.Count) {
@@ -507,6 +532,7 @@ function Invoke-NewProfile {
             "--isolated-dotfiles" { $isolatedDotfiles = $true }
             "--isolated-mcp"      { $isolatedMcp = $true }
             "--isolated-skills"   { $isolatedSkills = $true }
+            "--isolated-config"   { $isolatedConfig = $true }
             "--color"             { $i++; if ($i -lt $extraArgs.Count) { $color = $extraArgs[$i] } }
         }
         $i++
@@ -537,6 +563,9 @@ function Invoke-NewProfile {
     if ($isolatedSkills) {
         New-Item -ItemType File -Force -Path "$profileDir\.isolated_skills" | Out-Null
     }
+    if ($isolatedConfig) {
+        New-Item -ItemType File -Force -Path "$profileDir\.isolated_config" | Out-Null
+    }
 
     if ($fromTpl) {
         $tplPath = "$(Get-TemplatesDir)\$fromTpl"
@@ -549,6 +578,7 @@ function Invoke-NewProfile {
         if (!$isolatedDotfiles) { Link-DevDotfiles $profileDir }
         if (!$isolatedMcp) { Link-McpConfig $profileDir }
         if (!$isolatedSkills) { Link-SkillsConfig $profileDir }
+        if (!$isolatedConfig) { Link-UserConfig $profileDir }
     } elseif ($shared) {
         Invoke-CreateSharedProfile $name
     } else {
@@ -949,7 +979,7 @@ function Invoke-GenerateCompletion {
         @"
 Register-ArgumentCompleter -Native -CommandName multigravity -ScriptBlock {
     param(`$wordToComplete, `$commandAst, `$cursorPosition)
-    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'mcp', 'skills', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
+    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'mcp', 'skills', 'config', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
     `$profiles = if (Test-Path '$BASE') { Get-ChildItem -Directory -Path '$BASE' | Select-Object -ExpandProperty Name } else { @() }
     (`$opts + `$profiles) | Where-Object { `$_ -like "`$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new(`$_, `$_, 'ParameterValue', `$_)
@@ -1569,6 +1599,82 @@ function Invoke-SkillsCmd {
     }
 }
 
+function Invoke-ConfigCmd {
+    param($action, $profile)
+
+    if ([string]::IsNullOrEmpty($action) -or [string]::IsNullOrEmpty($profile)) {
+        Write-Error "Error: usage: multigravity config <status|share|isolate> <profile>"
+        exit 1
+    }
+
+    Test-ValidName $profile
+
+    $profilePath = "$BASE\$profile"
+    if (!(Test-Path $profilePath)) {
+        Write-Error "Error: profile '$profile' does not exist"
+        exit 1
+    }
+
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    $hostConfig = "$realUser\.gemini\config\config.json"
+    $targetConfig = "$profilePath\.gemini\config\config.json"
+
+    switch ($action) {
+        "status" {
+            if (Test-Path "$profilePath\.isolated_config") {
+                Write-Host "Profile '$profile' has isolated configuration (--isolated-config active)."
+            } elseif (Test-Path $targetConfig) {
+                $cItem = Get-Item -Path $targetConfig -ErrorAction SilentlyContinue
+                $isShared = $cItem -and ($cItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+                if ($isShared) {
+                    $cTarget = if ($cItem.Target) { $cItem.Target } else { "(symlink)" }
+                    Write-Host "Profile '$profile' shares host config.json -> $cTarget"
+                } else {
+                    Write-Host "Profile '$profile' has standalone local config.json."
+                }
+            } else {
+                Write-Host "Profile '$profile' has no config.json configured."
+            }
+        }
+        "share" {
+            if (Test-Path "$profilePath\.isolated_config") {
+                Remove-Item -Force -Path "$profilePath\.isolated_config" -ErrorAction SilentlyContinue
+            }
+            $cItem = Get-Item -Path $targetConfig -ErrorAction SilentlyContinue
+            $alreadyShared = $cItem -and ($cItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+
+            if ($alreadyShared) {
+                Write-Host "Profile '$profile' is already sharing host config.json."
+            } else {
+                if ((Test-Path $targetConfig) -and !($cItem -and ($cItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint))) {
+                    Move-Item -Path $targetConfig -Destination "$targetConfig.bak" -Force
+                    Write-Host "Backed up existing config.json to config.json.bak"
+                }
+                Link-UserConfig $profilePath
+                Write-Host "Profile '$profile' is now sharing host config.json."
+            }
+        }
+        "isolate" {
+            New-Item -ItemType File -Force -Path "$profilePath\.isolated_config" | Out-Null
+            $cItem = Get-Item -Path $targetConfig -ErrorAction SilentlyContinue
+            if ($cItem -and ($cItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                Remove-Item -Force -Path $targetConfig -ErrorAction SilentlyContinue
+                if (Test-Path $hostConfig) {
+                    Copy-Item -Path $hostConfig -Destination $targetConfig -Force
+                    Write-Host "Copied host config.json to standalone file for '$profile'."
+                }
+            }
+            Write-Host "Profile '$profile' is now isolated from host config updates."
+        }
+        default {
+            Write-Error "Error: usage: multigravity config <status|share|isolate> <profile>"
+            exit 1
+        }
+    }
+}
+
 function Invoke-InteractiveMenu {
     if (!(Test-Path $BASE)) {
         Write-Host "No profiles found."
@@ -1711,6 +1817,9 @@ switch ($cmd) {
     }
     "skills" {
         Invoke-SkillsCmd $arg1 $arg2
+    }
+    "config" {
+        Invoke-ConfigCmd $arg1 $arg2
     }
     "update" {
         Invoke-UpdateCli
