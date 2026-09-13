@@ -110,4 +110,25 @@
   - **Atenção ao `$HOME`:** No Linux/macOS dentro do terminal integrado do Antigravity, a variável `$HOME` é redirecionada para a raiz do perfil (`~/AntigravityProfiles/<name>`). O watchdog e os instaladores de cron/systemd utilizam estritamente `${REAL_HOME:-$HOME}` para referenciar o diretório do usuário host.
   - **Isolamento de Credenciais em Modo Headless:** O binário `language_server` localiza `jetski-standalone-oauth-token` e os segredos do Keyring sempre relativos à variável de ambiente `HOME` (Linux/macOS) ou `USERPROFILE` (Windows), e não apenas pelo argumento `--gemini_dir`. Portanto, ao subir instâncias headless de múltiplos perfis, é mandatório exportar `HOME="$p_dir"` / `$env:USERPROFILE = $pDir` para garantir que cada perfil leia seu respectivo token e não misture cotas com a instalação global ou com outros perfis.
 
+### 2026-09-13 [Task 02.4] Prime Dual-Bucket (Gemini + Claude/GPT), Catálogo prompts.json e Jitters Independentes
+
+- **Contexto:** Os limites de cota para modelos de terceiros (Claude e GPT) operam sob um bucket independente (`3p-weekly`) com ciclo de 7 dias próprio e desvinculado do `gemini-weekly`. O usuário necessitava que o priming atuasse de forma independente em ambos os buckets, usando modelos leves específicos, mensagens distintas e janelas de jitter separadas.
+- **Descoberta de Enums de Modelos:**
+  - O bucket `3p-weekly` alimenta modelos como Claude Sonnet, Claude Opus e GPT-OSS.
+  - O enum interno utilizado pela IDE Antigravity para despachar ao Claude Sonnet (o modelo leve do bucket 3P) é `MODEL_PLACEHOLDER_M35` (`claude-sonnet-4-6`).
+  - O bucket `gemini-weekly` utiliza `MODEL_PLACEHOLDER_M73` (`gemini-3.6-flash-low`).
+- **Arquitetura de Catálogo de Mensagens (`prompts.json`):**
+  - Externalização das mensagens de priming para `~/.local/share/multigravity/prompts.json` (auto-criado caso inexistente, com 40 prompts naturais e casuais em inglês e português).
+  - Cada disparo sorteia prompts distintos sem repetição imediata para cada bucket e ciclo.
+- **Descoberta de Portas Headless no Linux:**
+  - O utilitário `ss -tulpn` em ambientes Linux sem privilégios de root oculta a coluna de PID/Processo para sockets em certos kernels (ex: Debian/Ubuntu).
+  - O binário `language_server` emite no `stderr` a linha canônica `Language server listening on random port at <PORT> for HTTPS (gRPC)`.
+  - A captura direta não-bloqueante do `stderr` com fallback para `ss -tulpn` garante descoberta determinística da porta HTTPS em < 0.5s sem depender de privilégios elevados.
+- **Estrutura de Estado e Migração:**
+  - `prime_state.json` passou a estruturar o estado por bucket: `{"<perfil>": {"gemini-weekly": {...}, "3p-weekly": {...}}}`.
+  - Implementada migração transparente e retrocompatível de arquivos de estado anteriores de bucket único.
+- **Paridade de Plataformas:**
+  - Implementação idêntica e simultânea no script Bash (`multigravity`) e PowerShell (`multigravity.ps1`).
+
+
 

@@ -2083,153 +2083,8 @@ function Invoke-PrimeCmd {
         exit 1
     }
 
-    $weeklyBucket = $null
-    if ($quotaResp -and $quotaResp.response -and $quotaResp.response.groups) {
-        foreach ($g in $quotaResp.response.groups) {
-            foreach ($b in $g.buckets) {
-                if ($b.bucketId -eq "gemini-weekly") {
-                    $weeklyBucket = $b
-                    break
-                }
-            }
-            if ($weeklyBucket) { break }
-        }
-    }
-
-    if (!$weeklyBucket) {
-        if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
-        if (!$Quiet) { Write-Error "Weekly quota bucket ('gemini-weekly') not found." }
-        exit 1
-    }
-
-    $remFrac = [double]$weeklyBucket.remainingFraction
-    $resetTimeStr = $weeklyBucket.resetTime
-    $now = [DateTime]::UtcNow
-    $timeLeftStr = ""
-    $diffSec = 0
-    if ($resetTimeStr) {
-        try {
-            $rt = [DateTime]::Parse($resetTimeStr).ToUniversalTime()
-            $diff = $rt - $now
-            $diffSec = [int]$diff.TotalSeconds
-            if ($diffSec -gt 0) {
-                $hours = [math]::Floor($diff.TotalHours)
-                $mins = $diff.Minutes
-                $timeLeftStr = "$($hours)h $($mins)m"
-            } else {
-                $timeLeftStr = "Refreshed!"
-            }
-        } catch {
-            $timeLeftStr = "$resetTimeStr"
-        }
-    }
-
-    $profKey = if ($targetProfile) { $targetProfile } else { "default" }
-    if (!$state["profiles"].ContainsKey($profKey)) {
-        $state["profiles"][$profKey] = @{}
-    }
-    $profState = $state["profiles"][$profKey]
-
-    if ($Status) {
-        if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
-        
-        $taskInstalled = $false
-        schtasks.exe /query /tn "MultigravityPrime-$profKey" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { $taskInstalled = $true }
-
-        $lastPrimed = if ($profState.last_primed_at) { $profState.last_primed_at } else { "Never" }
-        $lastModel = if ($profState.last_model) { $profState.last_model } else { "-" }
-        $lastPrompt = if ($profState.last_prompt) { ", prompt: `"$($profState.last_prompt)`"" } else { "" }
-        $lastReset = if ($profState.last_reset_time) { $profState.last_reset_time } else { "-" }
-        $targetPrimeTime = $profState.target_prime_time
-
-        Write-Host ""
-        Write-Host "Prime Status — Profile: $profKey"
-        Write-Host "============================================================"
-        $serverMode = if ($headlessProc) { "Headless (Standby)" } else { "Active IDE Instance (PID $procPid, Port $usedPort)" }
-        Write-Host "  Language Server:    $serverMode"
-        Write-Host "  Weekly Quota:       $([math]::Round($remFrac * 100, 1))% remaining | Resets in: $timeLeftStr"
-        Write-Host "  Reset Target Time:  $resetTimeStr"
-        Write-Host "  Last Primed:        $lastPrimed (model: $lastModel$lastPrompt)"
-
-        $isRefreshed = ($remFrac -ge 0.999) -or ($diffSec -le 0)
-        $alreadyPrimed = ($lastReset -eq $resetTimeStr) -and (!$isRefreshed)
-        $cycleStatus = "Active (Countdown running)"
-        if ($alreadyPrimed) {
-            $cycleStatus = "Active (Weekly countdown is currently running)"
-        } elseif ($isRefreshed) {
-            if ($targetPrimeTime) {
-                $cycleStatus = "Pending Prime with Jitter (Scheduled at: $targetPrimeTime)"
-            } else {
-                $cycleStatus = "Ready to Prime (Reset occurred / New cycle waiting to start)"
-            }
-        }
-        Write-Host "  Cycle Status:       $cycleStatus"
-        Write-Host ""
-        Write-Host "  Scheduled Watchdog:"
-        Write-Host "    Scheduled Task:   $(if ($taskInstalled) { 'Installed (Hourly)' } else { 'Not installed' })"
-        Write-Host ""
-        return
-    }
-
-    # Action == Prime
-    $isRefreshed = ($remFrac -ge 0.999) -or ($diffSec -le 0)
-    $lastReset = $profState.last_reset_time
-    $alreadyPrimed = ($lastReset -eq $resetTimeStr) -and ($remFrac -lt 0.999)
-
-    if (!$Force) {
-        if ($alreadyPrimed) {
-            if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
-            if (!$Quiet) {
-                Write-Host "Weekly quota for '$profKey' is already primed and active for this cycle."
-                Write-Host "Current cycle resets in $timeLeftStr ($resetTimeStr)."
-            }
-            return
-        }
-
-        if (!$isRefreshed) {
-            if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
-            if (!$Quiet) {
-                Write-Host "Weekly quota for '$profKey' has not reset yet ($([math]::Round($remFrac * 100, 1))% remaining, resets in $timeLeftStr)."
-            }
-            return
-        }
-
-        if ($Check) {
-            if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
-            Write-Host "Weekly quota for '$profKey' is READY for priming (Reset occurred / New cycle waiting)."
-            return
-        }
-
-        if (!$NoJitter -and ($JitterMinutes -gt 0)) {
-            $targetStr = $profState.target_prime_time
-            $targetTime = $null
-            if ($targetStr) {
-                try { $targetTime = [DateTime]::Parse($targetStr).ToUniversalTime() } catch {}
-            }
-            if (!$targetTime -or ($targetTime -lt $now.AddHours(-2))) {
-                $jitterSec = Get-Random -Minimum 0 -Maximum ($JitterMinutes * 60)
-                $targetTime = $now.AddSeconds($jitterSec)
-                $profState["target_prime_time"] = $targetTime.ToString("o")
-                $state["profiles"][$profKey] = $profState
-                Set-Content -Path $stateFile -Value (ConvertTo-Json $state -Depth 5) -Force
-            }
-
-            if ($now -lt $targetTime) {
-                $waitS = [int]($targetTime - $now).TotalSeconds
-                if ($Quiet) {
-                    if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
-                    return
-                } else {
-                    Write-Host "Anti-bot jitter: waiting $([math]::Floor($waitS / 60))m $($waitS % 60)s before priming..."
-                    Start-Sleep -Seconds $waitS
-                }
-            }
-        }
-    }
-
-    # Execute Priming
-    $promptPool = @(
+    $promptsFile = "$stateDir\prompts.json"
+    $defaultPrompts = @(
         # English
         "ping",
         "Hello! Quick status check.",
@@ -2241,6 +2096,16 @@ function Invoke-PrimeCmd {
         "Hello, just checking in.",
         "Quick connectivity check.",
         "Hi! All systems operational?",
+        "Hello! Quick sanity check.",
+        "Hi, checking in for a new session.",
+        "Good day! Ready when you are.",
+        "Quick check: system online?",
+        "Hello! Confirming connection.",
+        "Hi there, ready for coding?",
+        "Ping test, please acknowledge.",
+        "Good morning! Everything running smoothly?",
+        "Hi! Quick hello before getting started.",
+        "Testing connection, thanks!",
         # Portuguese
         "Olá! Tudo bem por aí?",
         "Oi! Teste rápido de status.",
@@ -2251,51 +2116,303 @@ function Invoke-PrimeCmd {
         "Olá! Sistema operacional?",
         "Checagem rápida de status, valeu!",
         "Oi, apenas confirmando conexão.",
-        "Olá! Pronto para começar?"
+        "Olá! Pronto para começar?",
+        "Bom dia! Tudo certo por aqui?",
+        "Olá, teste rápido de comunicação.",
+        "Oi! Sistema ativo?",
+        "Checagem de rotina, tudo ok?",
+        "Olá, pronto para mais uma sessão?",
+        "Oi, confirmando disponibilidade.",
+        "Teste de ping, obrigado!",
+        "Olá, tudo tranquilo?",
+        "Bom dia, pronto para codar?",
+        "Oi, verificação rápida do assistente."
     )
-    $selectedPrompt = $promptPool | Get-Random
 
-    try {
-        $headers = @{ "Content-Type" = "application/json"; "X-Codeium-Csrf-Token" = $usedCsrf }
-        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-        
-        $startUrl = "https://127.0.0.1:$usedPort/exa.language_server_pb.LanguageServerService/StartCascade"
-        $startBody = '{"source":"CORTEX_TRAJECTORY_SOURCE_CLI"}'
-        $startResp = Invoke-RestMethod -Uri $startUrl -Method Post -Headers $headers -Body $startBody -TimeoutSec 10 -ErrorAction Stop
-        $cascadeId = $startResp.cascadeId
+    $promptPool = @()
+    if (Test-Path $promptsFile) {
+        try {
+            $pData = Get-Content -Path $promptsFile -Raw | ConvertFrom-Json
+            if ($pData -and $pData.prompts) {
+                $promptPool = @($pData.prompts)
+            }
+        } catch {}
+    }
+    if ($promptPool.Count -eq 0) {
+        $promptPool = $defaultPrompts
+        try {
+            $pObj = @{ "prompts" = $defaultPrompts }
+            Set-Content -Path $promptsFile -Value (ConvertTo-Json $pObj -Depth 5) -Force
+        } catch {}
+    }
 
-        $msgUrl = "https://127.0.0.1:$usedPort/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
-        $msgBodyObj = @{
-            "cascadeId" = $cascadeId
-            "items" = @(@{ "text" = $selectedPrompt })
-            "cascadeConfig" = @{
-                "plannerConfig" = @{
-                    "requestedModel" = @{
-                        "model" = "MODEL_PLACEHOLDER_M73"
-                    }
+    $bucketConfigs = @(
+        @{
+            "key" = "gemini"
+            "bucket_id" = "gemini-weekly"
+            "name" = "Gemini Models"
+            "model" = "MODEL_PLACEHOLDER_M73"
+            "model_label" = "gemini-3.6-flash-low"
+        },
+        @{
+            "key" = "3p"
+            "bucket_id" = "3p-weekly"
+            "name" = "Claude & GPT models"
+            "model" = "MODEL_PLACEHOLDER_M35"
+            "model_label" = "claude-sonnet-4-6"
+        }
+    )
+
+    $buckets = @{}
+    if ($quotaResp -and $quotaResp.response -and $quotaResp.response.groups) {
+        foreach ($g in $quotaResp.response.groups) {
+            foreach ($b in $g.buckets) {
+                if ($b.bucketId -eq "gemini-weekly" -or $b.bucketId -eq "3p-weekly") {
+                    $buckets[$b.bucketId] = $b
                 }
             }
         }
-        $msgJson = ConvertTo-Json $msgBodyObj -Depth 5
-        Invoke-RestMethod -Uri $msgUrl -Method Post -Headers $headers -Body $msgJson -TimeoutSec 10 -ErrorAction Stop | Out-Null
+    }
 
-        $profState["last_primed_at"] = [DateTime]::UtcNow.ToString("o")
-        $profState["last_reset_time"] = $resetTimeStr
-        $profState["last_cascade_id"] = $cascadeId
-        $profState["last_model"] = "gemini-3.6-flash-low"
-        $profState["last_prompt"] = $selectedPrompt
-        $profState["target_prime_time"] = $null
-        $profState["status"] = "success"
+    if ($buckets.Count -eq 0) {
+        if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+        if (!$Quiet) { Write-Error "No weekly quota buckets found in telemetry." }
+        exit 1
+    }
+
+    $now = [DateTime]::UtcNow
+    $profKey = if ($targetProfile) { $targetProfile } else { "default" }
+    if (!$state["profiles"].ContainsKey($profKey)) {
+        $state["profiles"][$profKey] = @{}
+    }
+    $profState = $state["profiles"][$profKey]
+
+    # Migrate legacy flat state to dual-bucket state if needed
+    if ($profState.last_reset_time -and !$profState.gemini) {
+        $legacyGemini = @{
+            "last_primed_at" = $profState.last_primed_at
+            "last_reset_time" = $profState.last_reset_time
+            "last_cascade_id" = $profState.last_cascade_id
+            "last_model" = if ($profState.last_model) { $profState.last_model } else { "gemini-3.6-flash-low" }
+            "last_prompt" = $profState.last_prompt
+            "target_prime_time" = $profState.target_prime_time
+            "status" = if ($profState.status) { $profState.status } else { "success" }
+        }
+        $profState = @{
+            "gemini" = $legacyGemini
+            "3p" = @{}
+        }
         $state["profiles"][$profKey] = $profState
-        Set-Content -Path $stateFile -Value (ConvertTo-Json $state -Depth 5) -Force
+    }
 
-        if (!$Quiet) {
+    if ($Status) {
+        if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+        
+        $taskInstalled = $false
+        schtasks.exe /query /tn "MultigravityPrime-$profKey" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $taskInstalled = $true }
+
+        Write-Host ""
+        Write-Host "Prime Status — Profile: $profKey"
+        Write-Host "============================================================"
+        $serverMode = if ($headlessProc) { "Headless (Standby)" } else { "Active IDE Instance (PID $procPid, Port $usedPort)" }
+        Write-Host "  Language Server:    $serverMode"
+
+        foreach ($cfg in $bucketConfigs) {
+            $b = $buckets[$cfg.bucket_id]
+            $bState = if ($profState[$cfg.key]) { $profState[$cfg.key] } else { @{} }
+
             Write-Host ""
-            Write-Host "✓ Successfully primed weekly quota for profile '$profKey'!" -ForegroundColor Green
-            Write-Host "  Prompt: `"$selectedPrompt`""
-            Write-Host "  Model: gemini-3.6-flash-low (minimum token cost)"
-            Write-Host "  Cascade ID: $cascadeId"
-            Write-Host "  7-day reset countdown has officially started!"
+            Write-Host "  • $($cfg.name) ($($cfg.bucket_id)):"
+            if (!$b) {
+                Write-Host "    Status:           Not available in telemetry"
+                continue
+            }
+
+            $remFrac = [double]$b.remainingFraction
+            $resetTimeStr = $b.resetTime
+            $timeLeftStr = ""
+            $diffSec = 0
+            if ($resetTimeStr) {
+                try {
+                    $rt = [DateTime]::Parse($resetTimeStr).ToUniversalTime()
+                    $diff = $rt - $now
+                    $diffSec = [int]$diff.TotalSeconds
+                    if ($diffSec -gt 0) {
+                        $hours = [math]::Floor($diff.TotalHours)
+                        $mins = $diff.Minutes
+                        $timeLeftStr = "$($hours)h $($mins)m"
+                    } else {
+                        $timeLeftStr = "Refreshed!"
+                    }
+                } catch {
+                    $timeLeftStr = "$resetTimeStr"
+                }
+            }
+
+            $lastPrimed = if ($bState.last_primed_at) { $bState.last_primed_at } else { "Never" }
+            $lastModel = if ($bState.last_model) { $bState.last_model } else { "-" }
+            $lastPrompt = if ($bState.last_prompt) { ", prompt: `"$($bState.last_prompt)`"" } else { "" }
+            $lastReset = if ($bState.last_reset_time) { $bState.last_reset_time } else { "-" }
+            $targetPrimeTime = $bState.target_prime_time
+
+            $isRefreshed = ($remFrac -ge 0.999) -or ($diffSec -le 0)
+            $alreadyPrimed = ($lastReset -eq $resetTimeStr) -and (!$isRefreshed)
+            $cycleStatus = "Active (Countdown running)"
+            if ($alreadyPrimed) {
+                $cycleStatus = "Active (Weekly countdown is currently running)"
+            } elseif ($isRefreshed) {
+                if ($targetPrimeTime) {
+                    $cycleStatus = "Pending Prime with Jitter (Scheduled at: $targetPrimeTime)"
+                } else {
+                    $cycleStatus = "Ready to Prime (Reset occurred / New cycle waiting to start)"
+                }
+            }
+
+            Write-Host "    Weekly Quota:     $([math]::Round($remFrac * 100, 1))% remaining | Resets in: $timeLeftStr"
+            Write-Host "    Reset Target:     $resetTimeStr"
+            Write-Host "    Last Primed:      $lastPrimed (model: $lastModel$lastPrompt)"
+            Write-Host "    Cycle Status:     $cycleStatus"
+        }
+
+        Write-Host ""
+        Write-Host "  Scheduled Watchdog:"
+        Write-Host "    Scheduled Task:   $(if ($taskInstalled) { 'Installed (Hourly)' } else { 'Not installed' })"
+        Write-Host "    Prompts Catalog:  $promptsFile ($($promptPool.Count) prompts loaded)"
+        Write-Host ""
+        return
+    }
+
+    # Execute Priming per bucket
+    $usedPrompts = @()
+    try {
+        foreach ($cfg in $bucketConfigs) {
+            $b = $buckets[$cfg.bucket_id]
+            if (!$b) { continue }
+
+            $remFrac = [double]$b.remainingFraction
+            $resetTimeStr = $b.resetTime
+            $timeLeftStr = ""
+            $diffSec = 0
+            if ($resetTimeStr) {
+                try {
+                    $rt = [DateTime]::Parse($resetTimeStr).ToUniversalTime()
+                    $diff = $rt - $now
+                    $diffSec = [int]$diff.TotalSeconds
+                    if ($diffSec -gt 0) {
+                        $hours = [math]::Floor($diff.TotalHours)
+                        $mins = $diff.Minutes
+                        $timeLeftStr = "$($hours)h $($mins)m"
+                    } else {
+                        $timeLeftStr = "Refreshed!"
+                    }
+                } catch {
+                    $timeLeftStr = "$resetTimeStr"
+                }
+            }
+
+            $isRefreshed = ($remFrac -ge 0.999) -or ($diffSec -le 0)
+            if (!$profState.ContainsKey($cfg.key)) { $profState[$cfg.key] = @{} }
+            $bState = $profState[$cfg.key]
+            $lastReset = $bState.last_reset_time
+            $alreadyPrimed = ($lastReset -eq $resetTimeStr) -and ($remFrac -lt 0.999)
+
+            if (!$Force) {
+                if ($alreadyPrimed) {
+                    if (!$Quiet) {
+                        Write-Host "Weekly quota for '$profKey' [$($cfg.name)] is already primed and active for this cycle."
+                        Write-Host "Current cycle resets in $timeLeftStr ($resetTimeStr)."
+                    }
+                    continue
+                }
+
+                if (!$isRefreshed) {
+                    if (!$Quiet) {
+                        Write-Host "Weekly quota for '$profKey' [$($cfg.name)] has not reset yet ($([math]::Round($remFrac * 100, 1))% remaining, resets in $timeLeftStr)."
+                    }
+                    continue
+                }
+
+                if ($Check) {
+                    Write-Host "Weekly quota for '$profKey' [$($cfg.name)] is READY for priming (Reset occurred / New cycle waiting)."
+                    continue
+                }
+
+                if (!$NoJitter -and ($JitterMinutes -gt 0)) {
+                    $targetStr = $bState.target_prime_time
+                    $targetTime = $null
+                    if ($targetStr) {
+                        try { $targetTime = [DateTime]::Parse($targetStr).ToUniversalTime() } catch {}
+                    }
+                    if (!$targetTime -or ($targetTime -lt $now.AddHours(-2))) {
+                        $jitterSec = Get-Random -Minimum 0 -Maximum ($JitterMinutes * 60)
+                        $targetTime = $now.AddSeconds($jitterSec)
+                        $bState["target_prime_time"] = $targetTime.ToString("o")
+                        $profState[$cfg.key] = $bState
+                        $state["profiles"][$profKey] = $profState
+                        Set-Content -Path $stateFile -Value (ConvertTo-Json $state -Depth 5) -Force
+                    }
+
+                    if ($now -lt $targetTime) {
+                        $waitS = [int]($targetTime - $now).TotalSeconds
+                        if ($Quiet) {
+                            continue
+                        } else {
+                            Write-Host "Anti-bot jitter for $($cfg.name): waiting $([math]::Floor($waitS / 60))m $($waitS % 60)s before priming..."
+                            Start-Sleep -Seconds $waitS
+                        }
+                    }
+                }
+            }
+
+            # Pick prompt not yet used in this run
+            $available = $promptPool | Where-Object { $usedPrompts -notcontains $_ }
+            if (!$available -or $available.Count -eq 0) { $available = $promptPool }
+            $selectedPrompt = $available | Get-Random
+            $usedPrompts += $selectedPrompt
+
+            $headers = @{ "Content-Type" = "application/json"; "X-Codeium-Csrf-Token" = $usedCsrf }
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+            
+            $startUrl = "https://127.0.0.1:$usedPort/exa.language_server_pb.LanguageServerService/StartCascade"
+            $startBody = '{"source":"CORTEX_TRAJECTORY_SOURCE_CLI"}'
+            $startResp = Invoke-RestMethod -Uri $startUrl -Method Post -Headers $headers -Body $startBody -TimeoutSec 10 -ErrorAction Stop
+            $cascadeId = $startResp.cascadeId
+
+            $msgUrl = "https://127.0.0.1:$usedPort/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
+            $msgBodyObj = @{
+                "cascadeId" = $cascadeId
+                "items" = @(@{ "text" = $selectedPrompt })
+                "cascadeConfig" = @{
+                    "plannerConfig" = @{
+                        "requestedModel" = @{
+                            "model" = $cfg.model
+                        }
+                    }
+                }
+            }
+            $msgJson = ConvertTo-Json $msgBodyObj -Depth 5
+            Invoke-RestMethod -Uri $msgUrl -Method Post -Headers $headers -Body $msgJson -TimeoutSec 10 -ErrorAction Stop | Out-Null
+
+            $bState["last_primed_at"] = [DateTime]::UtcNow.ToString("o")
+            $bState["last_reset_time"] = $resetTimeStr
+            $bState["last_cascade_id"] = $cascadeId
+            $bState["last_model"] = $cfg.model_label
+            $bState["last_prompt"] = $selectedPrompt
+            $bState["target_prime_time"] = $null
+            $bState["status"] = "success"
+            $profState[$cfg.key] = $bState
+            $state["profiles"][$profKey] = $profState
+            Set-Content -Path $stateFile -Value (ConvertTo-Json $state -Depth 5) -Force
+
+            if (!$Quiet) {
+                Write-Host ""
+                Write-Host "✓ Successfully primed weekly quota for profile '$profKey' [$($cfg.name)]!" -ForegroundColor Green
+                Write-Host "  Model: $($cfg.model_label) (minimum token cost)"
+                Write-Host "  Prompt: `"$selectedPrompt`""
+                Write-Host "  Cascade ID: $cascadeId"
+                Write-Host "  7-day reset countdown has officially started!"
+            }
         }
     } finally {
         if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
