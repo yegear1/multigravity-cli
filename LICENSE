@@ -1,7 +1,8 @@
+The new features, enhancements, and modifications introduced in this fork are licensed under the MIT License:
+
 MIT License
 
-Copyright (c) 2026 Sujit Agarwal (original project)
-Copyright (c) 2026 yegear1 (enhancements and fork)
+Copyright (c) 2026 yegear1 (modifications, new features, and fork enhancements)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -20,3 +21,9 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Original multigravity-cli codebase:
+Copyright (c) Sujit Agarwal and original contributors.
+Distributed in accordance with GitHub's Terms of Service for public repositories.

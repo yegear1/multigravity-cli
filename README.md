@@ -238,7 +238,8 @@ Letters, numbers, and hyphens only. Must start with a letter or number.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+The modifications, enhancements, and new features in this fork are licensed under the [MIT License](LICENSE).  
+The original base codebase remains the copyright of Sujit Agarwal and original contributors under GitHub's Terms of Service.
 
 ---
 

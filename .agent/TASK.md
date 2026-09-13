@@ -32,6 +32,7 @@
 | [03.2] | Migração e Exportação/Importação granular de chats de IA sem dados de autenticação | Pending | 2026-09-12 |
 | [03.3] | Documentação completa do fork (README.md), URLs e adição de licença MIT | Pending | 2026-09-12 |
 | [03.4] | Correção de URLs de update, expansão de caminhos do Antigravity, versão e .gitignore | Pending | 2026-09-12 |
+| [03.5] | Esclarecimento formal do escopo da licença MIT e direitos do código base | Pending | 2026-09-12 |
 
 ---
 

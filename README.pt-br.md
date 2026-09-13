@@ -238,7 +238,8 @@ Apenas letras, números e hifens. Deve começar com uma letra ou número.
 
 ## Licença
 
-Este projeto é licenciado sob a [Licença MIT](LICENSE).
+As modificações, melhorias e novos recursos introduzidos neste fork são licenciados sob a [Licença MIT](LICENSE).  
+A base de código original permanece sob os direitos autorais de Sujit Agarwal e colaboradores originais, conforme os Termos de Serviço do GitHub.
 
 ---
 
