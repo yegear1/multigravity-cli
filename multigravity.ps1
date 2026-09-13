@@ -55,6 +55,26 @@ function Find-Antigravity {
     return $null
 }
 
+function Find-LanguageServer {
+    $app = Find-Antigravity
+    if ($app) {
+        $dir = Split-Path -Parent $app
+        $cand = Join-Path $dir "resources\bin\language_server.exe"
+        if (Test-Path $cand) { return $cand }
+    }
+    $candidates = @(
+        "$env:LOCALAPPDATA\Programs\Antigravity\resources\bin\language_server.exe",
+        "$env:LOCALAPPDATA\Programs\antigravity\resources\bin\language_server.exe",
+        "$env:PROGRAMFILES\Antigravity\resources\bin\language_server.exe",
+        "$env:LOCALAPPDATA\Programs\agy\resources\bin\language_server.exe",
+        "$env:PROGRAMFILES\agy\resources\bin\language_server.exe"
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { return $c }
+    }
+    return $null
+}
+
 $APP = Find-Antigravity
 
 function Get-TemplatesDir {
@@ -349,10 +369,19 @@ function Write-Usage {
     Write-Host "  ai sync <src> <dest>        Synchronize AI conversations directly between two profiles"
     Write-Host "  ai list <name>              List AI conversations in a profile"
     Write-Host "  ai quota [name]             Show AI token limits, usage percentage, and reset time"
+    Write-Host "  ai prime [name] [options]   Auto-prime weekly token cycle on reset with random jitter"
     Write-Host "  mcp <status|share|isolate> <name> Manage MCP server configuration sharing"
     Write-Host "  skills <status|share|isolate> <name> Manage skills and plugins configuration sharing"
     Write-Host "  config <status|share|isolate> <name> Manage config.json and permission grants sharing"
     Write-Host "  quota [name]                Show AI token limits, usage percentage, and reset time"
+    Write-Host "  prime [name] [options]      Auto-prime weekly token cycle on reset with random jitter"
+    Write-Host "      --check                 Check if prime is needed without executing"
+    Write-Host "      --force                 Prime immediately regardless of quota status"
+    Write-Host "      --status                Show priming state and active scheduled task"
+    Write-Host "      --no-jitter             Skip random delay (prime immediately on reset)"
+    Write-Host "      --jitter <mins>         Maximum jitter delay in minutes (default: 60)"
+    Write-Host "      --install-task          Register automated Windows Scheduled Task"
+    Write-Host "      --uninstall-task        Remove automated Windows Scheduled Task"
     Write-Host "  update                      Update multigravity to the latest version"
     Write-Host "  doctor                      Run a system diagnosis"
     Write-Host "  stats                       Show storage usage per profile"
@@ -1424,8 +1453,9 @@ function Invoke-AiCmd {
         "sync"   { Invoke-AiSyncProfile $arg1 $arg2 }
         "list"   { Invoke-AiListProfile $arg1 }
         "quota"  { Invoke-QuotaCmd $arg1 }
+        "prime"  { Invoke-PrimeCmd $arg1 $arg2 }
         default  {
-            Write-Error "Error: usage: multigravity ai <export|import|sync|list|quota> [args...]"
+            Write-Error "Error: usage: multigravity ai <export|import|sync|list|quota|prime> [args...]"
             exit 1
         }
     }
@@ -1817,6 +1847,456 @@ function Invoke-QuotaCmd {
     }
 }
 
+function Invoke-PrimeCmd {
+    param(
+        $targetProfile,
+        [switch]$Force,
+        [switch]$Check,
+        [switch]$Status,
+        [switch]$NoJitter,
+        [int]$JitterMinutes = 60,
+        [switch]$InstallTask,
+        [switch]$UninstallTask,
+        [switch]$Quiet
+    )
+
+    if ($args) {
+        foreach ($a in $args) {
+            switch ($a) {
+                "--force"          { $Force = $true }
+                "-Force"           { $Force = $true }
+                "--check"          { $Check = $true }
+                "-Check"           { $Check = $true }
+                "--status"         { $Status = $true }
+                "-Status"          { $Status = $true }
+                "--no-jitter"      { $NoJitter = $true }
+                "-NoJitter"        { $NoJitter = $true }
+                "--quiet"          { $Quiet = $true }
+                "-Quiet"           { $Quiet = $true }
+                "--install-cron"   { $InstallTask = $true }
+                "-InstallTask"     { $InstallTask = $true }
+                "--uninstall-cron" { $UninstallTask = $true }
+                "-UninstallTask"   { $UninstallTask = $true }
+                default {
+                    if (!$a.StartsWith("-") -and [string]::IsNullOrEmpty($targetProfile)) {
+                        $targetProfile = $a
+                    }
+                }
+            }
+        }
+    }
+
+    if ([string]::IsNullOrEmpty($targetProfile)) {
+        $profiles = @(Get-ChildItem -Directory -Path $BASE -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne ".templates" })
+        if ($profiles.Count -eq 1) {
+            $targetProfile = $profiles[0].Name
+        }
+    }
+
+    $taskName = "MultigravityPrime-$targetProfile"
+    if ($InstallTask) {
+        if ([string]::IsNullOrEmpty($targetProfile)) {
+            Write-Error "Error: profile name is required for -InstallTask"
+            exit 1
+        }
+        Validate-Name $targetProfile
+        $psExe = (Get-Process -Id $PID).Path
+        if (!$psExe) { $psExe = "powershell.exe" }
+        $action = "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`" prime $targetProfile -Quiet"
+        schtasks.exe /create /tn "$taskName" /tr "`"$psExe`" $action" /sc hourly /mo 1 /f | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Installed hourly scheduled task '$taskName' for profile '$targetProfile'."
+            Write-Host "Schedule: Every hour"
+        } else {
+            Write-Error "Failed to create scheduled task '$taskName'."
+        }
+        return
+    }
+
+    if ($UninstallTask) {
+        if ([string]::IsNullOrEmpty($targetProfile)) {
+            Write-Error "Error: profile name is required for -UninstallTask"
+            exit 1
+        }
+        Validate-Name $targetProfile
+        schtasks.exe /delete /tn "$taskName" /f 2>$null | Out-Null
+        Write-Host "Removed scheduled task '$taskName' for profile '$targetProfile'."
+        return
+    }
+
+    if ($targetProfile) {
+        Validate-Name $targetProfile
+        $pDir = "$BASE\$targetProfile"
+        if (!(Test-Path $pDir)) {
+            Write-Error "Error: profile '$targetProfile' does not exist"
+            exit 1
+        }
+    }
+
+    $stateDir = "$env:LOCALAPPDATA\multigravity"
+    if (!(Test-Path $stateDir)) {
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+    }
+    $stateFile = "$stateDir\prime_state.json"
+    $state = @{ "profiles" = @{} }
+    if (Test-Path $stateFile) {
+        try {
+            $raw = Get-Content -Raw -Path $stateFile -ErrorAction Stop
+            $parsed = ConvertFrom-Json $raw
+            if ($parsed.profiles) {
+                foreach ($prop in $parsed.profiles.PSObject.Properties) {
+                    $state["profiles"][$prop.Name] = @{
+                        "last_primed_at"   = $prop.Value.last_primed_at
+                        "last_reset_time"  = $prop.Value.last_reset_time
+                        "last_cascade_id"  = $prop.Value.last_cascade_id
+                        "last_model"       = $prop.Value.last_model
+                        "target_prime_time"= $prop.Value.target_prime_time
+                        "status"           = $prop.Value.status
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    $procs = Get-CimInstance Win32_Process -Filter "Name = 'language_server.exe'" -ErrorAction SilentlyContinue
+    $usedPort = 0
+    $usedCsrf = $null
+    $procPid = 0
+    $headlessProc = $null
+
+    if ($procs) {
+        foreach ($proc in $procs) {
+            $cmdLine = $proc.CommandLine
+            if ([string]::IsNullOrEmpty($cmdLine)) { continue }
+
+            $csrfMatch = [regex]::Match($cmdLine, "--csrf_token\s+([a-f0-9-]+)")
+            if (!$csrfMatch.Success) { continue }
+            $c = $csrfMatch.Groups[1].Value
+
+            $profName = "host"
+            $ppid = $proc.ParentProcessId
+            if ($ppid) {
+                $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $ppid" -ErrorAction SilentlyContinue
+                if ($parent -and $parent.CommandLine) {
+                    $m = [regex]::Match($parent.CommandLine, "AntigravityProfiles[\\/]([^\\/ ]+)")
+                    if ($m.Success) { $profName = $m.Groups[1].Value }
+                }
+            }
+
+            if ($targetProfile -and ($profName -ne $targetProfile)) { continue }
+            if (!$targetProfile -and $profName) { $targetProfile = $profName }
+
+            $ports = @()
+            $conns = Get-NetTCPConnection -OwningProcess $proc.ProcessId -State Listen -ErrorAction SilentlyContinue
+            if ($conns) {
+                foreach ($cn in $conns) { $ports += $cn.LocalPort }
+            }
+
+            foreach ($p in ($ports | Select-Object -Unique)) {
+                $url = "https://127.0.0.1:$p/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
+                try {
+                    $headers = @{ "Content-Type" = "application/json"; "X-Codeium-Csrf-Token" = $c }
+                    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+                    $resp = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body "{}" -TimeoutSec 2 -ErrorAction Stop
+                    if ($resp -and $resp.response) {
+                        $usedPort = $p
+                        $usedCsrf = $c
+                        $procPid = $proc.ProcessId
+                        break
+                    }
+                } catch {}
+            }
+            if ($usedPort -gt 0) { break }
+        }
+    }
+
+    if ($usedPort -eq 0) {
+        $lsBin = Find-LanguageServer
+        if (!$lsBin) {
+            if (!$Quiet) {
+                Write-Error "Error: Language server executable not found and profile '$targetProfile' is not running."
+            }
+            exit 1
+        }
+        $pGemini = if ($targetProfile) { "$BASE\$targetProfile\.gemini" } else { "$env:USERPROFILE\.gemini" }
+        $tempCsrf = [guid]::NewGuid().ToString()
+        $headlessArgs = @(
+            "--standalone",
+            "--headless=true",
+            "--gemini_dir", $pGemini,
+            "--app_data_dir", "antigravity",
+            "--csrf_token", $tempCsrf,
+            "--https_server_port", "0",
+            "--http_server_port", "0",
+            "--api_server_url", "https://generativelanguage.googleapis.com",
+            "--cloud_code_endpoint", "https://daily-cloudcode-pa.googleapis.com"
+        )
+        try {
+            $headlessProc = Start-Process -FilePath $lsBin -ArgumentList $headlessArgs -PassThru -WindowStyle Hidden
+            for ($i = 0; $i -lt 30; $i++) {
+                Start-Sleep -Milliseconds 100
+                $conns = Get-NetTCPConnection -OwningProcess $headlessProc.Id -State Listen -ErrorAction SilentlyContinue
+                if ($conns) {
+                    foreach ($cn in $conns) {
+                        $url = "https://127.0.0.1:$($cn.LocalPort)/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
+                        try {
+                            $headers = @{ "Content-Type" = "application/json"; "X-Codeium-Csrf-Token" = $tempCsrf }
+                            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+                            $resp = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body "{}" -TimeoutSec 1 -ErrorAction Stop
+                            if ($resp -and $resp.response) {
+                                $usedPort = $cn.LocalPort
+                                $usedCsrf = $tempCsrf
+                                $procPid = $headlessProc.Id
+                                break
+                            }
+                        } catch {}
+                    }
+                }
+                if ($usedPort -gt 0) { break }
+            }
+        } catch {
+            if (!$Quiet) { Write-Error "Failed to start headless language server: $_" }
+            exit 1
+        }
+    }
+
+    if ($usedPort -eq 0) {
+        if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+        if (!$Quiet) { Write-Error "Could not connect to Language Server." }
+        exit 1
+    }
+
+    $quotaResp = $null
+    try {
+        $headers = @{ "Content-Type" = "application/json"; "X-Codeium-Csrf-Token" = $usedCsrf }
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+        $url = "https://127.0.0.1:$usedPort/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
+        $quotaResp = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body "{}" -TimeoutSec 5 -ErrorAction Stop
+    } catch {
+        if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+        if (!$Quiet) { Write-Error "Failed to query quota summary: $_" }
+        exit 1
+    }
+
+    $weeklyBucket = $null
+    if ($quotaResp -and $quotaResp.response -and $quotaResp.response.groups) {
+        foreach ($g in $quotaResp.response.groups) {
+            foreach ($b in $g.buckets) {
+                if ($b.bucketId -eq "gemini-weekly") {
+                    $weeklyBucket = $b
+                    break
+                }
+            }
+            if ($weeklyBucket) { break }
+        }
+    }
+
+    if (!$weeklyBucket) {
+        if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+        if (!$Quiet) { Write-Error "Weekly quota bucket ('gemini-weekly') not found." }
+        exit 1
+    }
+
+    $remFrac = [double]$weeklyBucket.remainingFraction
+    $resetTimeStr = $weeklyBucket.resetTime
+    $now = [DateTime]::UtcNow
+    $timeLeftStr = ""
+    $diffSec = 0
+    if ($resetTimeStr) {
+        try {
+            $rt = [DateTime]::Parse($resetTimeStr).ToUniversalTime()
+            $diff = $rt - $now
+            $diffSec = [int]$diff.TotalSeconds
+            if ($diffSec -gt 0) {
+                $hours = [math]::Floor($diff.TotalHours)
+                $mins = $diff.Minutes
+                $timeLeftStr = "$($hours)h $($mins)m"
+            } else {
+                $timeLeftStr = "Refreshed!"
+            }
+        } catch {
+            $timeLeftStr = "$resetTimeStr"
+        }
+    }
+
+    $profKey = if ($targetProfile) { $targetProfile } else { "default" }
+    if (!$state["profiles"].ContainsKey($profKey)) {
+        $state["profiles"][$profKey] = @{}
+    }
+    $profState = $state["profiles"][$profKey]
+
+    if ($Status) {
+        if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+        
+        $taskInstalled = $false
+        schtasks.exe /query /tn "MultigravityPrime-$profKey" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $taskInstalled = $true }
+
+        $lastPrimed = if ($profState.last_primed_at) { $profState.last_primed_at } else { "Never" }
+        $lastModel = if ($profState.last_model) { $profState.last_model } else { "-" }
+        $lastPrompt = if ($profState.last_prompt) { ", prompt: `"$($profState.last_prompt)`"" } else { "" }
+        $lastReset = if ($profState.last_reset_time) { $profState.last_reset_time } else { "-" }
+        $targetPrimeTime = $profState.target_prime_time
+
+        Write-Host ""
+        Write-Host "Prime Status — Profile: $profKey"
+        Write-Host "============================================================"
+        $serverMode = if ($headlessProc) { "Headless (Standby)" } else { "Active IDE Instance (PID $procPid, Port $usedPort)" }
+        Write-Host "  Language Server:    $serverMode"
+        Write-Host "  Weekly Quota:       $([math]::Round($remFrac * 100, 1))% remaining | Resets in: $timeLeftStr"
+        Write-Host "  Reset Target Time:  $resetTimeStr"
+        Write-Host "  Last Primed:        $lastPrimed (model: $lastModel$lastPrompt)"
+
+        $isRefreshed = ($remFrac -ge 0.999) -or ($diffSec -le 0)
+        $alreadyPrimed = ($lastReset -eq $resetTimeStr) -and (!$isRefreshed)
+        $cycleStatus = "Active (Countdown running)"
+        if ($alreadyPrimed) {
+            $cycleStatus = "Active (Weekly countdown is currently running)"
+        } elseif ($isRefreshed) {
+            if ($targetPrimeTime) {
+                $cycleStatus = "Pending Prime with Jitter (Scheduled at: $targetPrimeTime)"
+            } else {
+                $cycleStatus = "Ready to Prime (Reset occurred / New cycle waiting to start)"
+            }
+        }
+        Write-Host "  Cycle Status:       $cycleStatus"
+        Write-Host ""
+        Write-Host "  Scheduled Watchdog:"
+        Write-Host "    Scheduled Task:   $(if ($taskInstalled) { 'Installed (Hourly)' } else { 'Not installed' })"
+        Write-Host ""
+        return
+    }
+
+    # Action == Prime
+    $isRefreshed = ($remFrac -ge 0.999) -or ($diffSec -le 0)
+    $lastReset = $profState.last_reset_time
+    $alreadyPrimed = ($lastReset -eq $resetTimeStr) -and ($remFrac -lt 0.999)
+
+    if (!$Force) {
+        if ($alreadyPrimed) {
+            if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+            if (!$Quiet) {
+                Write-Host "Weekly quota for '$profKey' is already primed and active for this cycle."
+                Write-Host "Current cycle resets in $timeLeftStr ($resetTimeStr)."
+            }
+            return
+        }
+
+        if (!$isRefreshed) {
+            if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+            if (!$Quiet) {
+                Write-Host "Weekly quota for '$profKey' has not reset yet ($([math]::Round($remFrac * 100, 1))% remaining, resets in $timeLeftStr)."
+            }
+            return
+        }
+
+        if ($Check) {
+            if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+            Write-Host "Weekly quota for '$profKey' is READY for priming (Reset occurred / New cycle waiting)."
+            return
+        }
+
+        if (!$NoJitter -and ($JitterMinutes -gt 0)) {
+            $targetStr = $profState.target_prime_time
+            $targetTime = $null
+            if ($targetStr) {
+                try { $targetTime = [DateTime]::Parse($targetStr).ToUniversalTime() } catch {}
+            }
+            if (!$targetTime -or ($targetTime -lt $now.AddHours(-2))) {
+                $jitterSec = Get-Random -Minimum 0 -Maximum ($JitterMinutes * 60)
+                $targetTime = $now.AddSeconds($jitterSec)
+                $profState["target_prime_time"] = $targetTime.ToString("o")
+                $state["profiles"][$profKey] = $profState
+                Set-Content -Path $stateFile -Value (ConvertTo-Json $state -Depth 5) -Force
+            }
+
+            if ($now -lt $targetTime) {
+                $waitS = [int]($targetTime - $now).TotalSeconds
+                if ($Quiet) {
+                    if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+                    return
+                } else {
+                    Write-Host "Anti-bot jitter: waiting $([math]::Floor($waitS / 60))m $($waitS % 60)s before priming..."
+                    Start-Sleep -Seconds $waitS
+                }
+            }
+        }
+    }
+
+    # Execute Priming
+    $promptPool = @(
+        # English
+        "ping",
+        "Hello! Quick status check.",
+        "Hi, are you ready?",
+        "Good morning! Ready for today's tasks?",
+        "Quick ping test, thanks!",
+        "Hi there! How is everything running?",
+        "Ready to assist today?",
+        "Hello, just checking in.",
+        "Quick connectivity check.",
+        "Hi! All systems operational?",
+        # Portuguese
+        "Olá! Tudo bem por aí?",
+        "Oi! Teste rápido de status.",
+        "Bom dia! Pronto para os trabalhos de hoje?",
+        "Olá, tudo funcionando certinho?",
+        "Oi, checagem rápida de conexão.",
+        "Pronto para ajudar hoje?",
+        "Olá! Sistema operacional?",
+        "Checagem rápida de status, valeu!",
+        "Oi, apenas confirmando conexão.",
+        "Olá! Pronto para começar?"
+    )
+    $selectedPrompt = $promptPool | Get-Random
+
+    try {
+        $headers = @{ "Content-Type" = "application/json"; "X-Codeium-Csrf-Token" = $usedCsrf }
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+        
+        $startUrl = "https://127.0.0.1:$usedPort/exa.language_server_pb.LanguageServerService/StartCascade"
+        $startBody = '{"source":"CORTEX_TRAJECTORY_SOURCE_CLI"}'
+        $startResp = Invoke-RestMethod -Uri $startUrl -Method Post -Headers $headers -Body $startBody -TimeoutSec 10 -ErrorAction Stop
+        $cascadeId = $startResp.cascadeId
+
+        $msgUrl = "https://127.0.0.1:$usedPort/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
+        $msgBodyObj = @{
+            "cascadeId" = $cascadeId
+            "items" = @(@{ "text" = $selectedPrompt })
+            "cascadeConfig" = @{
+                "plannerConfig" = @{
+                    "requestedModel" = @{
+                        "model" = "MODEL_PLACEHOLDER_M73"
+                    }
+                }
+            }
+        }
+        $msgJson = ConvertTo-Json $msgBodyObj -Depth 5
+        Invoke-RestMethod -Uri $msgUrl -Method Post -Headers $headers -Body $msgJson -TimeoutSec 10 -ErrorAction Stop | Out-Null
+
+        $profState["last_primed_at"] = [DateTime]::UtcNow.ToString("o")
+        $profState["last_reset_time"] = $resetTimeStr
+        $profState["last_cascade_id"] = $cascadeId
+        $profState["last_model"] = "gemini-3.6-flash-low"
+        $profState["last_prompt"] = $selectedPrompt
+        $profState["target_prime_time"] = $null
+        $profState["status"] = "success"
+        $state["profiles"][$profKey] = $profState
+        Set-Content -Path $stateFile -Value (ConvertTo-Json $state -Depth 5) -Force
+
+        if (!$Quiet) {
+            Write-Host ""
+            Write-Host "✓ Successfully primed weekly quota for profile '$profKey'!" -ForegroundColor Green
+            Write-Host "  Prompt: `"$selectedPrompt`""
+            Write-Host "  Model: gemini-3.6-flash-low (minimum token cost)"
+            Write-Host "  Cascade ID: $cascadeId"
+            Write-Host "  7-day reset countdown has officially started!"
+        }
+    } finally {
+        if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 function Invoke-InteractiveMenu {
     if (!(Test-Path $BASE)) {
         Write-Host "No profiles found."
@@ -1965,6 +2445,12 @@ switch ($cmd) {
     }
     "quota" {
         Invoke-QuotaCmd $arg1
+    }
+    "prime" {
+        $extra = @()
+        if ($arg2)       { $extra += $arg2 }
+        if ($ForwardArgs) { $extra += $ForwardArgs }
+        Invoke-PrimeCmd $arg1 $extra
     }
     "update" {
         Invoke-UpdateCli

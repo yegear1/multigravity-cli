@@ -220,6 +220,36 @@ require_app() {
   printf '%s\n' "$app"
 }
 
+find_language_server() {
+  local app candidate
+  app="$(find_app 2>/dev/null || true)"
+  if [ -n "$app" ]; then
+    local dir
+    dir="$(dirname "$app")"
+    if [ -x "$dir/resources/bin/language_server" ]; then
+      echo "$dir/resources/bin/language_server"
+      return 0
+    elif [ -x "$dir/../Resources/bin/language_server" ]; then
+      echo "$dir/../Resources/bin/language_server"
+      return 0
+    fi
+  fi
+
+  for candidate in \
+    "$HOME/apps/antigravity/resources/bin/language_server" \
+    "$HOME/apps/agy/resources/bin/language_server" \
+    "$HOME/.local/share/antigravity/resources/bin/language_server" \
+    "/opt/antigravity/resources/bin/language_server" \
+    "/opt/agy/resources/bin/language_server" \
+    "/usr/share/antigravity/resources/bin/language_server"; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 link_dev_dotfiles() {
   local profile_path=$1
 
@@ -1886,8 +1916,11 @@ ai_cmd() {
     quota)
       quota_cmd "$@"
       ;;
+    prime)
+      prime_cmd "$@"
+      ;;
     *)
-      abort "usage: multigravity ai <export|import|sync|list|quota> [args...]"
+      abort "usage: multigravity ai <export|import|sync|list|quota|prime> [args...]"
       ;;
   esac
 }
@@ -2048,6 +2081,686 @@ print("")
 EOF
 }
 
+install_cron_job() {
+  local profile="$1"
+  local script
+  script="$(script_path)"
+  if [ -z "$script" ] || [ ! -x "$script" ]; then
+    script="$(command -v multigravity 2>/dev/null || true)"
+  fi
+  if [ -z "$script" ]; then
+    abort "could not determine multigravity executable path"
+  fi
+
+  local user_home="${REAL_HOME:-$HOME}"
+  local log_dir="$user_home/.local/share/multigravity"
+  mkdir -p "$log_dir"
+  local log_file="$log_dir/prime.log"
+  local cron_tag="# multigravity-prime:$profile"
+  local cron_line="15 * * * * \"$script\" prime \"$profile\" --quiet >> \"$log_file\" 2>&1"
+
+  local current_cron
+  current_cron="$(crontab -l 2>/dev/null || true)"
+  if echo "$current_cron" | grep -q "$cron_tag"; then
+    print_info "Cron job for profile '$profile' is already installed."
+    return 0
+  fi
+
+  (
+    if [ -n "$current_cron" ]; then
+      echo "$current_cron"
+    fi
+    echo "$cron_tag"
+    echo "$cron_line"
+  ) | crontab -
+
+  print_info "Installed hourly cron job for profile '$profile'."
+  print_info "Schedule: Every hour at minute 15"
+  print_info "Log file: $log_file"
+}
+
+uninstall_cron_job() {
+  local profile="$1"
+  local cron_tag="# multigravity-prime:$profile"
+  local current_cron
+  current_cron="$(crontab -l 2>/dev/null || true)"
+  if [ -z "$current_cron" ] || ! echo "$current_cron" | grep -q "$cron_tag"; then
+    print_info "No cron job found for profile '$profile'."
+    return 0
+  fi
+
+  local filtered
+  filtered="$(echo "$current_cron" | grep -v "$cron_tag" | grep -v "prime \"$profile\" --quiet" | grep -v "prime $profile --quiet" || true)"
+  if [ -n "$filtered" ]; then
+    echo "$filtered" | crontab -
+  else
+    crontab -r 2>/dev/null || true
+  fi
+  print_info "Removed cron job for profile '$profile'."
+}
+
+install_systemd_job() {
+  local profile="$1"
+  if ! command -v systemctl >/dev/null 2>&1; then
+    abort "systemd is not available on this system"
+  fi
+  local script
+  script="$(script_path)"
+  if [ -z "$script" ] || [ ! -x "$script" ]; then
+    script="$(command -v multigravity 2>/dev/null || true)"
+  fi
+  if [ -z "$script" ]; then
+    abort "could not determine multigravity executable path"
+  fi
+
+  local user_home="${REAL_HOME:-$HOME}"
+  local unit_dir="$user_home/.config/systemd/user"
+  mkdir -p "$unit_dir"
+  local svc_file="$unit_dir/multigravity-prime-${profile}.service"
+  local timer_file="$unit_dir/multigravity-prime-${profile}.timer"
+
+  cat > "$svc_file" <<EOF
+[Unit]
+Description=Multigravity Weekly Quota Auto-Prime for profile ${profile}
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart="${script}" prime "${profile}" --quiet
+EOF
+
+  cat > "$timer_file" <<EOF
+[Unit]
+Description=Hourly timer for Multigravity Auto-Prime (${profile})
+
+[Timer]
+OnCalendar=*-*-* *:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl --user daemon-reload
+  systemctl --user enable --now "multigravity-prime-${profile}.timer"
+  print_info "Installed and activated systemd timer 'multigravity-prime-${profile}.timer'."
+}
+
+uninstall_systemd_job() {
+  local profile="$1"
+  if ! command -v systemctl >/dev/null 2>&1; then
+    abort "systemd is not available on this system"
+  fi
+  local unit_dir="$HOME/.config/systemd/user"
+  local svc_file="$unit_dir/multigravity-prime-${profile}.service"
+  local timer_file="$unit_dir/multigravity-prime-${profile}.timer"
+
+  systemctl --user disable --now "multigravity-prime-${profile}.timer" 2>/dev/null || true
+  rm -f "$svc_file" "$timer_file"
+  systemctl --user daemon-reload
+  print_info "Removed systemd service and timer for profile '$profile'."
+}
+
+prime_cmd() {
+  local target_profile=""
+  local force=0
+  local check=0
+  local status=0
+  local no_jitter=0
+  local max_jitter=60
+  local quiet=0
+  local install_cron=0
+  local uninstall_cron=0
+  local install_systemd=0
+  local uninstall_systemd=0
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force)
+        force=1
+        shift
+        ;;
+      --check)
+        check=1
+        shift
+        ;;
+      --status)
+        status=1
+        shift
+        ;;
+      --no-jitter)
+        no_jitter=1
+        shift
+        ;;
+      --jitter)
+        shift
+        max_jitter="${1-60}"
+        shift
+        ;;
+      --install-cron)
+        install_cron=1
+        shift
+        ;;
+      --uninstall-cron)
+        uninstall_cron=1
+        shift
+        ;;
+      --install-systemd)
+        install_systemd=1
+        shift
+        ;;
+      --uninstall-systemd)
+        uninstall_systemd=1
+        shift
+        ;;
+      --quiet)
+        quiet=1
+        shift
+        ;;
+      -*)
+        abort "unknown option: $1"
+        ;;
+      *)
+        target_profile="$1"
+        shift
+        ;;
+    esac
+  done
+
+  # Resolve profile if omitted
+  if [ -z "$target_profile" ]; then
+    local available
+    available=($(list_profiles 2>/dev/null || true))
+    if [ ${#available[@]} -eq 1 ]; then
+      target_profile="${available[0]}"
+    fi
+  fi
+
+  if [ "$install_cron" -eq 1 ]; then
+    [ -n "$target_profile" ] || abort "profile name is required for --install-cron"
+    validate_name "$target_profile"
+    local p_dir
+    p_dir="$(profile_dir "$target_profile")"
+    [ -d "$p_dir" ] || abort "profile '$target_profile' does not exist"
+    install_cron_job "$target_profile"
+    return 0
+  fi
+
+  if [ "$uninstall_cron" -eq 1 ]; then
+    [ -n "$target_profile" ] || abort "profile name is required for --uninstall-cron"
+    validate_name "$target_profile"
+    uninstall_cron_job "$target_profile"
+    return 0
+  fi
+
+  if [ "$install_systemd" -eq 1 ]; then
+    [ -n "$target_profile" ] || abort "profile name is required for --install-systemd"
+    validate_name "$target_profile"
+    local p_dir
+    p_dir="$(profile_dir "$target_profile")"
+    [ -d "$p_dir" ] || abort "profile '$target_profile' does not exist"
+    install_systemd_job "$target_profile"
+    return 0
+  fi
+
+  if [ "$uninstall_systemd" -eq 1 ]; then
+    [ -n "$target_profile" ] || abort "profile name is required for --uninstall-systemd"
+    validate_name "$target_profile"
+    uninstall_systemd_job "$target_profile"
+    return 0
+  fi
+
+  if [ -n "$target_profile" ]; then
+    validate_name "$target_profile"
+    local p_dir
+    p_dir="$(profile_dir "$target_profile")"
+    if [ ! -d "$p_dir" ]; then
+      abort "profile '$target_profile' does not exist"
+    fi
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    abort "python3 is required for weekly quota priming"
+  fi
+
+  local ls_bin
+  ls_bin="$(find_language_server 2>/dev/null || true)"
+  local action="prime"
+  if [ "$status" -eq 1 ]; then
+    action="status"
+  fi
+  local user_home="${REAL_HOME:-$HOME}"
+
+  python3 - "$target_profile" "$BASE" "$action" "$force" "$check" "$no_jitter" "$max_jitter" "$quiet" "$ls_bin" "$user_home" << 'EOF'
+import sys, os, re, subprocess, urllib.request, ssl, json, time, random, uuid
+from datetime import datetime, timezone, timedelta
+
+target_prof = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
+base_dir = sys.argv[2] if len(sys.argv) > 2 else ""
+action = sys.argv[3] if len(sys.argv) > 3 else "prime"
+force = (sys.argv[4] == "1") if len(sys.argv) > 4 else False
+check_only = (sys.argv[5] == "1") if len(sys.argv) > 5 else False
+no_jitter = (sys.argv[6] == "1") if len(sys.argv) > 6 else False
+try:
+    max_jitter = float(sys.argv[7]) if len(sys.argv) > 7 else 60.0
+except Exception:
+    max_jitter = 60.0
+quiet = (sys.argv[8] == "1") if len(sys.argv) > 8 else False
+ls_bin_override = sys.argv[9] if len(sys.argv) > 9 and sys.argv[9] else ""
+user_home = sys.argv[10] if len(sys.argv) > 10 and sys.argv[10] else os.path.expanduser("~")
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+state_dir = os.path.join(user_home, ".local/share/multigravity")
+os.makedirs(state_dir, exist_ok=True)
+state_file = os.path.join(state_dir, "prime_state.json")
+
+def load_state():
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"profiles": {}}
+
+def save_state(s):
+    try:
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(s, f, indent=2)
+    except Exception:
+        pass
+
+state = load_state()
+if "profiles" not in state:
+    state["profiles"] = {}
+
+# Discover running Language Server
+port, csrf, pid = None, None, None
+try:
+    ps_out = subprocess.check_output(["ps", "-eo", "pid,ppid,args"]).decode("utf-8", errors="replace")
+except Exception:
+    ps_out = ""
+
+for line in ps_out.splitlines():
+    if "language_server" in line and "--csrf_token" in line:
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3:
+            continue
+        m_pid, ppid, args = parts[0], parts[1], parts[2]
+        csrf_match = re.search(r"--csrf_token\s+([a-f0-9-]+)", args)
+        if not csrf_match:
+            continue
+        c = csrf_match.group(1)
+
+        prof = "host"
+        parent_line = [l for l in ps_out.splitlines() if l.strip().startswith(ppid + " ")]
+        if parent_line:
+            p_args = parent_line[0]
+            m = re.search(r"AntigravityProfiles/([^/ ]+)", p_args)
+            if m:
+                prof = m.group(1)
+
+        if target_prof and prof != target_prof:
+            continue
+        if not target_prof and prof:
+            target_prof = prof
+
+        ports = []
+        try:
+            lsof_out = subprocess.check_output(["lsof", "-Pan", "-p", m_pid, "-i"], stderr=subprocess.DEVNULL).decode("utf-8", errors="replace")
+            for l in lsof_out.splitlines():
+                if "LISTEN" in l:
+                    pm = re.search(r":(\d+)\s+\(LISTEN\)", l)
+                    if pm:
+                        ports.append(int(pm.group(1)))
+        except Exception:
+            pass
+
+        if not ports:
+            try:
+                ss_out = subprocess.check_output(["ss", "-tulpn"], stderr=subprocess.DEVNULL).decode("utf-8", errors="replace")
+                for l in ss_out.splitlines():
+                    if f"pid={m_pid}," in l or f"pid={m_pid})" in l:
+                        pm = re.search(r":(\d+)\s+", l)
+                        if pm:
+                            ports.append(int(pm.group(1)))
+            except Exception:
+                pass
+
+        for p in set(ports):
+            test_url = f"https://127.0.0.1:{p}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
+            req = urllib.request.Request(test_url, data=b"{}", headers={"Content-Type": "application/json", "X-Codeium-Csrf-Token": c})
+            try:
+                with urllib.request.urlopen(req, context=ctx, timeout=2) as r:
+                    port = p
+                    csrf = c
+                    pid = m_pid
+                    break
+            except Exception:
+                pass
+        if port:
+            break
+
+headless_proc = None
+if not port:
+    ls_bin = ls_bin_override
+    if not ls_bin or not os.path.exists(ls_bin):
+        candidates = [
+            os.path.expanduser("~/apps/antigravity/resources/bin/language_server"),
+            os.path.expanduser("~/apps/agy/resources/bin/language_server"),
+            os.path.expanduser("~/.local/share/antigravity/resources/bin/language_server"),
+            "/opt/antigravity/resources/bin/language_server",
+            "/opt/agy/resources/bin/language_server",
+            "/usr/share/antigravity/resources/bin/language_server"
+        ]
+        for cand in candidates:
+            if os.path.exists(cand) and os.access(cand, os.X_OK):
+                ls_bin = cand
+                break
+
+    if not ls_bin or not os.path.exists(ls_bin):
+        if not quiet:
+            print(f"Error: Language server is not running for profile '{target_prof}', and executable not found.", file=sys.stderr)
+            print("Please launch the profile first: multigravity " + (target_prof or ""), file=sys.stderr)
+        sys.exit(1)
+
+    p_dir = os.path.join(base_dir, target_prof) if target_prof and base_dir else ""
+    p_gemini = os.path.join(p_dir, ".gemini") if p_dir else os.path.expanduser("~/.gemini")
+    temp_csrf = str(uuid.uuid4())
+
+    cmd = [
+        ls_bin,
+        "--standalone",
+        "--headless=true",
+        "--gemini_dir", p_gemini,
+        "--app_data_dir", "antigravity",
+        "--csrf_token", temp_csrf,
+        "--https_server_port", "0",
+        "--http_server_port", "0",
+        "--api_server_url", "https://generativelanguage.googleapis.com",
+        "--cloud_code_endpoint", "https://daily-cloudcode-pa.googleapis.com"
+    ]
+
+    try:
+        headless_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(30):
+            time.sleep(0.1)
+            try:
+                ss_out = subprocess.check_output(["ss", "-tulpn"], stderr=subprocess.DEVNULL).decode("utf-8", errors="replace")
+                for l in ss_out.splitlines():
+                    if f"pid={headless_proc.pid}," in l or f"pid={headless_proc.pid})" in l:
+                        pm = re.search(r":(\d+)\s+", l)
+                        if pm:
+                            test_p = int(pm.group(1))
+                            try:
+                                test_url = f"https://127.0.0.1:{test_p}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
+                                test_req = urllib.request.Request(test_url, data=b"{}", headers={"Content-Type": "application/json", "X-Codeium-Csrf-Token": temp_csrf})
+                                with urllib.request.urlopen(test_req, context=ctx, timeout=1) as r:
+                                    port = test_p
+                                    csrf = temp_csrf
+                                    pid = headless_proc.pid
+                                    break
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+            if port:
+                break
+    except Exception as e:
+        if not quiet:
+            print(f"Error launching headless language server: {e}", file=sys.stderr)
+        sys.exit(1)
+
+if not port:
+    if headless_proc:
+        headless_proc.terminate()
+    if not quiet:
+        print("Error: Could not connect to Language Server.", file=sys.stderr)
+    sys.exit(1)
+
+def cleanup():
+    if headless_proc:
+        try:
+            headless_proc.terminate()
+            headless_proc.wait(timeout=2)
+        except Exception:
+            headless_proc.kill()
+
+try:
+    req = urllib.request.Request(
+        f"https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary",
+        data=b"{}",
+        headers={"Content-Type": "application/json", "X-Codeium-Csrf-Token": csrf}
+    )
+    with urllib.request.urlopen(req, context=ctx, timeout=5) as r:
+        quota_data = json.loads(r.read().decode("utf-8"))
+except Exception as e:
+    cleanup()
+    if not quiet:
+        print(f"Error querying quota summary: {e}", file=sys.stderr)
+    sys.exit(1)
+
+weekly_bucket = None
+groups = quota_data.get("response", {}).get("groups", [])
+for g in groups:
+    for b in g.get("buckets", []):
+        if b.get("bucketId") == "gemini-weekly":
+            weekly_bucket = b
+            break
+    if weekly_bucket:
+        break
+
+if not weekly_bucket:
+    cleanup()
+    if not quiet:
+        print("Error: Weekly quota bucket ('gemini-weekly') not found in telemetry.", file=sys.stderr)
+    sys.exit(1)
+
+remaining_frac = float(weekly_bucket.get("remainingFraction", 0.0))
+reset_time_str = weekly_bucket.get("resetTime")
+now = datetime.now(timezone.utc)
+
+time_left_str = ""
+diff_sec = 0
+if reset_time_str:
+    try:
+        rt = datetime.fromisoformat(reset_time_str.replace("Z", "+00:00"))
+        diff_sec = int((rt - now).total_seconds())
+        if diff_sec > 0:
+            d_hours = diff_sec // 3600
+            d_mins = (diff_sec % 3600) // 60
+            time_left_str = f"{d_hours}h {d_mins}m"
+        else:
+            time_left_str = "Refreshed!"
+    except Exception:
+        time_left_str = str(reset_time_str)
+
+prof_key = target_prof or "default"
+prof_state = state["profiles"].get(prof_key, {})
+
+if action == "status":
+    cleanup()
+    cron_installed = False
+    try:
+        cr_out = subprocess.check_output(["crontab", "-l"], stderr=subprocess.DEVNULL).decode("utf-8", errors="replace")
+        if f"multigravity-prime:{prof_key}" in cr_out or f"prime {prof_key} --quiet" in cr_out or f"prime \"{prof_key}\" --quiet" in cr_out:
+            cron_installed = True
+    except Exception:
+        pass
+
+    systemd_active = False
+    try:
+        res = subprocess.run(["systemctl", "--user", "is-active", f"multigravity-prime-{prof_key}.timer"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if res.returncode == 0:
+            systemd_active = True
+    except Exception:
+        pass
+
+    last_primed = prof_state.get("last_primed_at", "Never")
+    last_model = prof_state.get("last_model", "-")
+    last_reset = prof_state.get("last_reset_time", "-")
+    last_prompt = prof_state.get("last_prompt")
+    prompt_info = f', prompt: "{last_prompt}"' if last_prompt else ""
+    target_prime_time = prof_state.get("target_prime_time")
+
+    print(f"\nPrime Status — Profile: {prof_key}")
+    print("=" * 60)
+    server_mode = f"Active IDE Instance (PID {pid}, Port {port})" if not headless_proc else "Headless (Standby)"
+    print(f"  Language Server:    {server_mode}")
+    print(f"  Weekly Quota:       {remaining_frac * 100:.1f}% remaining | Resets in: {time_left_str}")
+    print(f"  Reset Target Time:  {reset_time_str}")
+    print(f"  Last Primed:        {last_primed} (model: {last_model}{prompt_info})")
+
+    is_refreshed = (remaining_frac >= 0.999) or (diff_sec <= 0)
+    already_primed = (last_reset == reset_time_str and not is_refreshed)
+    if already_primed:
+        cycle_status = "Active (Weekly countdown is currently running)"
+    elif is_refreshed:
+        if target_prime_time:
+            cycle_status = f"Pending Prime with Jitter (Scheduled at: {target_prime_time})"
+        else:
+            cycle_status = "Ready to Prime (Reset occurred / New cycle waiting to start)"
+    else:
+        cycle_status = "Active (Countdown running)"
+    print(f"  Cycle Status:       {cycle_status}")
+
+    print("\n  Scheduled Watchdog:")
+    print(f"    Crontab:          {'Installed (Hourly)' if cron_installed else 'Not installed'}")
+    print(f"    Systemd Timer:    {'Active' if systemd_active else 'Not active / Not installed'}")
+    print("")
+    sys.exit(0)
+
+# Action == "prime"
+is_refreshed = (remaining_frac >= 0.999) or (diff_sec <= 0)
+last_reset = prof_state.get("last_reset_time")
+already_primed = (last_reset == reset_time_str and remaining_frac < 0.999)
+
+if not force:
+    if already_primed:
+        cleanup()
+        if not quiet:
+            print(f"Weekly quota for '{prof_key}' is already primed and active for this cycle.")
+            print(f"Current cycle resets in {time_left_str} ({reset_time_str}).")
+        sys.exit(0)
+
+    if not is_refreshed:
+        cleanup()
+        if not quiet:
+            print(f"Weekly quota for '{prof_key}' has not reset yet ({remaining_frac * 100:.1f}% remaining, resets in {time_left_str}).")
+        sys.exit(0)
+
+    if check_only:
+        cleanup()
+        if not quiet:
+            print(f"Weekly quota for '{prof_key}' is READY for priming (Reset occurred / New cycle waiting).")
+        sys.exit(0)
+
+    # Jitter handling
+    if not no_jitter and max_jitter > 0:
+        target_str = prof_state.get("target_prime_time")
+        target_time = None
+        if target_str:
+            try:
+                target_time = datetime.fromisoformat(target_str)
+            except Exception:
+                pass
+
+        if not target_time or target_time < now - timedelta(hours=2):
+            jitter_sec = random.uniform(0, max_jitter * 60)
+            target_time = now + timedelta(seconds=jitter_sec)
+            prof_state["target_prime_time"] = target_time.isoformat()
+            state["profiles"][prof_key] = prof_state
+            save_state(state)
+
+        if now < target_time:
+            wait_s = int((target_time - now).total_seconds())
+            if quiet:
+                cleanup()
+                sys.exit(0)
+            else:
+                print(f"Anti-bot jitter: waiting {wait_s // 60}m {wait_s % 60}s before priming (scheduled for {target_time.strftime('%H:%M:%S UTC')})...")
+                time.sleep(wait_s)
+
+# Execute Priming
+PROMPT_POOL = [
+    # English
+    "ping",
+    "Hello! Quick status check.",
+    "Hi, are you ready?",
+    "Good morning! Ready for today's tasks?",
+    "Quick ping test, thanks!",
+    "Hi there! How is everything running?",
+    "Ready to assist today?",
+    "Hello, just checking in.",
+    "Quick connectivity check.",
+    "Hi! All systems operational?",
+    # Portuguese
+    "Olá! Tudo bem por aí?",
+    "Oi! Teste rápido de status.",
+    "Bom dia! Pronto para os trabalhos de hoje?",
+    "Olá, tudo funcionando certinho?",
+    "Oi, checagem rápida de conexão.",
+    "Pronto para ajudar hoje?",
+    "Olá! Sistema operacional?",
+    "Checagem rápida de status, valeu!",
+    "Oi, apenas confirmando conexão.",
+    "Olá! Pronto para começar?",
+]
+selected_prompt = random.choice(PROMPT_POOL)
+
+try:
+    start_req = urllib.request.Request(
+        f"https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/StartCascade",
+        data=json.dumps({"source": "CORTEX_TRAJECTORY_SOURCE_CLI"}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "X-Codeium-Csrf-Token": csrf}
+    )
+    with urllib.request.urlopen(start_req, context=ctx, timeout=10) as r:
+        start_res = json.loads(r.read().decode("utf-8"))
+        cascade_id = start_res.get("cascadeId")
+
+    msg_payload = {
+        "cascadeId": cascade_id,
+        "items": [{"text": selected_prompt}],
+        "cascadeConfig": {
+            "plannerConfig": {
+                "requestedModel": {
+                    "model": "MODEL_PLACEHOLDER_M73"
+                }
+            }
+        }
+    }
+    msg_req = urllib.request.Request(
+        f"https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage",
+        data=json.dumps(msg_payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "X-Codeium-Csrf-Token": csrf}
+    )
+    with urllib.request.urlopen(msg_req, context=ctx, timeout=10) as r:
+        r.read()
+
+    prof_state["last_primed_at"] = datetime.now(timezone.utc).isoformat()
+    prof_state["last_reset_time"] = reset_time_str
+    prof_state["last_cascade_id"] = cascade_id
+    prof_state["last_model"] = "gemini-3.6-flash-low"
+    prof_state["last_prompt"] = selected_prompt
+    prof_state["target_prime_time"] = None
+    prof_state["status"] = "success"
+    state["profiles"][prof_key] = prof_state
+    save_state(state)
+
+    if not quiet:
+        print(f"\n✓ Successfully primed weekly quota for profile '{prof_key}'!")
+        print(f"  Prompt: \"{selected_prompt}\"")
+        print("  Model: gemini-3.6-flash-low (minimum token cost)")
+        print(f"  Cascade ID: {cascade_id}")
+        print("  7-day reset countdown has officially started!")
+finally:
+    cleanup()
+EOF
+}
+
 update_cli() {
   local repo="${MULTIGRAVITY_REPO:-yegear1/multigravity-cli}"
   local branch="${MULTIGRAVITY_BRANCH:-main}"
@@ -2124,6 +2837,7 @@ _multigravity() {
         'skills:Manage skills and plugins configuration (status, share, isolate)'
         'config:Manage config.json and permissions sharing (status, share, isolate)'
         'quota:Show AI token limits, usage percentage, and reset time'
+        'prime:Prime weekly token quota and manage reset automations'
         'update:Update multigravity'
         'doctor:Run system diagnosis'
         'stats:Show profile storage usage'
@@ -2149,7 +2863,7 @@ _multigravity() {
                     ;;
                 ai)
                     local -a subcommands
-                    subcommands=('export:Export AI conversations' 'import:Import AI conversations' 'sync:Synchronize AI conversations between two profiles' 'list:List AI conversations' 'quota:Show AI token limits and reset times')
+                    subcommands=('export:Export AI conversations' 'import:Import AI conversations' 'sync:Synchronize AI conversations between two profiles' 'list:List AI conversations' 'quota:Show AI token limits and reset times' 'prime:Prime weekly token quota')
                     _describe -t subcommands 'subcommand' subcommands
                     ;;
                 mcp)
@@ -2167,7 +2881,7 @@ _multigravity() {
                     subcommands=('status:Show config sharing status' 'share:Share host config.json' 'isolate:Isolate config.json locally')
                     _describe -t subcommands 'subcommand' subcommands
                     ;;
-                quota|color|stop|restart|rename|delete|clone|help)
+                quota|prime|color|stop|restart|rename|delete|clone|help)
                     local -a profiles
                     profiles=($(multigravity list --raw 2>/dev/null))
                     (( ${#profiles} > 0 )) && _describe -t profiles 'profile' profiles
@@ -2186,7 +2900,7 @@ _multigravity_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="new color stop restart clean list status rename delete clone template export import ai mcp skills config quota update doctor stats completion version help"
+    opts="new color stop restart clean list status rename delete clone template export import ai mcp skills config quota prime update doctor stats completion version help"
 
     if [[ ${COMP_CWORD} -eq 1 ]] ; then
         local profiles=$(multigravity list --raw 2>/dev/null)
@@ -2201,7 +2915,7 @@ _multigravity_completions() {
             return 0
             ;;
         ai)
-            COMPREPLY=( $(compgen -W "export import sync list quota" -- "${cur}") )
+            COMPREPLY=( $(compgen -W "export import sync list quota prime" -- "${cur}") )
             return 0
             ;;
         mcp)
@@ -2216,7 +2930,7 @@ _multigravity_completions() {
             COMPREPLY=( $(compgen -W "status share isolate" -- "${cur}") )
             return 0
             ;;
-        quota|color|stop|restart|delete|rename|clone)
+        quota|prime|color|stop|restart|delete|rename|clone)
             local profiles=$(multigravity list --raw 2>/dev/null)
             COMPREPLY=( $(compgen -W "${profiles}" -- "${cur}") )
             return 0
@@ -2355,10 +3069,22 @@ Commands:
   ai sync <src> <dest>        Synchronize AI conversations directly between two profiles
   ai list <profile>           List AI conversations in a profile
   ai quota [profile]          Show AI token limits, usage percentage, and reset time
+  ai prime [profile] [opt]    Trigger minimal token prompt to start 7-day cycle
   mcp <status|share|isolate> <profile> Manage MCP server configuration sharing
   skills <status|share|isolate> <profile> Manage skills and plugins configuration sharing
   config <status|share|isolate> <profile> Manage config.json and permission grants sharing
   quota [profile]             Show AI token limits, usage percentage, and reset time
+  prime [profile] [options]   Auto-prime weekly token limit on reset (jitter & cron/systemd)
+      --force                 Force send priming prompt immediately
+      --check                 Check if weekly cycle is pending prime
+      --status                Show prime automation and quota status
+      --no-jitter             Bypass anti-bot random delay
+      --jitter <mins>         Set max jitter in minutes (default: 60)
+      --install-cron          Install hourly check in user's crontab
+      --uninstall-cron        Remove hourly check from crontab
+      --install-systemd       Install and enable user systemd timer (Linux)
+      --uninstall-systemd     Disable and remove user systemd timer
+      --quiet                 Silent execution (errors only)
   update                      Update multigravity to the latest version
   doctor                      Run a system diagnosis
   stats                       Show storage usage per profile
@@ -2445,6 +3171,10 @@ case "$cmd" in
   quota)
     shift
     quota_cmd "$@"
+    ;;
+  prime)
+    shift
+    prime_cmd "$@"
     ;;
   update)
     update_cli

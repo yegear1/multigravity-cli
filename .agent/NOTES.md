@@ -90,3 +90,22 @@
   - `gemini-weekly`: Janela semanal atrelada ao tier individual da conta Google.
   - `3p-5h` e `3p-weekly`: Janelas para modelos externos (Claude Opus/Sonnet, GPT).
 - **Decisão:** Criar `multigravity quota [perfil]` e alias `multigravity ai quota [perfil]`, mapeando os processos ativos de cada perfil e formatando as barras de progresso e contagens regressivas em horas/minutos, com paridade 100% entre Bash e PowerShell.
+
+### 2026-09-13 [Task 02.3] Automação de Reset de Cota Semanal (`multigravity prime` & Watchdog)
+
+- **Contexto:** A janela de cota semanal (`gemini-weekly`) só reinicia a contagem regressiva de 7 dias após o usuário enviar a primeira mensagem do novo ciclo. Se o usuário ficar 2 dias sem usar a ferramenta após o reset, ele perde 2 dias úteis de recarga futura.
+- **Descoberta Técnica de RPCs do Language Server:**
+  - O endpoint gRPC/HTTPS `/exa.language_server_pb.LanguageServerService/StartCascade` com payload `{"source": "CORTEX_TRAJECTORY_SOURCE_CLI"}` cria uma nova trajetória e retorna um `cascadeId`.
+  - O endpoint `/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage` permite o despacho direto de prompts. Para minimizar o impacto na cota (< 5 tokens), utiliza-se o modelo `gemini-3.6-flash-low`, mapeado internamente no enum como `MODEL_PLACEHOLDER_M73`:
+    `{"cascadeId": "<id>", "items": [{"text": "ping"}], "cascadeConfig": {"plannerConfig": {"requestedModel": {"model": "MODEL_PLACEHOLDER_M73"}}}}`.
+  - **Execução Headless:** Se a IDE estiver fechada, o binário `language_server` pode ser invocado diretamente em modo efêmero com os argumentos `--standalone --headless=true --gemini_dir <profile_dir>/.gemini --csrf_token <token>`, permitindo consultar a cota e disparar o priming sem sequer abrir a interface gráfica.
+- **Anti-bot e Idempotência:**
+  - Pool de prompts naturais e variados em inglês e português ("ping", "Hello! Quick status check.", "Olá! Tudo bem por aí?", "Oi! Teste rápido de status.", etc.), selecionados aleatoriamente a cada disparo para evitar repetições previsíveis de mensagens.
+  - Implementado jitter randômico de 0 a 60 minutos (`--jitter <mins>`, padrão 60m, bypass com `--no-jitter`) para evitar requisições em intervalos fixos previsíveis.
+  - Estado persistido em `~/.local/share/multigravity/prime_state.json` vinculando `last_primed_cycle_reset`, `last_prompt` e `last_primed_at` para assegurar que cada ciclo semanal só seja inicializado exatamente uma vez.
+- **Automação Contínua:**
+  - Suporte a instalação e desinstalação simplificada de rotinas em segundo plano:
+    - Linux/macOS: Cron (`--install-cron` / `--uninstall-cron`) rodando a cada 30 minutos e Systemd User Timer (`--install-systemd` / `--uninstall-systemd`).
+    - Windows: Tarefas agendadas nativas via `schtasks.exe` (`--install-task` / `--uninstall-task`).
+  - **Atenção ao `$HOME`:** No Linux/macOS dentro do terminal integrado do Antigravity, a variável `$HOME` é redirecionada para a raiz do perfil (`~/AntigravityProfiles/<name>`). O watchdog e os instaladores de cron/systemd utilizam estritamente `${REAL_HOME:-$HOME}` para referenciar o diretório do usuário host.
+

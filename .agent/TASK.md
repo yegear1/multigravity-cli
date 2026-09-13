@@ -6,7 +6,7 @@
 
 ## Tarefa Ativa
 
-*Nenhuma tarefa em execução.*
+Nenhuma tarefa em execução no momento.
 
 ---
 
@@ -19,6 +19,7 @@
 | [00.0] | Release v1.4.1 (Shared MCP & Skills, Direct AI Sync, Windows Parity) | v1.4.1 | 2026-09-13 |
 | [02.1] | Compartilhamento e Sincronização Automática de config.json e Permissões | feat(config) | 2026-09-13 |
 | [02.2] | Telemetria e Monitoramento de Cotas e Tokens (multigravity quota) | feat(quota) | 2026-09-13 |
+| [02.3] | Automação de Reset de Cota Semanal (multigravity prime & watchdog) | feat(prime) | 2026-09-13 |
 
 ---
 
