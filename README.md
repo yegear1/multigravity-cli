@@ -85,6 +85,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity new <name> --color <color>` | Create a profile with a custom window color theme |
 | `multigravity new <name> --isolated-dotfiles` | Do not link host `.gitconfig` or `.ssh` into profile |
 | `multigravity new <name> --isolated-mcp` | Do not share host Model Context Protocol (MCP) servers |
+| `multigravity new <name> --isolated-skills` | Do not share host global skills and plugins |
 | `multigravity <name> [args...]` | Launch a profile (passes arguments to the IDE) |
 | `multigravity stop <name> [--force]` | Gracefully stop a running profile (or force kill) |
 | `multigravity restart <name>` | Restart a running profile |
@@ -107,6 +108,9 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity mcp status <name>` | Check MCP server configuration sharing status |
 | `multigravity mcp share <name>` | Share host MCP servers (`~/.gemini/config/mcp_config.json`) |
 | `multigravity mcp isolate <name>` | Isolate profile with a private copy of MCP configuration |
+| `multigravity skills status <name>` | Check skills & plugins configuration sharing status |
+| `multigravity skills share <name>` | Share host skills & plugins (`~/.gemini/config/skills`, `plugins`) |
+| `multigravity skills isolate <name>` | Isolate profile with a private copy of skills & plugins |
 
 ### Templates
 
@@ -188,6 +192,24 @@ multigravity new client-x --isolated-mcp
 # Switch an existing profile between shared and isolated modes
 multigravity mcp isolate work
 multigravity mcp share work
+```
+
+---
+
+## Skills & Plugins Sharing
+
+By default, all profiles link to the host system's global custom skills (`~/.gemini/config/skills`) and plugins (`~/.gemini/config/plugins`), giving all profiles immediate access to custom workflows and plugin capabilities:
+
+```bash
+# Check skills & plugins sharing status for a profile
+multigravity skills status work
+
+# Create a profile with isolated skills & plugins
+multigravity new client-x --isolated-skills
+
+# Switch an existing profile between shared and isolated modes
+multigravity skills isolate work
+multigravity skills share work
 ```
 
 ---

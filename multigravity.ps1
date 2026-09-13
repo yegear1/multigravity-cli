@@ -124,6 +124,38 @@ function Link-McpConfig {
     }
 }
 
+function Link-SkillsConfig {
+    param($profileDir)
+    if (Test-Path "$profileDir\.isolated_skills") { return }
+
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    $targetConfigDir = "$profileDir\.gemini\config"
+
+    # 1. Link skills directory ~/.gemini/config/skills
+    $hostSkills = "$realUser\.gemini\config\skills"
+    $targetSkills = "$targetConfigDir\skills"
+
+    if ((Test-Path $hostSkills) -and !(Test-Path $targetSkills)) {
+        if (!(Test-Path $targetConfigDir)) {
+            New-Item -ItemType Directory -Force -Path $targetConfigDir | Out-Null
+        }
+        New-Item -ItemType Junction -Path $targetSkills -Target $hostSkills -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    # 2. Link plugins directory ~/.gemini/config/plugins
+    $hostPlugins = "$realUser\.gemini\config\plugins"
+    $targetPlugins = "$targetConfigDir\plugins"
+
+    if ((Test-Path $hostPlugins) -and !(Test-Path $targetPlugins)) {
+        if (!(Test-Path $targetConfigDir)) {
+            New-Item -ItemType Directory -Force -Path $targetConfigDir | Out-Null
+        }
+        New-Item -ItemType Junction -Path $targetPlugins -Target $hostPlugins -ErrorAction SilentlyContinue | Out-Null
+    }
+}
+
 function Resolve-ProfileColor {
     param([string]$colorName)
     $inputStr = $colorName.Trim().ToLower()
@@ -276,6 +308,7 @@ function Write-Usage {
     Write-Host "      --from <template>        Seed from a saved template"
     Write-Host "      --isolated-dotfiles     Do not link user .gitconfig/.ssh into profile"
     Write-Host "      --isolated-mcp          Do not share system MCP server configurations"
+    Write-Host "      --isolated-skills       Do not share system skills and plugins"
     Write-Host "      --color <color>         Set UI theme color (e.g. blue, green, red, '#1e3a8a')"
     Write-Host "  color <name> [color|--clear] View or change window theme color"
     Write-Host "  stop <name> [--force]       Stop a running profile gracefully"
@@ -296,6 +329,7 @@ function Write-Usage {
     Write-Host "  ai sync <src> <dest>        Synchronize AI conversations directly between two profiles"
     Write-Host "  ai list <name>              List AI conversations in a profile"
     Write-Host "  mcp <status|share|isolate> <name> Manage MCP server configuration sharing"
+    Write-Host "  skills <status|share|isolate> <name> Manage skills and plugins configuration sharing"
     Write-Host "  update                      Update multigravity to the latest version"
     Write-Host "  doctor                      Run a system diagnosis"
     Write-Host "  stats                       Show storage usage per profile"
@@ -334,6 +368,7 @@ function Invoke-CreateProfile {
 
     Link-DevDotfiles $PROFILE_DIR
     Link-McpConfig $PROFILE_DIR
+    Link-SkillsConfig $PROFILE_DIR
 }
 
 function Invoke-CreateSharedProfile {
@@ -373,6 +408,7 @@ function Invoke-CreateSharedProfile {
 
     Link-DevDotfiles $profileDir
     Link-McpConfig $profileDir
+    Link-SkillsConfig $profileDir
 }
 
 function Invoke-LaunchProfile {
@@ -391,6 +427,7 @@ function Invoke-LaunchProfile {
 
     Link-DevDotfiles $PROFILE_DIR
     Link-McpConfig $PROFILE_DIR
+    Link-SkillsConfig $PROFILE_DIR
 
     Write-Host "Launching Antigravity profile '$PROFILE'"
     
@@ -460,6 +497,7 @@ function Invoke-NewProfile {
     $fromTpl           = ""
     $isolatedDotfiles  = $false
     $isolatedMcp       = $false
+    $isolatedSkills    = $false
     $color             = ""
     $i = 0
     while ($i -lt $extraArgs.Count) {
@@ -468,6 +506,7 @@ function Invoke-NewProfile {
             "--from"              { $i++; if ($i -lt $extraArgs.Count) { $fromTpl = $extraArgs[$i] } }
             "--isolated-dotfiles" { $isolatedDotfiles = $true }
             "--isolated-mcp"      { $isolatedMcp = $true }
+            "--isolated-skills"   { $isolatedSkills = $true }
             "--color"             { $i++; if ($i -lt $extraArgs.Count) { $color = $extraArgs[$i] } }
         }
         $i++
@@ -495,6 +534,9 @@ function Invoke-NewProfile {
     if ($isolatedMcp) {
         New-Item -ItemType File -Force -Path "$profileDir\.isolated_mcp" | Out-Null
     }
+    if ($isolatedSkills) {
+        New-Item -ItemType File -Force -Path "$profileDir\.isolated_skills" | Out-Null
+    }
 
     if ($fromTpl) {
         $tplPath = "$(Get-TemplatesDir)\$fromTpl"
@@ -506,6 +548,7 @@ function Invoke-NewProfile {
         Copy-Item -Path "$tplPath\*" -Destination $profileDir -Recurse -Force
         if (!$isolatedDotfiles) { Link-DevDotfiles $profileDir }
         if (!$isolatedMcp) { Link-McpConfig $profileDir }
+        if (!$isolatedSkills) { Link-SkillsConfig $profileDir }
     } elseif ($shared) {
         Invoke-CreateSharedProfile $name
     } else {
@@ -906,7 +949,7 @@ function Invoke-GenerateCompletion {
         @"
 Register-ArgumentCompleter -Native -CommandName multigravity -ScriptBlock {
     param(`$wordToComplete, `$commandAst, `$cursorPosition)
-    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'mcp', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
+    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'mcp', 'skills', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
     `$profiles = if (Test-Path '$BASE') { Get-ChildItem -Directory -Path '$BASE' | Select-Object -ExpandProperty Name } else { @() }
     (`$opts + `$profiles) | Where-Object { `$_ -like "`$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new(`$_, `$_, 'ParameterValue', `$_)
@@ -1435,6 +1478,97 @@ function Invoke-McpCmd {
     }
 }
 
+function Invoke-SkillsCmd {
+    param($action, $profile)
+    if ([string]::IsNullOrWhiteSpace($action) -or [string]::IsNullOrWhiteSpace($profile)) {
+        Write-Error "Error: usage: multigravity skills <status|share|isolate> <profile>"
+        exit 1
+    }
+    Validate-Name $profile
+
+    $profilePath = "$BASE\$profile"
+    if (!(Test-Path $profilePath)) {
+        Write-Error "Error: profile '$profile' does not exist"
+        exit 1
+    }
+
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    $hostSkills = "$realUser\.gemini\config\skills"
+    $hostPlugins = "$realUser\.gemini\config\plugins"
+    $targetSkills = "$profilePath\.gemini\config\skills"
+    $targetPlugins = "$profilePath\.gemini\config\plugins"
+
+    switch ($action) {
+        "status" {
+            if (Test-Path "$profilePath\.isolated_skills") {
+                Write-Host "Profile '$profile' has isolated skills/plugins (--isolated-skills active)."
+            } elseif ((Test-Path $targetSkills) -or (Test-Path $targetPlugins)) {
+                $sItem = Get-Item -Path $targetSkills -ErrorAction SilentlyContinue
+                $pItem = Get-Item -Path $targetPlugins -ErrorAction SilentlyContinue
+                $isShared = ($sItem -and ($sItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) -or ($pItem -and ($pItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint))
+                if ($isShared) {
+                    $sTarget = if ($sItem -and ($sItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { $sItem.Target } else { "(none)" }
+                    $pTarget = if ($pItem -and ($pItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { $pItem.Target } else { "(none)" }
+                    Write-Host "Profile '$profile' shares host skills -> $sTarget (plugins -> $pTarget)"
+                } else {
+                    Write-Host "Profile '$profile' has standalone local skills/plugins."
+                }
+            } else {
+                Write-Host "Profile '$profile' has no custom skills or plugins configured."
+            }
+        }
+        "share" {
+            if (Test-Path "$profilePath\.isolated_skills") {
+                Remove-Item -Force -Path "$profilePath\.isolated_skills" -ErrorAction SilentlyContinue
+            }
+            $sItem = Get-Item -Path $targetSkills -ErrorAction SilentlyContinue
+            $pItem = Get-Item -Path $targetPlugins -ErrorAction SilentlyContinue
+            $alreadyShared = ($sItem -and ($sItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) -and ($pItem -and ($pItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint))
+
+            if ($alreadyShared) {
+                Write-Host "Profile '$profile' is already sharing host skills and plugins."
+            } else {
+                if ((Test-Path $targetSkills) -and !($sItem -and ($sItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint))) {
+                    Move-Item -Path $targetSkills -Destination "$targetSkills.bak" -Force
+                    Write-Host "Backed up existing skills directory to skills.bak"
+                }
+                if ((Test-Path $targetPlugins) -and !($pItem -and ($pItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint))) {
+                    Move-Item -Path $targetPlugins -Destination "$targetPlugins.bak" -Force
+                    Write-Host "Backed up existing plugins directory to plugins.bak"
+                }
+                Link-SkillsConfig $profilePath
+                Write-Host "Profile '$profile' is now sharing host skills and plugins."
+            }
+        }
+        "isolate" {
+            New-Item -ItemType File -Force -Path "$profilePath\.isolated_skills" | Out-Null
+            $sItem = Get-Item -Path $targetSkills -ErrorAction SilentlyContinue
+            if ($sItem -and ($sItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                Remove-Item -Force -Path $targetSkills -ErrorAction SilentlyContinue
+                if (Test-Path $hostSkills) {
+                    Copy-Item -Path $hostSkills -Destination $targetSkills -Recurse -Force
+                    Write-Host "Copied host skills to standalone directory for '$profile'."
+                }
+            }
+            $pItem = Get-Item -Path $targetPlugins -ErrorAction SilentlyContinue
+            if ($pItem -and ($pItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                Remove-Item -Force -Path $targetPlugins -ErrorAction SilentlyContinue
+                if (Test-Path $hostPlugins) {
+                    Copy-Item -Path $hostPlugins -Destination $targetPlugins -Recurse -Force
+                    Write-Host "Copied host plugins to standalone directory for '$profile'."
+                }
+            }
+            Write-Host "Profile '$profile' is now isolated from host skills and plugins updates."
+        }
+        default {
+            Write-Error "Error: usage: multigravity skills <status|share|isolate> <profile>"
+            exit 1
+        }
+    }
+}
+
 function Invoke-InteractiveMenu {
     if (!(Test-Path $BASE)) {
         Write-Host "No profiles found."
@@ -1574,6 +1708,9 @@ switch ($cmd) {
     }
     "mcp" {
         Invoke-McpCmd $arg1 $arg2
+    }
+    "skills" {
+        Invoke-SkillsCmd $arg1 $arg2
     }
     "update" {
         Invoke-UpdateCli

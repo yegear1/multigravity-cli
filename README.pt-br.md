@@ -85,6 +85,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity new <nome> --color <cor>` | Cria um perfil com tema de cor personalizado na janela |
 | `multigravity new <nome> --isolated-dotfiles` | Não vincula `.gitconfig` ou `.ssh` do host ao perfil |
 | `multigravity new <nome> --isolated-mcp` | Não compartilha servidores do Model Context Protocol (MCP) do host |
+| `multigravity new <nome> --isolated-skills` | Não compartilha skills globais e plugins do host |
 | `multigravity <nome> [args...]` | Inicia um perfil (repassando argumentos para a IDE) |
 | `multigravity stop <nome> [--force]` | Encerra um perfil em execução graciosamente (ou forçado) |
 | `multigravity restart <nome>` | Reinicia um perfil em execução |
@@ -107,6 +108,9 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity mcp status <nome>` | Consulta o status de compartilhamento de servidores MCP |
 | `multigravity mcp share <nome>` | Compartilha os servidores MCP do host (`~/.gemini/config/mcp_config.json`) |
 | `multigravity mcp isolate <nome>` | Isola o perfil com uma cópia independente das configurações MCP |
+| `multigravity skills status <nome>` | Consulta o status de compartilhamento de skills e plugins |
+| `multigravity skills share <nome>` | Compartilha skills e plugins do host (`~/.gemini/config/skills`, `plugins`) |
+| `multigravity skills isolate <nome>` | Isola o perfil com uma cópia independente de skills e plugins |
 
 ### Modelos (Templates)
 
@@ -188,6 +192,24 @@ multigravity new cliente-x --isolated-mcp
 # Alternar um perfil existente entre os modos compartilhado e isolado
 multigravity mcp isolate trabalho
 multigravity mcp share trabalho
+```
+
+---
+
+## Compartilhamento de Skills e Plugins
+
+Por padrão, todos os perfis vinculam as customizações e plugins globais do host (`~/.gemini/config/skills` e `~/.gemini/config/plugins`), fornecendo acesso imediato às skills e fluxos de trabalho do assistente em qualquer perfil:
+
+```bash
+# Consultar o status de compartilhamento de skills/plugins de um perfil
+multigravity skills status trabalho
+
+# Criar um perfil com skills e plugins isolados
+multigravity new cliente-x --isolated-skills
+
+# Alternar um perfil existente entre os modos compartilhado e isolado
+multigravity skills isolate trabalho
+multigravity skills share trabalho
 ```
 
 ---

@@ -8,10 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Skills & Plugins Sharing:** Shared host global custom skills (`~/.gemini/config/skills`) and plugins (`~/.gemini/config/plugins`) across profiles by default without credential leakage.
+- **Skills Lifecycle Management:** `multigravity skills (status|share|isolate) <profile>` commands and `--isolated-skills` creation flag for full isolation or opt-in sharing.
 - **MCP Server Sharing (Model Context Protocol):** Shared host Model Context Protocol configuration (`~/.gemini/config/mcp_config.json`) and cached schemas (`~/.gemini/antigravity/mcp`) across profiles by default without credential leakage.
 - **MCP Lifecycle Management:** `multigravity mcp (status|share|isolate) <profile>` commands and `--isolated-mcp` creation flag for full profile MCP isolation or opt-in sharing.
 - **Direct AI Conversation Sync:** `multigravity ai sync <src> <dest>` command to sync chat histories, annotations, and brain artifacts directly between two local profiles without temporary archive files.
-- **Shell Autocompletion:** Updated Bash, Zsh, and PowerShell tab-completions for `mcp` subcommands and `ai sync`.
+- **Shell Autocompletion:** Updated Bash, Zsh, and PowerShell tab-completions for `skills` subcommands, `mcp` subcommands, and `ai sync`.
 
 ## [1.4.0] - 2026-09-12
 

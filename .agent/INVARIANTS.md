@@ -49,3 +49,11 @@
 - **Configuração Global vs Tokens:** O Antigravity armazena as definições dos servidores MCP em `~/.gemini/config/mcp_config.json` e schemas em `~/.gemini/antigravity/mcp`. Os tokens de autenticação (ex: `jetski-standalone-oauth-token`) residem na raiz de `~/.gemini/`, e **NÃO** dentro de `~/.gemini/config/`.
 - **Symlink Seguro:** Vincular `~/.gemini/config/mcp_config.json` e `~/.gemini/antigravity/mcp` por symlink (ou Junction no Windows) **NÃO** expõe as credenciais de autenticação da IA do usuário host.
 - **Opt-out (.isolated_mcp):** Qualquer perfil contendo o arquivo sentinela `.isolated_mcp` não deve ser sobrescrito nem receber links para o host, mantendo configuração e schemas totalmente privados e isolados.
+
+---
+
+## 5. Compartilhamento de Skills e Plugins
+
+- **Customizações Globais vs Tokens:** Skills residem em `~/.gemini/config/skills/` e Plugins em `~/.gemini/config/plugins/`. Tratam-se apenas de arquivos de instrução markdown (`SKILL.md`), scripts e templates (`plugin.json`), sem nenhum token ou credencial.
+- **Symlink Seguro:** Vincular `~/.gemini/config/skills` e `~/.gemini/config/plugins` por symlink (ou Junction no Windows) permite compartilhar o ecossistema de habilidades do assistente sem expor sessões ou credenciais.
+- **Opt-out (.isolated_skills):** Perfis contendo o arquivo sentinela `.isolated_skills` mantêm suas pastas `skills/` e `plugins/` totalmente isoladas e privadas.
