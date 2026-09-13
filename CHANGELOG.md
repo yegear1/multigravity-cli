@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-13
+
 ### Added
 - **Skills & Plugins Sharing:** Shared host global custom skills (`~/.gemini/config/skills`) and plugins (`~/.gemini/config/plugins`) across profiles by default without credential leakage.
 - **Skills Lifecycle Management:** `multigravity skills (status|share|isolate) <profile>` commands and `--isolated-skills` creation flag for full isolation or opt-in sharing.

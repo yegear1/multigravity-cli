@@ -3,6 +3,13 @@
 > Lotes arquivados após tag Git (ou quando o log do `TASK.md` passar de ~15 linhas).
 > Cabeçalho canônico: `## [vX.Y.Z] - AAAA-MM-DD`. Detalhe: `git log`.
 
+## [v1.4.1] - 2026-09-13
+
+| Tarefa | Título | Commit(s) | Data |
+|---|---|---|---|
+| [02.1] | Compartilhamento de MCP Servers e Sincronização Direta de Conversas de IA | 7ff3436 | 2026-09-13 |
+| [02.2] | Compartilhamento de Skills e Plugins Globais | a97fc26 | 2026-09-13 |
+
 ---
 
 ## [v1.4.0] - 2026-09-12
