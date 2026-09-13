@@ -84,6 +84,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity new <name> --from <template>` | Create a profile from a saved template |
 | `multigravity new <name> --color <color>` | Create a profile with a custom window color theme |
 | `multigravity new <name> --isolated-dotfiles` | Do not link host `.gitconfig` or `.ssh` into profile |
+| `multigravity new <name> --isolated-mcp` | Do not share host Model Context Protocol (MCP) servers |
 | `multigravity <name> [args...]` | Launch a profile (passes arguments to the IDE) |
 | `multigravity stop <name> [--force]` | Gracefully stop a running profile (or force kill) |
 | `multigravity restart <name>` | Restart a running profile |
@@ -102,6 +103,10 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity ai list <name>` | List AI conversation titles and artifact counts in a profile |
 | `multigravity ai export <name> [path]` | Export AI chats and brain data (sanitized of OAuth tokens & keys) |
 | `multigravity ai import <archive> <name>` | Import AI chats into an existing profile non-destructively |
+| `multigravity ai sync <src> <dest>` | Synchronize AI conversations directly between two local profiles |
+| `multigravity mcp status <name>` | Check MCP server configuration sharing status |
+| `multigravity mcp share <name>` | Share host MCP servers (`~/.gemini/config/mcp_config.json`) |
+| `multigravity mcp isolate <name>` | Isolate profile with a private copy of MCP configuration |
 
 ### Templates
 
@@ -126,6 +131,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity doctor` | Diagnose environment setup, paths, and binary detection |
 | `multigravity update` | Update Multigravity to the latest version |
 | `multigravity completion` | Set up shell tab-completion |
+| `multigravity version` | Show multigravity version |
 | `multigravity help` | Show help message |
 
 ---
@@ -148,9 +154,9 @@ multigravity color work --reset
 
 ---
 
-## AI Conversation Migration
+## AI Conversation Migration & Sync
 
-Migrate Gemini/Antigravity chat history and brain knowledge between profiles or across machines securely:
+Migrate or sync Gemini/Antigravity chat history and brain knowledge between profiles securely:
 
 ```bash
 # List conversations in a profile
@@ -161,6 +167,27 @@ multigravity ai export work ./work-chats.tar.gz
 
 # Import into another profile without overwriting existing conversations
 multigravity ai import ./work-chats.tar.gz personal
+
+# Direct profile-to-profile sync without creating intermediate archive files
+multigravity ai sync work personal
+```
+
+---
+
+## MCP Server Sharing (Model Context Protocol)
+
+By default, all profiles link to host Model Context Protocol configurations (`~/.gemini/config/mcp_config.json` and cached schemas `~/.gemini/antigravity/mcp`), granting immediate access to local MCP servers across all profiles without manual setup:
+
+```bash
+# Check MCP sharing status for a profile
+multigravity mcp status work
+
+# Create a profile isolated from host MCP servers
+multigravity new client-x --isolated-mcp
+
+# Switch an existing profile between shared and isolated modes
+multigravity mcp isolate work
+multigravity mcp share work
 ```
 
 ---

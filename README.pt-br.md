@@ -84,6 +84,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity new <nome> --from <modelo>` | Cria um perfil a partir de um modelo salvo |
 | `multigravity new <nome> --color <cor>` | Cria um perfil com tema de cor personalizado na janela |
 | `multigravity new <nome> --isolated-dotfiles` | Não vincula `.gitconfig` ou `.ssh` do host ao perfil |
+| `multigravity new <nome> --isolated-mcp` | Não compartilha servidores do Model Context Protocol (MCP) do host |
 | `multigravity <nome> [args...]` | Inicia um perfil (repassando argumentos para a IDE) |
 | `multigravity stop <nome> [--force]` | Encerra um perfil em execução graciosamente (ou forçado) |
 | `multigravity restart <nome>` | Reinicia um perfil em execução |
@@ -102,6 +103,10 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity ai list <nome>` | Lista títulos de conversas de IA e contagem de artefatos do perfil |
 | `multigravity ai export <nome> [caminho]` | Exporta conversas e dados do cérebro da IA (sanitizado de tokens OAuth e chaves) |
 | `multigravity ai import <arquivo> <nome>` | Importa conversas de IA para um perfil existente de forma não-destrutiva |
+| `multigravity ai sync <origem> <destino>` | Sincroniza conversas de IA diretamente entre dois perfis locais |
+| `multigravity mcp status <nome>` | Consulta o status de compartilhamento de servidores MCP |
+| `multigravity mcp share <nome>` | Compartilha os servidores MCP do host (`~/.gemini/config/mcp_config.json`) |
+| `multigravity mcp isolate <nome>` | Isola o perfil com uma cópia independente das configurações MCP |
 
 ### Modelos (Templates)
 
@@ -126,6 +131,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity doctor` | Diagnostica o ambiente, caminhos e detecção de binários (`antigravity` / `agy`) |
 | `multigravity update` | Atualiza o Multigravity para a versão mais recente |
 | `multigravity completion` | Configura o autocompletar de comandos no shell |
+| `multigravity version` | Exibe a versão do Multigravity |
 | `multigravity help` | Exibe a mensagem de ajuda |
 
 ---
@@ -148,9 +154,9 @@ multigravity color trabalho --reset
 
 ---
 
-## Migração de Conversas de IA
+## Migração e Sincronização de Conversas de IA
 
-Transfira histórico de conversas do Gemini/Antigravity e conhecimento de artefatos entre perfis ou máquinas de maneira segura:
+Transfira ou sincronize histórico de conversas do Gemini/Antigravity e conhecimento de artefatos entre perfis com segurança:
 
 ```bash
 # Listar conversas em um perfil
@@ -161,6 +167,27 @@ multigravity ai export trabalho ./conversas-trabalho.tar.gz
 
 # Importar para outro perfil sem sobrescrever conversas existentes
 multigravity ai import ./conversas-trabalho.tar.gz pessoal
+
+# Sincronização direta entre dois perfis locais sem gerar arquivos temporários
+multigravity ai sync trabalho pessoal
+```
+
+---
+
+## Compartilhamento de Servidores MCP (Model Context Protocol)
+
+Por padrão, todos os perfis vinculam as configurações do Model Context Protocol do host (`~/.gemini/config/mcp_config.json` e schemas em `~/.gemini/antigravity/mcp`), permitindo acesso imediato aos servidores e ferramentas MCP locais sem retrabalho de configuração:
+
+```bash
+# Consultar o status de compartilhamento de MCP de um perfil
+multigravity mcp status trabalho
+
+# Criar um perfil isolado dos servidores MCP do host
+multigravity new cliente-x --isolated-mcp
+
+# Alternar um perfil existente entre os modos compartilhado e isolado
+multigravity mcp isolate trabalho
+multigravity mcp share trabalho
 ```
 
 ---

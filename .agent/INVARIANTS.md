@@ -41,3 +41,11 @@
 ### Windows
 - **Variáveis de Usuário:** `$env:USERPROFILE`, `$env:APPDATA` e `$env:LOCALAPPDATA` devem ser apontados para as subpastas correspondentes dentro de `$PROFILE_DIR`.
 - **Atalhos:** `.lnk` gerados em `$env:APPDATA\Microsoft\Windows\Start Menu\Programs\`.
+
+---
+
+## 4. Compartilhamento de MCP (Model Context Protocol)
+
+- **Configuração Global vs Tokens:** O Antigravity armazena as definições dos servidores MCP em `~/.gemini/config/mcp_config.json` e schemas em `~/.gemini/antigravity/mcp`. Os tokens de autenticação (ex: `jetski-standalone-oauth-token`) residem na raiz de `~/.gemini/`, e **NÃO** dentro de `~/.gemini/config/`.
+- **Symlink Seguro:** Vincular `~/.gemini/config/mcp_config.json` e `~/.gemini/antigravity/mcp` por symlink (ou Junction no Windows) **NÃO** expõe as credenciais de autenticação da IA do usuário host.
+- **Opt-out (.isolated_mcp):** Qualquer perfil contendo o arquivo sentinela `.isolated_mcp` não deve ser sobrescrito nem receber links para o host, mantendo configuração e schemas totalmente privados e isolados.

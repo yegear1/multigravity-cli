@@ -3,8 +3,23 @@ set -euo pipefail
 
 shopt -s nullglob
 
-REAL_HOME="${HOME}"
-BASE="${MULTIGRAVITY_HOME:-$HOME/AntigravityProfiles}"
+REAL_HOME="${REAL_HOME:-}"
+if [ -z "$REAL_HOME" ] || [[ "$REAL_HOME" == *"/AntigravityProfiles/"* ]]; then
+  if command -v getent >/dev/null 2>&1; then
+    REAL_HOME="$(getent passwd "${USER:-${LOGNAME:-}}" 2>/dev/null | cut -d: -f6 || true)"
+  fi
+  if [ -z "$REAL_HOME" ]; then
+    REAL_HOME="$(eval echo "~${USER:-${LOGNAME:-}}" 2>/dev/null || true)"
+  fi
+  if [ -z "$REAL_HOME" ] || [[ "$REAL_HOME" == *"/AntigravityProfiles/"* ]]; then
+    if [[ "$HOME" == *"/AntigravityProfiles/"* ]]; then
+      REAL_HOME="${HOME%%/AntigravityProfiles/*}"
+    else
+      REAL_HOME="$HOME"
+    fi
+  fi
+fi
+BASE="${MULTIGRAVITY_HOME:-$REAL_HOME/AntigravityProfiles}"
 VERSION="1.4.0"
 cmd="${1-}"
 
@@ -230,6 +245,100 @@ link_dev_dotfiles() {
   fi
 }
 
+link_mcp_config() {
+  local profile_path=$1
+
+  if [ -f "$profile_path/.isolated_mcp" ]; then
+    return 0
+  fi
+
+  local user_home="${REAL_HOME:-$HOME}"
+  local host_mcp_config="$user_home/.gemini/config/mcp_config.json"
+  local target_config_dir="$profile_path/.gemini/config"
+  local target_mcp_config="$target_config_dir/mcp_config.json"
+
+  # 1. Link mcp_config.json
+  if [ -f "$host_mcp_config" ] && [ ! -e "$target_mcp_config" ]; then
+    mkdir -p "$target_config_dir"
+    ln -s "$host_mcp_config" "$target_mcp_config"
+  fi
+
+  # 2. Link schemas directory ~/.gemini/antigravity/mcp
+  local host_mcp_schemas="$user_home/.gemini/antigravity/mcp"
+  local target_antigravity_dir="$profile_path/.gemini/antigravity"
+  local target_mcp_schemas="$target_antigravity_dir/mcp"
+
+  if [ -d "$host_mcp_schemas" ] && [ ! -e "$target_mcp_schemas" ]; then
+    mkdir -p "$target_antigravity_dir"
+    ln -s "$host_mcp_schemas" "$target_mcp_schemas"
+  fi
+}
+
+mcp_cmd() {
+  local action="${1-}" profile="${2-}"
+  [ -n "$action" ] && [ -n "$profile" ] || abort "usage: multigravity mcp <status|share|isolate> <profile>"
+  validate_name "$profile"
+
+  local profile_path
+  profile_path="$(profile_dir "$profile")"
+  [ -d "$profile_path" ] || abort "profile '$profile' does not exist"
+
+  local user_home="${REAL_HOME:-$HOME}"
+  local host_mcp_config="$user_home/.gemini/config/mcp_config.json"
+  local target_mcp_config="$profile_path/.gemini/config/mcp_config.json"
+  local target_mcp_schemas="$profile_path/.gemini/antigravity/mcp"
+  local host_mcp_schemas="$user_home/.gemini/antigravity/mcp"
+
+  case "$action" in
+    status)
+      if [ -f "$profile_path/.isolated_mcp" ]; then
+        print_info "Profile '$profile' has isolated MCP servers (--isolated-mcp active)."
+      elif [ -L "$target_mcp_config" ]; then
+        local target
+        target="$(readlink "$target_mcp_config" 2>/dev/null || true)"
+        print_info "Profile '$profile' shares host MCP servers -> $target"
+      elif [ -f "$target_mcp_config" ]; then
+        print_info "Profile '$profile' has a standalone local mcp_config.json."
+      else
+        print_info "Profile '$profile' has no MCP servers configured."
+      fi
+      ;;
+    share)
+      rm -f "$profile_path/.isolated_mcp"
+      if [ -L "$target_mcp_config" ]; then
+        print_info "Profile '$profile' is already sharing host MCP servers."
+      else
+        if [ -f "$target_mcp_config" ]; then
+          mv "$target_mcp_config" "$target_mcp_config.bak"
+          print_info "Backed up existing mcp_config.json to mcp_config.json.bak"
+        fi
+        link_mcp_config "$profile_path"
+        print_info "Profile '$profile' is now sharing host MCP servers."
+      fi
+      ;;
+    isolate)
+      touch "$profile_path/.isolated_mcp"
+      if [ -L "$target_mcp_config" ]; then
+        rm -f "$target_mcp_config"
+        if [ -f "$host_mcp_config" ]; then
+          cp "$host_mcp_config" "$target_mcp_config"
+          print_info "Copied host MCP config to standalone file for '$profile'."
+        fi
+      fi
+      if [ -L "$target_mcp_schemas" ]; then
+        rm -f "$target_mcp_schemas"
+        if [ -d "$host_mcp_schemas" ]; then
+          cp -r "$host_mcp_schemas" "$target_mcp_schemas"
+        fi
+      fi
+      print_info "Profile '$profile' is now isolated from host MCP updates."
+      ;;
+    *)
+      abort "usage: multigravity mcp <status|share|isolate> <profile>"
+      ;;
+  esac
+}
+
 resolve_profile_color() {
   local input
   input="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -428,6 +537,7 @@ create_profile_layout() {
   esac
 
   link_dev_dotfiles "$profile_path"
+  link_mcp_config "$profile_path"
 }
 
 create_shared_layout() {
@@ -480,6 +590,7 @@ create_shared_layout() {
   esac
 
   link_dev_dotfiles "$profile_path"
+  link_mcp_config "$profile_path"
 }
 
 script_path() {
@@ -664,12 +775,13 @@ launch_profile() {
 
   case "$(platform)" in
     darwin)
-      HOME="$profile_path" open -n "$app" --args \
+      REAL_HOME="$REAL_HOME" HOME="$profile_path" open -n "$app" --args \
         --user-data-dir "$data_dir" \
         --extensions-dir "$ext_dir" \
         "$@"
       ;;
     linux)
+      REAL_HOME="$REAL_HOME" \
       HOME="$profile_path" \
       XDG_CONFIG_HOME="$profile_path/.config" \
       XDG_CACHE_HOME="$profile_path/.cache" \
@@ -717,13 +829,14 @@ list_profiles() {
 }
 
 new_profile() {
-  local profile="" shared=false from_tpl="" isolated_dotfiles=false color=""
+  local profile="" shared=false from_tpl="" isolated_dotfiles=false isolated_mcp=false color=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --shared)             shared=true ;;
       --from)               from_tpl="${2-}"; shift ;;
       --isolated-dotfiles)  isolated_dotfiles=true ;;
+      --isolated-mcp)       isolated_mcp=true ;;
       --color)              color="${2-}"; shift ;;
       -*)                   abort "unknown option: $1" ;;
       *)                    profile="$1" ;;
@@ -749,6 +862,9 @@ new_profile() {
   if [ "$isolated_dotfiles" = true ]; then
     touch "$profile_path/.isolated_dotfiles"
   fi
+  if [ "$isolated_mcp" = true ]; then
+    touch "$profile_path/.isolated_mcp"
+  fi
 
   if [ -n "$from_tpl" ]; then
     local tpl_path
@@ -757,6 +873,7 @@ new_profile() {
     print_info "Creating profile '$profile' from template '$from_tpl'..."
     cp -R "$tpl_path"/* "$profile_path"/ 2>/dev/null || cp -R "$tpl_path"/. "$profile_path"/
     [ "$isolated_dotfiles" = false ] && link_dev_dotfiles "$profile_path"
+    [ "$isolated_mcp" = false ] && link_mcp_config "$profile_path"
   elif [ "$shared" = true ]; then
     create_shared_layout "$profile_path"
   else
@@ -881,7 +998,11 @@ delete_profile() {
   fi
 
   local confirm
-  read -r -p "Delete profile '$profile' and all its data? [y/N] " confirm
+  if [ "$force" = true ]; then
+    confirm="y"
+  else
+    read -r -p "Delete profile '$profile' and all its data? [y/N] " confirm
+  fi
   if [[ "$confirm" =~ ^[Yy]$ ]]; then
     rm -rf "$profile_path"
     remove_shortcut "$profile"
@@ -1388,6 +1509,10 @@ ai_export() {
   profile_path="$(profile_dir "$profile")"
   [ -d "$profile_path" ] || abort "profile '$profile' does not exist"
 
+  if is_profile_running "$profile"; then
+    abort "profile '$profile' is currently running — stop it first to ensure SQLite database flush (multigravity stop $profile)"
+  fi
+
   local gemini_dir="$profile_path/.gemini/antigravity"
   if [ ! -d "$gemini_dir" ]; then
     abort "profile '$profile' has no AI data (.gemini/antigravity does not exist)"
@@ -1443,11 +1568,21 @@ ai_import() {
 
   print_info "Importing AI chats into '$profile'..."
 
+  local extra_excludes=()
+  if [ -f "$target_gemini/agyhub_summaries_proto.pb" ]; then
+    extra_excludes+=(--exclude="agyhub_summaries_proto.pb")
+  fi
+  if [ -f "$target_gemini/antigravity_state.pbtxt" ]; then
+    extra_excludes+=(--exclude="antigravity_state.pbtxt")
+  fi
+
   tar -xzf "$archive" \
     --exclude="*token*" \
     --exclude="*oauth*" \
     --exclude="*auth*" \
+    --exclude="*credential*" \
     --exclude="installation_id" \
+    "${extra_excludes[@]}" \
     -C "$target_gemini"
 
   local conv_count=0
@@ -1456,6 +1591,90 @@ ai_import() {
   fi
 
   print_info "Successfully imported AI chats into profile '$profile' ($conv_count conversation(s) now available)."
+}
+
+ai_sync() {
+  local src="${1-}" dest="${2-}"
+  [ -n "$src" ] && [ -n "$dest" ] || abort "usage: multigravity ai sync <source_profile> <target_profile>"
+  validate_name "$src"
+  validate_name "$dest"
+
+  [ "$src" != "$dest" ] || abort "source and target profiles cannot be the same"
+
+  local src_path dest_path
+  src_path="$(profile_dir "$src")"
+  dest_path="$(profile_dir "$dest")"
+
+  [ -d "$src_path" ] || abort "source profile '$src' does not exist"
+  [ -d "$dest_path" ] || abort "target profile '$dest' does not exist"
+
+  if is_profile_running "$src"; then
+    abort "source profile '$src' is currently running — stop it first (multigravity stop $src)"
+  fi
+  if is_profile_running "$dest"; then
+    abort "target profile '$dest' is currently running — stop it first (multigravity stop $dest)"
+  fi
+
+  local src_gemini="$src_path/.gemini/antigravity"
+  local dest_gemini="$dest_path/.gemini/antigravity"
+
+  [ -d "$src_gemini" ] || abort "source profile '$src' has no AI data (.gemini/antigravity does not exist)"
+
+  mkdir -p "$dest_gemini/conversations" "$dest_gemini/annotations" "$dest_gemini/brain" "$dest_gemini/knowledge"
+
+  print_info "Syncing AI conversations from '$src' to '$dest'..."
+  local synced=0
+
+  if [ -d "$src_gemini/conversations" ]; then
+    local db_file
+    for db_file in "$src_gemini/conversations"/*.db; do
+      [ -f "$db_file" ] || continue
+      local filename uuid
+      filename="$(basename "$db_file")"
+      uuid="${filename%.db}"
+
+      if [ ! -f "$dest_gemini/conversations/$filename" ] || [ "$db_file" -nt "$dest_gemini/conversations/$filename" ]; then
+        cp -f "$db_file" "$dest_gemini/conversations/$filename"
+
+        if [ -f "$src_gemini/annotations/$uuid.pbtxt" ]; then
+          cp -f "$src_gemini/annotations/$uuid.pbtxt" "$dest_gemini/annotations/$uuid.pbtxt"
+        fi
+
+        if [ -d "$src_gemini/brain/$uuid" ]; then
+          mkdir -p "$dest_gemini/brain/$uuid"
+          cp -rf "$src_gemini/brain/$uuid"/* "$dest_gemini/brain/$uuid/" 2>/dev/null || true
+        fi
+
+        synced=$((synced + 1))
+      fi
+    done
+  fi
+
+  if [ -d "$src_gemini/knowledge" ]; then
+    local kfile
+    for kfile in "$src_gemini/knowledge"/*; do
+      [ -e "$kfile" ] || continue
+      local kname
+      kname="$(basename "$kfile")"
+      case "$kname" in
+        *token*|*oauth*|*auth*|*credential*) continue ;;
+      esac
+      if [ ! -e "$dest_gemini/knowledge/$kname" ] || [ "$kfile" -nt "$dest_gemini/knowledge/$kname" ]; then
+        cp -rf "$kfile" "$dest_gemini/knowledge/" 2>/dev/null || true
+      fi
+    done
+  fi
+
+  if [ ! -f "$dest_gemini/agyhub_summaries_proto.pb" ] && [ -f "$src_gemini/agyhub_summaries_proto.pb" ]; then
+    cp -f "$src_gemini/agyhub_summaries_proto.pb" "$dest_gemini/agyhub_summaries_proto.pb"
+  fi
+
+  local total_dest=0
+  if [ -d "$dest_gemini/conversations" ]; then
+    total_dest=$(find "$dest_gemini/conversations" -maxdepth 1 -name "*.db" 2>/dev/null | wc -l | xargs)
+  fi
+
+  print_info "Successfully synced $synced conversation(s) into '$dest' (total: $total_dest available)."
 }
 
 ai_cmd() {
@@ -1469,11 +1688,14 @@ ai_cmd() {
     import)
       ai_import "$@"
       ;;
+    sync)
+      ai_sync "$@"
+      ;;
     list)
       ai_list "$@"
       ;;
     *)
-      abort "usage: multigravity ai <export|import|list> [args...]"
+      abort "usage: multigravity ai <export|import|sync|list> [args...]"
       ;;
   esac
 }
@@ -1550,6 +1772,7 @@ _multigravity() {
         'export:Pack a profile into a tar.gz archive'
         'import:Restore a profile from a tar.gz archive'
         'ai:Manage AI chats and brains (export, import, list)'
+        'mcp:Manage MCP server configuration (status, share, isolate)'
         'update:Update multigravity'
         'doctor:Run system diagnosis'
         'stats:Show profile storage usage'
@@ -1575,7 +1798,12 @@ _multigravity() {
                     ;;
                 ai)
                     local -a subcommands
-                    subcommands=('export:Export AI conversations' 'import:Import AI conversations' 'list:List AI conversations')
+                    subcommands=('export:Export AI conversations' 'import:Import AI conversations' 'sync:Synchronize AI conversations between two profiles' 'list:List AI conversations')
+                    _describe -t subcommands 'subcommand' subcommands
+                    ;;
+                mcp)
+                    local -a subcommands
+                    subcommands=('status:Show MCP sharing status' 'share:Share host MCP servers' 'isolate:Isolate MCP servers locally')
                     _describe -t subcommands 'subcommand' subcommands
                     ;;
                 color|stop|restart|rename|delete|clone|help)
@@ -1597,7 +1825,7 @@ _multigravity_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="new color stop restart clean list status rename delete clone template export import ai update doctor stats completion version help"
+    opts="new color stop restart clean list status rename delete clone template export import ai mcp update doctor stats completion version help"
 
     if [[ ${COMP_CWORD} -eq 1 ]] ; then
         local profiles=$(multigravity list --raw 2>/dev/null)
@@ -1612,7 +1840,11 @@ _multigravity_completions() {
             return 0
             ;;
         ai)
-            COMPREPLY=( $(compgen -W "export import list" -- "${cur}") )
+            COMPREPLY=( $(compgen -W "export import sync list" -- "${cur}") )
+            return 0
+            ;;
+        mcp)
+            COMPREPLY=( $(compgen -W "status share isolate" -- "${cur}") )
             return 0
             ;;
         color|stop|restart|delete|rename|clone)
@@ -1654,69 +1886,69 @@ interactive_menu() {
   fi
 
   echo ""
-  printf "\033[1;36mMultigravity — Select Profile:\033[0m\n\n"
+  echo "╔══════════════════════════════════════════════════════════════════╗"
+  echo "║                       MULTIGRAVITY PROFILES                      ║"
+  echo "╚══════════════════════════════════════════════════════════════════╝"
+  echo ""
 
-  local i=0
+  local i=1
   for name in "${profiles[@]}"; do
-    i=$((i + 1))
-    local p_dir
-    p_dir="$(profile_dir "$name")"
-    local running="idle"
-    local color_mark="\033[90m○\033[0m"
+    local status_dot="○ idle"
     if is_profile_running "$name"; then
-      running="running"
-      color_mark="\033[32m●\033[0m"
+      status_dot="● running"
     fi
 
-    local ptype="isolated"
-    [ -f "$p_dir/.shared" ] && ptype="shared"
-
-    local color_label=""
-    local settings_file="$(user_data_dir "$p_dir")/User/settings.json"
-    if [ -f "$settings_file" ]; then
-      local c_hex
-      c_hex=$(sed -n 's/.*"titleBar.activeBackground":[[:space:]]*"\([^"]*\)".*/\1/p' "$settings_file" 2>/dev/null || true)
-      if [ -n "$c_hex" ]; then
-        color_label="[$c_hex]"
-      fi
+    local type_str="isolated"
+    if is_shared_profile "$name"; then
+      type_str="shared"
     fi
 
-    printf "  \033[1m[%d]\033[0m %-18s %b %-8s (%s) %s\n" "$i" "$name" "$color_mark" "$running" "$ptype" "$color_label"
+    local color_str=""
+    local custom_color
+    custom_color="$(get_profile_color "$name")"
+    if [ -n "$custom_color" ]; then
+      color_str="[color: $custom_color]"
+    fi
+
+    printf "  \033[1;36m[%2d]\033[0m %-20s %-12s (%s) %s\n" "$i" "$name" "$status_dot" "$type_str" "$color_str"
+    i=$((i + 1))
   done
 
   echo ""
-  printf "  \033[1m[n]\033[0m Create new profile\n"
-  printf "  \033[1m[q]\033[0m Quit\n\n"
+  echo "  [n]  Create a new profile"
+  echo "  [q]  Quit"
+  echo ""
+  printf "Select profile number or name: "
 
   local choice
-  read -r -p "Select [1-$i, n, q]: " choice
-  choice="$(echo "$choice" | xargs)"
+  read -r choice || return 0
 
   case "$choice" in
-    q | Q | "")
+    q|Q|"")
       return 0
       ;;
-    n | N)
+    n|N)
+      echo ""
+      printf "Enter new profile name: "
       local new_name
-      read -r -p "Enter new profile name: " new_name
-      new_name="$(echo "$new_name" | xargs)"
+      read -r new_name || return 0
       if [ -n "$new_name" ]; then
         new_profile "$new_name"
       fi
+      return 0
       ;;
     *)
       if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#profiles[@]}" ]; then
-        local selected="${profiles[$((choice - 1))]}"
-        launch_profile "$selected"
+        local target_profile="${profiles[$((choice - 1))]}"
+        echo ""
+        print_info "Launching profile: $target_profile ..."
+        launch_profile "$target_profile"
+      elif profile_exists "$choice"; then
+        echo ""
+        print_info "Launching profile: $choice ..."
+        launch_profile "$choice"
       else
-        for name in "${profiles[@]}"; do
-          if [ "$choice" = "$name" ]; then
-            launch_profile "$name"
-            return 0
-          fi
-        done
-        print_warn "Invalid selection: $choice"
-        return 1
+        abort "invalid selection: $choice"
       fi
       ;;
   esac
@@ -1731,6 +1963,7 @@ Commands:
       --shared                Share extensions & settings; isolate only accounts
       --from <template>       Seed from a saved template
       --isolated-dotfiles     Do not link system .gitconfig/.ssh into profile
+      --isolated-mcp          Do not share system MCP server configurations
       --color <color>         Set UI theme color (e.g. blue, green, red, "#1e3a8a")
   color <name> [color|--clear] View or change window theme color
   stop <name> [--force]       Stop a running profile gracefully
@@ -1748,7 +1981,9 @@ Commands:
   import <archive> [name]     Restore a profile from a tar.gz archive
   ai export <profile> [path]   Export AI conversations & brains (credentials sanitized)
   ai import <archive> <profile> Import AI conversations into an existing profile
+  ai sync <src> <dest>        Synchronize AI conversations directly between two profiles
   ai list <profile>           List AI conversations in a profile
+  mcp <status|share|isolate> <profile> Manage MCP server configuration sharing
   update                      Update multigravity to the latest version
   doctor                      Run a system diagnosis
   stats                       Show storage usage per profile
@@ -1799,7 +2034,8 @@ case "$cmd" in
     rename_profile "${2-}" "${3-}"
     ;;
   delete)
-    delete_profile "${2-}"
+    shift
+    delete_profile "$@"
     ;;
   clone)
     clone_profile "${2-}" "${3-}"
@@ -1818,6 +2054,10 @@ case "$cmd" in
   ai)
     shift
     ai_cmd "$@"
+    ;;
+  mcp)
+    shift
+    mcp_cmd "$@"
     ;;
   update)
     update_cli

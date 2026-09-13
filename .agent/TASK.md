@@ -6,7 +6,7 @@
 
 ## Tarefa Ativa
 
-*Nenhuma tarefa em execução. Release `v1.4.0` concluída e arquivada.*
+*Nenhuma tarefa em execução.*
 
 ---
 
@@ -17,6 +17,7 @@
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
 | [00.0] | Release v1.4.0 (Antigravity 2.0 / agy, TUI, theming, cleaner, AI migration, changelog) | v1.4.0 | 2026-09-12 |
+| [02.1] | Compartilhamento de MCP Servers e Sincronização Direta de Conversas de IA | em commit | 2026-09-13 |
 
 ---
 
@@ -29,4 +30,3 @@
 ## Backlog Futuro / Ideias (não priorizadas)
 
 - [ ] **[99.1]** Preparar Release (Tag Git) e Sanitizar Contexto (Apenas executar com permissão explícita do usuário)
-- [ ] Suporte a compartilhamento granular de MCP Servers (`--shared-mcp`)

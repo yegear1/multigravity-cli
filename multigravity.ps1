@@ -18,6 +18,12 @@ param (
 )
 
 $REAL_USERPROFILE = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $env:USERPROFILE }
+if ($REAL_USERPROFILE -like "*\AntigravityProfiles\*") {
+    $parent = Split-Path -Parent $REAL_USERPROFILE
+    if ((Split-Path -Leaf $parent) -eq "AntigravityProfiles") {
+        $REAL_USERPROFILE = Split-Path -Parent $parent
+    }
+}
 $BASE = if ($env:MULTIGRAVITY_HOME) { $env:MULTIGRAVITY_HOME } else { "$REAL_USERPROFILE\AntigravityProfiles" }
 $VERSION = "1.4.0"
 
@@ -83,6 +89,38 @@ function Link-DevDotfiles {
     }
     if ((Test-Path $sshDir) -and !(Test-Path "$profileDir\.ssh")) {
         New-Item -ItemType Junction -Path "$profileDir\.ssh" -Target $sshDir -ErrorAction SilentlyContinue | Out-Null
+    }
+}
+
+function Link-McpConfig {
+    param($profileDir)
+    if (Test-Path "$profileDir\.isolated_mcp") { return }
+
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    $hostMcpConfig = "$realUser\.gemini\config\mcp_config.json"
+    $targetConfigDir = "$profileDir\.gemini\config"
+    $targetMcpConfig = "$targetConfigDir\mcp_config.json"
+
+    # 1. Link mcp_config.json
+    if ((Test-Path $hostMcpConfig) -and !(Test-Path $targetMcpConfig)) {
+        if (!(Test-Path $targetConfigDir)) {
+            New-Item -ItemType Directory -Force -Path $targetConfigDir | Out-Null
+        }
+        New-Item -ItemType SymbolicLink -Path $targetMcpConfig -Target $hostMcpConfig -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    # 2. Link schemas directory ~/.gemini/antigravity/mcp
+    $hostMcpSchemas = "$realUser\.gemini\antigravity\mcp"
+    $targetAntigravityDir = "$profileDir\.gemini\antigravity"
+    $targetMcpSchemas = "$targetAntigravityDir\mcp"
+
+    if ((Test-Path $hostMcpSchemas) -and !(Test-Path $targetMcpSchemas)) {
+        if (!(Test-Path $targetAntigravityDir)) {
+            New-Item -ItemType Directory -Force -Path $targetAntigravityDir | Out-Null
+        }
+        New-Item -ItemType Junction -Path $targetMcpSchemas -Target $hostMcpSchemas -ErrorAction SilentlyContinue | Out-Null
     }
 }
 
@@ -237,6 +275,7 @@ function Write-Usage {
     Write-Host "      --shared                Share extensions & settings; isolate only accounts"
     Write-Host "      --from <template>        Seed from a saved template"
     Write-Host "      --isolated-dotfiles     Do not link user .gitconfig/.ssh into profile"
+    Write-Host "      --isolated-mcp          Do not share system MCP server configurations"
     Write-Host "      --color <color>         Set UI theme color (e.g. blue, green, red, '#1e3a8a')"
     Write-Host "  color <name> [color|--clear] View or change window theme color"
     Write-Host "  stop <name> [--force]       Stop a running profile gracefully"
@@ -254,7 +293,9 @@ function Write-Usage {
     Write-Host "  import <archive> [name]     Restore a profile from a .zip archive"
     Write-Host "  ai export <name> [path]     Export AI conversations & brains (credentials sanitized)"
     Write-Host "  ai import <archive> <name>  Import AI conversations into an existing profile"
+    Write-Host "  ai sync <src> <dest>        Synchronize AI conversations directly between two profiles"
     Write-Host "  ai list <name>              List AI conversations in a profile"
+    Write-Host "  mcp <status|share|isolate> <name> Manage MCP server configuration sharing"
     Write-Host "  update                      Update multigravity to the latest version"
     Write-Host "  doctor                      Run a system diagnosis"
     Write-Host "  stats                       Show storage usage per profile"
@@ -292,6 +333,7 @@ function Invoke-CreateProfile {
     New-Item -ItemType Directory -Force -Path "$PROFILE_DIR\AppData\Local" | Out-Null
 
     Link-DevDotfiles $PROFILE_DIR
+    Link-McpConfig $PROFILE_DIR
 }
 
 function Invoke-CreateSharedProfile {
@@ -330,6 +372,7 @@ function Invoke-CreateSharedProfile {
     }
 
     Link-DevDotfiles $profileDir
+    Link-McpConfig $profileDir
 }
 
 function Invoke-LaunchProfile {
@@ -347,6 +390,7 @@ function Invoke-LaunchProfile {
     }
 
     Link-DevDotfiles $PROFILE_DIR
+    Link-McpConfig $PROFILE_DIR
 
     Write-Host "Launching Antigravity profile '$PROFILE'"
     
@@ -415,6 +459,7 @@ function Invoke-NewProfile {
     $shared            = $false
     $fromTpl           = ""
     $isolatedDotfiles  = $false
+    $isolatedMcp       = $false
     $color             = ""
     $i = 0
     while ($i -lt $extraArgs.Count) {
@@ -422,6 +467,7 @@ function Invoke-NewProfile {
             "--shared"            { $shared = $true }
             "--from"              { $i++; if ($i -lt $extraArgs.Count) { $fromTpl = $extraArgs[$i] } }
             "--isolated-dotfiles" { $isolatedDotfiles = $true }
+            "--isolated-mcp"      { $isolatedMcp = $true }
             "--color"             { $i++; if ($i -lt $extraArgs.Count) { $color = $extraArgs[$i] } }
         }
         $i++
@@ -446,6 +492,9 @@ function Invoke-NewProfile {
     if ($isolatedDotfiles) {
         New-Item -ItemType File -Force -Path "$profileDir\.isolated_dotfiles" | Out-Null
     }
+    if ($isolatedMcp) {
+        New-Item -ItemType File -Force -Path "$profileDir\.isolated_mcp" | Out-Null
+    }
 
     if ($fromTpl) {
         $tplPath = "$(Get-TemplatesDir)\$fromTpl"
@@ -456,6 +505,7 @@ function Invoke-NewProfile {
         Write-Host "Creating profile '$name' from template '$fromTpl'..."
         Copy-Item -Path "$tplPath\*" -Destination $profileDir -Recurse -Force
         if (!$isolatedDotfiles) { Link-DevDotfiles $profileDir }
+        if (!$isolatedMcp) { Link-McpConfig $profileDir }
     } elseif ($shared) {
         Invoke-CreateSharedProfile $name
     } else {
@@ -568,7 +618,7 @@ function Invoke-DeleteProfile {
         }
     }
 
-    $confirm = Read-Host "Delete profile '$PROFILE' and all its data? [y/N]"
+    $confirm = if ($Force) { "y" } else { Read-Host "Delete profile '$PROFILE' and all its data? [y/N]" }
     if ($confirm -match "^[Yy]$") {
         try {
             Remove-Item -Recurse -Force $PROFILE_DIR -ErrorAction Stop
@@ -856,7 +906,7 @@ function Invoke-GenerateCompletion {
         @"
 Register-ArgumentCompleter -Native -CommandName multigravity -ScriptBlock {
     param(`$wordToComplete, `$commandAst, `$cursorPosition)
-    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
+    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'mcp', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
     `$profiles = if (Test-Path '$BASE') { Get-ChildItem -Directory -Path '$BASE' | Select-Object -ExpandProperty Name } else { @() }
     (`$opts + `$profiles) | Where-Object { `$_ -like "`$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new(`$_, `$_, 'ParameterValue', `$_)
@@ -1093,6 +1143,11 @@ function Invoke-AiExportProfile {
     $pDir = "$BASE\$name"
     if (!(Test-Path $pDir)) { Write-Error "Error: profile '$name' does not exist"; exit 1 }
 
+    if (Test-ProfileRunning $name) {
+        Write-Error "Error: profile '$name' is currently running — stop it first to ensure SQLite database flush (multigravity stop $name)"
+        exit 1
+    }
+
     $geminiDir = "$pDir\.gemini\antigravity"
     if (!(Test-Path $geminiDir)) {
         Write-Error "Error: profile '$name' has no AI data (.gemini\antigravity does not exist)"
@@ -1122,7 +1177,7 @@ function Invoke-AiExportProfile {
         }
 
         $sensitive = Get-ChildItem -Path $tempStaging -Recurse -File | Where-Object {
-            $_.Name -like "*token*" -or $_.Name -like "*oauth*" -or $_.Name -like "*auth*" -or $_.Name -eq "installation_id"
+            $_.Name -like "*token*" -or $_.Name -like "*oauth*" -or $_.Name -like "*auth*" -or $_.Name -like "*credential*" -or $_.Name -eq "installation_id"
         }
         foreach ($s in $sensitive) {
             Remove-Item -Path $s.FullName -Force -ErrorAction SilentlyContinue
@@ -1171,10 +1226,17 @@ function Invoke-AiImportProfile {
         Expand-Archive -Path $archivePath -DestinationPath $tempStaging -Force
 
         $sensitive = Get-ChildItem -Path $tempStaging -Recurse -File | Where-Object {
-            $_.Name -like "*token*" -or $_.Name -like "*oauth*" -or $_.Name -like "*auth*" -or $_.Name -eq "installation_id"
+            $_.Name -like "*token*" -or $_.Name -like "*oauth*" -or $_.Name -like "*auth*" -or $_.Name -like "*credential*" -or $_.Name -eq "installation_id"
         }
         foreach ($s in $sensitive) {
             Remove-Item -Path $s.FullName -Force -ErrorAction SilentlyContinue
+        }
+
+        if (Test-Path "$targetGemini\agyhub_summaries_proto.pb") {
+            Remove-Item -Path "$tempStaging\agyhub_summaries_proto.pb" -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path "$targetGemini\antigravity_state.pbtxt") {
+            Remove-Item -Path "$tempStaging\antigravity_state.pbtxt" -Force -ErrorAction SilentlyContinue
         }
 
         Copy-Item -Path "$tempStaging\*" -Destination $targetGemini -Recurse -Force
@@ -1189,14 +1251,185 @@ function Invoke-AiImportProfile {
     }
 }
 
+function Invoke-AiSyncProfile {
+    param($src, $dest)
+    if ([string]::IsNullOrWhiteSpace($src) -or [string]::IsNullOrWhiteSpace($dest)) {
+        Write-Error "Error: usage: multigravity ai sync <source_profile> <target_profile>"; exit 1
+    }
+    Validate-Name $src
+    Validate-Name $dest
+
+    if ($src -eq $dest) {
+        Write-Error "Error: source and target profiles cannot be the same"; exit 1
+    }
+
+    $srcDir = "$BASE\$src"
+    $destDir = "$BASE\$dest"
+
+    if (!(Test-Path $srcDir)) { Write-Error "Error: source profile '$src' does not exist"; exit 1 }
+    if (!(Test-Path $destDir)) { Write-Error "Error: target profile '$dest' does not exist"; exit 1 }
+
+    if (Test-ProfileRunning $src) {
+        Write-Error "Error: source profile '$src' is currently running — stop it first (multigravity stop $src)"
+        exit 1
+    }
+    if (Test-ProfileRunning $dest) {
+        Write-Error "Error: target profile '$dest' is currently running — stop it first (multigravity stop $dest)"
+        exit 1
+    }
+
+    $srcGemini = "$srcDir\.gemini\antigravity"
+    $destGemini = "$destDir\.gemini\antigravity"
+
+    if (!(Test-Path $srcGemini)) {
+        Write-Error "Error: source profile '$src' has no AI data (.gemini\antigravity does not exist)"
+        exit 1
+    }
+
+    foreach ($sub in @("conversations", "annotations", "brain", "knowledge")) {
+        $subPath = Join-Path $destGemini $sub
+        if (!(Test-Path $subPath)) { New-Item -ItemType Directory -Force -Path $subPath | Out-Null }
+    }
+
+    Write-Host "Syncing AI conversations from '$src' to '$dest'..."
+    $synced = 0
+
+    $srcConvs = Join-Path $srcGemini "conversations"
+    if (Test-Path $srcConvs) {
+        $dbFiles = Get-ChildItem -Path $srcConvs -Filter "*.db" -File -ErrorAction SilentlyContinue
+        foreach ($db in $dbFiles) {
+            $destDb = Join-Path "$destGemini\conversations" $db.Name
+            $uuid = [System.IO.Path]::GetFileNameWithoutExtension($db.Name)
+
+            if (!(Test-Path $destDb) -or ($db.LastWriteTime -gt (Get-Item $destDb).LastWriteTime)) {
+                Copy-Item -Path $db.FullName -Destination $destDb -Force
+
+                $srcAnnot = Join-Path "$srcGemini\annotations" "$uuid.pbtxt"
+                if (Test-Path $srcAnnot) {
+                    Copy-Item -Path $srcAnnot -Destination "$destGemini\annotations\$uuid.pbtxt" -Force
+                }
+
+                $srcBrain = Join-Path "$srcGemini\brain" $uuid
+                if (Test-Path $srcBrain) {
+                    $destBrain = Join-Path "$destGemini\brain" $uuid
+                    if (!(Test-Path $destBrain)) { New-Item -ItemType Directory -Force -Path $destBrain | Out-Null }
+                    Copy-Item -Path "$srcBrain\*" -Destination $destBrain -Recurse -Force -ErrorAction SilentlyContinue
+                }
+
+                $synced++
+            }
+        }
+    }
+
+    $srcKnowledge = Join-Path $srcGemini "knowledge"
+    if (Test-Path $srcKnowledge) {
+        $kFiles = Get-ChildItem -Path $srcKnowledge -ErrorAction SilentlyContinue
+        foreach ($kf in $kFiles) {
+            if ($kf.Name -like "*token*" -or $kf.Name -like "*oauth*" -or $kf.Name -like "*auth*" -or $kf.Name -like "*credential*") { continue }
+            $destKf = Join-Path "$destGemini\knowledge" $kf.Name
+            if (!(Test-Path $destKf) -or ($kf.LastWriteTime -gt (Get-Item $destKf).LastWriteTime)) {
+                Copy-Item -Path $kf.FullName -Destination "$destGemini\knowledge" -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    if (!(Test-Path "$destGemini\agyhub_summaries_proto.pb") -and (Test-Path "$srcGemini\agyhub_summaries_proto.pb")) {
+        Copy-Item -Path "$srcGemini\agyhub_summaries_proto.pb" -Destination "$destGemini\agyhub_summaries_proto.pb" -Force
+    }
+
+    $totalConvs = (Get-ChildItem -Path "$destGemini\conversations" -Filter "*.db" -ErrorAction SilentlyContinue).Count
+    Write-Host "Successfully synced $synced conversation(s) into '$dest' (total: $totalConvs available)."
+}
+
 function Invoke-AiCmd {
     param($sub, $arg1, $arg2)
     switch ($sub) {
         "export" { Invoke-AiExportProfile $arg1 $arg2 }
         "import" { Invoke-AiImportProfile $arg1 $arg2 }
+        "sync"   { Invoke-AiSyncProfile $arg1 $arg2 }
         "list"   { Invoke-AiListProfile $arg1 }
         default  {
-            Write-Error "Error: usage: multigravity ai <export|import|list> [args...]"
+            Write-Error "Error: usage: multigravity ai <export|import|sync|list> [args...]"
+            exit 1
+        }
+    }
+}
+
+function Invoke-McpCmd {
+    param($action, $profile)
+    if ([string]::IsNullOrWhiteSpace($action) -or [string]::IsNullOrWhiteSpace($profile)) {
+        Write-Error "Error: usage: multigravity mcp <status|share|isolate> <profile>"
+        exit 1
+    }
+    Validate-Name $profile
+
+    $profilePath = "$BASE\$profile"
+    if (!(Test-Path $profilePath)) {
+        Write-Error "Error: profile '$profile' does not exist"
+        exit 1
+    }
+
+    $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
+    if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
+
+    $hostMcpConfig = "$realUser\.gemini\config\mcp_config.json"
+    $targetMcpConfig = "$profilePath\.gemini\config\mcp_config.json"
+    $hostMcpSchemas = "$realUser\.gemini\antigravity\mcp"
+    $targetMcpSchemas = "$profilePath\.gemini\antigravity\mcp"
+
+    switch ($action) {
+        "status" {
+            if (Test-Path "$profilePath\.isolated_mcp") {
+                Write-Host "Profile '$profile' has isolated MCP servers (--isolated-mcp active)."
+            } elseif (Test-Path $targetMcpConfig) {
+                $item = Get-Item -Path $targetMcpConfig -ErrorAction SilentlyContinue
+                if ($item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                    $target = $item.Target
+                    Write-Host "Profile '$profile' shares host MCP servers -> $target"
+                } else {
+                    Write-Host "Profile '$profile' has a standalone local mcp_config.json."
+                }
+            } else {
+                Write-Host "Profile '$profile' has no MCP servers configured."
+            }
+        }
+        "share" {
+            if (Test-Path "$profilePath\.isolated_mcp") {
+                Remove-Item -Force -Path "$profilePath\.isolated_mcp" -ErrorAction SilentlyContinue
+            }
+            $item = Get-Item -Path $targetMcpConfig -ErrorAction SilentlyContinue
+            if ($item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                Write-Host "Profile '$profile' is already sharing host MCP servers."
+            } else {
+                if (Test-Path $targetMcpConfig) {
+                    Move-Item -Path $targetMcpConfig -Destination "$targetMcpConfig.bak" -Force
+                    Write-Host "Backed up existing mcp_config.json to mcp_config.json.bak"
+                }
+                Link-McpConfig $profilePath
+                Write-Host "Profile '$profile' is now sharing host MCP servers."
+            }
+        }
+        "isolate" {
+            New-Item -ItemType File -Force -Path "$profilePath\.isolated_mcp" | Out-Null
+            $item = Get-Item -Path $targetMcpConfig -ErrorAction SilentlyContinue
+            if ($item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                Remove-Item -Force -Path $targetMcpConfig -ErrorAction SilentlyContinue
+                if (Test-Path $hostMcpConfig) {
+                    Copy-Item -Path $hostMcpConfig -Destination $targetMcpConfig -Force
+                    Write-Host "Copied host MCP config to standalone file for '$profile'."
+                }
+            }
+            $schemaItem = Get-Item -Path $targetMcpSchemas -ErrorAction SilentlyContinue
+            if ($schemaItem -and ($schemaItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                Remove-Item -Force -Path $targetMcpSchemas -ErrorAction SilentlyContinue
+                if (Test-Path $hostMcpSchemas) {
+                    Copy-Item -Path $hostMcpSchemas -Destination $targetMcpSchemas -Recurse -Force
+                }
+            }
+            Write-Host "Profile '$profile' is now isolated from host MCP updates."
+        }
+        default {
+            Write-Error "Error: usage: multigravity mcp <status|share|isolate> <profile>"
             exit 1
         }
     }
@@ -1338,6 +1571,9 @@ switch ($cmd) {
     }
     "ai" {
         Invoke-AiCmd $arg1 $arg2 ($ForwardArgs | Select-Object -First 1)
+    }
+    "mcp" {
+        Invoke-McpCmd $arg1 $arg2
     }
     "update" {
         Invoke-UpdateCli
