@@ -86,6 +86,8 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity new <nome> --isolated-dotfiles` | Não vincula `.gitconfig` ou `.ssh` do host ao perfil |
 | `multigravity new <nome> --isolated-mcp` | Não compartilha servidores do Model Context Protocol (MCP) do host |
 | `multigravity new <nome> --isolated-skills` | Não compartilha skills globais e plugins do host |
+| `multigravity new <nome> --isolated-config` | Não compartilha o config.json e permissões do assistente do host |
+| `multigravity new <nome> --isolated-gh` | Não compartilha as credenciais do GitHub CLI do host |
 | `multigravity <nome> [args...]` | Inicia um perfil (repassando argumentos para a IDE) |
 | `multigravity stop <nome> [--force]` | Encerra um perfil em execução graciosamente (ou forçado) |
 | `multigravity restart <nome>` | Reinicia um perfil em execução |
@@ -111,6 +113,16 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity skills status <nome>` | Consulta o status de compartilhamento de skills e plugins |
 | `multigravity skills share <nome>` | Compartilha skills e plugins do host (`~/.gemini/config/skills`, `plugins`) |
 | `multigravity skills isolate <nome>` | Isola o perfil com uma cópia independente de skills e plugins |
+| `multigravity config status <nome>` | Consulta o status de compartilhamento de permissões e config.json |
+| `multigravity config share <nome>` | Compartilha config.json e permissões do host (`~/.gemini/config/config.json`) |
+| `multigravity config isolate <nome>` | Isola o perfil com uma cópia independente do config.json |
+| `multigravity gh status <nome>` | Consulta o status de compartilhamento de credenciais do GitHub CLI |
+| `multigravity gh share <nome>` | Compartilha as credenciais do GitHub CLI (`~/.config/gh` ou `%APPDATA%\GitHub CLI`) |
+| `multigravity gh isolate <nome>` | Isola o perfil com cópia local independente do GitHub CLI |
+| `multigravity quota [nome]` | Exibe limites de tokens, porcentagem de uso e contagem regressiva para o reset |
+| `multigravity ai quota [nome]` | Alias para `multigravity quota` |
+| `multigravity prime [nome] [opt]` | Prime automático dos ciclos semanais de tokens no reset (dual-bucket, jitter, cron/systemd) |
+| `multigravity ai prime [nome] [opt]` | Alias para `multigravity prime` |
 
 ### Modelos (Templates)
 

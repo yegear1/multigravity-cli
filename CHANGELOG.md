@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-13
+
+### Added
+- **AI Quota & Token Telemetry:** `multigravity quota [profile]` and `ai quota` commands to inspect live token limits, usage fractions, and reset countdowns across sliding windows (`gemini-5h`, `gemini-weekly`, `3p-5h`, `3p-weekly`).
+- **AI Weekly Quota Dual-Bucket Prime Automation:** `multigravity prime [profile]` command and background schedulers (cron, user systemd timers on Linux/macOS, Windows Scheduled Tasks) with random anti-bot jitter, external `prompts.json` pool, and dual-bucket targeting (`gemini-weekly` and `3p-weekly` for Claude Sonnet / GPT) to auto-prime weekly cycles upon reset.
+- **Global Assistant Permissions & Config Sharing:** Shared `~/.gemini/config/config.json` across profiles by default (`multigravity config <status|share|isolate> <profile>`) allowing tool grants approved with "Always allow" to persist in real time across all profiles, with `--isolated-config` opt-out.
+- **GitHub CLI & Git Credentials Synchronization:** Automatic symlink/junction of GitHub CLI authentication (`~/.config/gh` or `%APPDATA%\GitHub CLI`) and Git HTTPS credentials (`~/.git-credentials`) across profiles (`multigravity gh <status|share|isolate> <profile>`), with `--isolated-gh` opt-out.
+- **Host User PATH Preservation:** Preserved and enriched host user binary directories (`~/.local/bin`, `~/.cargo/bin`, etc.) into profile subprocesses at launch, allowing CLI tools to work immediately in the integrated terminal without duplicating binaries.
+
 ## [1.4.1] - 2026-09-13
 
 ### Added

@@ -25,7 +25,7 @@ if ($REAL_USERPROFILE -like "*\AntigravityProfiles\*") {
     }
 }
 $BASE = if ($env:MULTIGRAVITY_HOME) { $env:MULTIGRAVITY_HOME } else { "$REAL_USERPROFILE\AntigravityProfiles" }
-$VERSION = "1.4.1"
+$VERSION = "1.5.0"
 
 function Find-Antigravity {
     $override = if ($env:MULTIGRAVITY_APP) { $env:MULTIGRAVITY_APP } else { $env:AGY_APP }

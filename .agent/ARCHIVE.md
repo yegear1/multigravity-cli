@@ -3,6 +3,18 @@
 > Lotes arquivados após tag Git (ou quando o log do `TASK.md` passar de ~15 linhas).
 > Cabeçalho canônico: `## [vX.Y.Z] - AAAA-MM-DD`. Detalhe: `git log`.
 
+## [v1.5.0] - 2026-09-13
+
+| Tarefa | Título | Commit(s) | Data |
+|---|---|---|---|
+| [02.1] | Compartilhamento e Sincronização Automática de config.json e Permissões | 93da4c1 | 2026-09-13 |
+| [02.2] | Telemetria e Monitoramento de Cotas e Tokens (multigravity quota) | eb6a208 | 2026-09-13 |
+| [02.3] | Automação de Reset de Cota Semanal (multigravity prime & watchdog) | a7efd2b | 2026-09-13 |
+| [02.4] | Prime Dual-Bucket (Gemini + Claude/GPT), prompts.json Externo e Jitters Independentes | a2224d0 | 2026-09-13 |
+| [02.5] | Sincronização de credenciais GitHub CLI (gh), git-credentials e herança de PATH de usuário | c722286 | 2026-09-13 |
+
+---
+
 ## [v1.4.1] - 2026-09-13
 
 | Tarefa | Título | Commit(s) | Data |

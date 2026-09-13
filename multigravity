@@ -20,7 +20,7 @@ if [ -z "$REAL_HOME" ] || [[ "$REAL_HOME" == *"/AntigravityProfiles/"* ]]; then
   fi
 fi
 BASE="${MULTIGRAVITY_HOME:-$REAL_HOME/AntigravityProfiles}"
-VERSION="1.4.1"
+VERSION="1.5.0"
 cmd="${1-}"
 
 abort() {

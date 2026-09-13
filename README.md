@@ -87,6 +87,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity new <name> --isolated-mcp` | Do not share host Model Context Protocol (MCP) servers |
 | `multigravity new <name> --isolated-skills` | Do not share host global skills and plugins |
 | `multigravity new <name> --isolated-config` | Do not share host config.json and AI permission grants |
+| `multigravity new <name> --isolated-gh` | Do not share host GitHub CLI credentials |
 | `multigravity <name> [args...]` | Launch a profile (passes arguments to the IDE) |
 | `multigravity stop <name> [--force]` | Gracefully stop a running profile (or force kill) |
 | `multigravity restart <name>` | Restart a running profile |
@@ -115,8 +116,13 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity config status <name>` | Check config.json and permission grants sharing status |
 | `multigravity config share <name>` | Share host config.json and permissions (`~/.gemini/config/config.json`) |
 | `multigravity config isolate <name>` | Isolate profile with a private copy of config.json |
+| `multigravity gh status <name>` | Check GitHub CLI credentials sharing status |
+| `multigravity gh share <name>` | Share host GitHub CLI credentials (`~/.config/gh` or `%APPDATA%\GitHub CLI`) |
+| `multigravity gh isolate <name>` | Isolate profile with a private copy of GitHub CLI credentials |
 | `multigravity quota [name]` | Show live AI token limits, usage percentage, and countdown until reset |
 | `multigravity ai quota [name]` | Alias for `multigravity quota` |
+| `multigravity prime [name] [opt]` | Automatically prime weekly token cycles upon reset (dual bucket, jitter, cron/systemd) |
+| `multigravity ai prime [name] [opt]` | Alias for `multigravity prime` |
 
 ### Templates
 
