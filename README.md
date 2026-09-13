@@ -115,6 +115,8 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity config status <name>` | Check config.json and permission grants sharing status |
 | `multigravity config share <name>` | Share host config.json and permissions (`~/.gemini/config/config.json`) |
 | `multigravity config isolate <name>` | Isolate profile with a private copy of config.json |
+| `multigravity quota [name]` | Show live AI token limits, usage percentage, and countdown until reset |
+| `multigravity ai quota [name]` | Alias for `multigravity quota` |
 
 ### Templates
 
@@ -232,6 +234,21 @@ multigravity new client-x --isolated-config
 # Switch an existing profile between shared and isolated modes
 multigravity config isolate work
 multigravity config share work
+```
+
+---
+
+## AI Token Limits & Quota Telemetry (`multigravity quota`)
+
+Check live AI token consumption, usage percentage, remaining fraction, and exact countdown until limits reset across running Antigravity profiles:
+
+```bash
+# Check quota for all active profiles
+multigravity quota
+
+# Check quota for a specific profile
+multigravity quota work
+multigravity ai quota work
 ```
 
 ---

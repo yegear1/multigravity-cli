@@ -1883,10 +1883,169 @@ ai_cmd() {
     list)
       ai_list "$@"
       ;;
+    quota)
+      quota_cmd "$@"
+      ;;
     *)
-      abort "usage: multigravity ai <export|import|sync|list> [args...]"
+      abort "usage: multigravity ai <export|import|sync|list|quota> [args...]"
       ;;
   esac
+}
+
+quota_cmd() {
+  local target_profile="${1-}"
+
+  if [ -n "$target_profile" ]; then
+    validate_name "$target_profile"
+    local p_dir
+    p_dir="$(profile_dir "$target_profile")"
+    if [ ! -d "$p_dir" ]; then
+      abort "profile '$target_profile' does not exist"
+    fi
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    abort "python3 is required to inspect quota and telemetry"
+  fi
+
+  python3 - "$target_profile" "$BASE" << 'EOF'
+import sys, os, re, subprocess, urllib.request, ssl, json
+from datetime import datetime, timezone
+
+target_prof = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
+base_dir = sys.argv[2] if len(sys.argv) > 2 else ""
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+try:
+    ps_out = subprocess.check_output(["ps", "-eo", "pid,ppid,args"]).decode("utf-8", errors="replace")
+except Exception as e:
+    print(f"Error executing ps: {e}")
+    sys.exit(1)
+
+lang_servers = []
+for line in ps_out.splitlines():
+    if "language_server" in line and "--csrf_token" in line:
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, ppid, args = parts[0], parts[1], parts[2]
+        
+        csrf_match = re.search(r"--csrf_token\s+([a-f0-9-]+)", args)
+        if not csrf_match:
+            continue
+        csrf = csrf_match.group(1)
+        
+        parent_line = [l for l in ps_out.splitlines() if l.strip().startswith(ppid + " ")]
+        profile = "host"
+        if parent_line:
+            p_args = parent_line[0]
+            m = re.search(r"AntigravityProfiles/([^/ ]+)", p_args)
+            if m:
+                profile = m.group(1)
+        
+        if target_prof and profile != target_prof:
+            continue
+        
+        ports = []
+        try:
+            lsof_out = subprocess.check_output(["lsof", "-Pan", "-p", pid, "-i"]).decode("utf-8", errors="replace")
+            for l in lsof_out.splitlines():
+                if "LISTEN" in l:
+                    pm = re.search(r":(\d+)\s+\(LISTEN\)", l)
+                    if pm:
+                        ports.append(int(pm.group(1)))
+        except Exception:
+            pass
+        
+        if not ports:
+            try:
+                ss_out = subprocess.check_output(["ss", "-tulpn"]).decode("utf-8", errors="replace")
+                for l in ss_out.splitlines():
+                    if f"pid={pid}," in l or f"pid={pid})" in l:
+                        pm = re.search(r":(\d+)\s+", l)
+                        if pm:
+                            ports.append(int(pm.group(1)))
+            except Exception:
+                pass
+        
+        for port in set(ports):
+            url = f"https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
+            req = urllib.request.Request(
+                url,
+                data=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Codeium-Csrf-Token": csrf
+                }
+            )
+            try:
+                with urllib.request.urlopen(req, context=ctx, timeout=3) as r:
+                    res_data = json.loads(r.read().decode("utf-8"))
+                    lang_servers.append((profile, pid, port, res_data))
+                    break
+            except Exception:
+                continue
+
+if not lang_servers:
+    if target_prof:
+        print(f"Profile '{target_prof}' is not running.")
+        print(f"To check quota and token consumption, launch it first: multigravity {target_prof}")
+    else:
+        print("No active Antigravity profile or Language Server found in execution.")
+        print("Launch a profile to monitor quota: multigravity <profile>")
+    sys.exit(0)
+
+for prof, pid, port, data in lang_servers:
+    print(f"\nQuota Status — Profile: {prof} (PID {pid}, Port {port})")
+    print("=" * 60)
+    groups = data.get("response", {}).get("groups", [])
+    if not groups:
+        print("  No quota information returned.")
+        continue
+    
+    for g in groups:
+        d_name = g.get("displayName", "Unknown Group")
+        d_desc = g.get("description", "")
+        print(f"\n• {d_name} ({d_desc}):")
+        for b in g.get("buckets", []):
+            remaining_frac = b.get("remainingFraction", 0)
+            remaining_pct = round(remaining_frac * 100, 1)
+            used_pct = round(100 - remaining_pct, 1)
+            reset_time_str = b.get("resetTime")
+            time_left_str = ""
+            if reset_time_str:
+                try:
+                    rt = datetime.fromisoformat(reset_time_str.replace("Z", "+00:00"))
+                    now = datetime.now(timezone.utc)
+                    delta = rt - now
+                    secs = int(delta.total_seconds())
+                    if secs > 0:
+                        hours = secs // 3600
+                        mins = (secs % 3600) // 60
+                        time_left_str = f" | Resets in: {hours}h {mins}m"
+                    else:
+                        time_left_str = " | Quota refreshed!"
+                except Exception:
+                    time_left_str = f" | Reset: {reset_time_str}"
+            
+            b_name = b.get("displayName", "Limit")
+            b_info = b.get("description", "")
+            
+            bar_len = 20
+            filled = int(round(bar_len * (remaining_pct / 100.0)))
+            if filled < 0: filled = 0
+            if filled > bar_len: filled = bar_len
+            bar = "[" + "=" * filled + " " * (bar_len - filled) + "]"
+            
+            print(f"  - {b_name}:")
+            print(f"    {bar} Remaining: {remaining_pct}% | Used: {used_pct}%{time_left_str}")
+            if b_info:
+                print(f"    Details: {b_info}")
+print("")
+EOF
 }
 
 update_cli() {
@@ -1964,6 +2123,7 @@ _multigravity() {
         'mcp:Manage MCP server configuration (status, share, isolate)'
         'skills:Manage skills and plugins configuration (status, share, isolate)'
         'config:Manage config.json and permissions sharing (status, share, isolate)'
+        'quota:Show AI token limits, usage percentage, and reset time'
         'update:Update multigravity'
         'doctor:Run system diagnosis'
         'stats:Show profile storage usage'
@@ -1989,7 +2149,7 @@ _multigravity() {
                     ;;
                 ai)
                     local -a subcommands
-                    subcommands=('export:Export AI conversations' 'import:Import AI conversations' 'sync:Synchronize AI conversations between two profiles' 'list:List AI conversations')
+                    subcommands=('export:Export AI conversations' 'import:Import AI conversations' 'sync:Synchronize AI conversations between two profiles' 'list:List AI conversations' 'quota:Show AI token limits and reset times')
                     _describe -t subcommands 'subcommand' subcommands
                     ;;
                 mcp)
@@ -2007,7 +2167,7 @@ _multigravity() {
                     subcommands=('status:Show config sharing status' 'share:Share host config.json' 'isolate:Isolate config.json locally')
                     _describe -t subcommands 'subcommand' subcommands
                     ;;
-                color|stop|restart|rename|delete|clone|help)
+                quota|color|stop|restart|rename|delete|clone|help)
                     local -a profiles
                     profiles=($(multigravity list --raw 2>/dev/null))
                     (( ${#profiles} > 0 )) && _describe -t profiles 'profile' profiles
@@ -2026,7 +2186,7 @@ _multigravity_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="new color stop restart clean list status rename delete clone template export import ai mcp skills config update doctor stats completion version help"
+    opts="new color stop restart clean list status rename delete clone template export import ai mcp skills config quota update doctor stats completion version help"
 
     if [[ ${COMP_CWORD} -eq 1 ]] ; then
         local profiles=$(multigravity list --raw 2>/dev/null)
@@ -2041,7 +2201,7 @@ _multigravity_completions() {
             return 0
             ;;
         ai)
-            COMPREPLY=( $(compgen -W "export import sync list" -- "${cur}") )
+            COMPREPLY=( $(compgen -W "export import sync list quota" -- "${cur}") )
             return 0
             ;;
         mcp)
@@ -2056,7 +2216,7 @@ _multigravity_completions() {
             COMPREPLY=( $(compgen -W "status share isolate" -- "${cur}") )
             return 0
             ;;
-        color|stop|restart|delete|rename|clone)
+        quota|color|stop|restart|delete|rename|clone)
             local profiles=$(multigravity list --raw 2>/dev/null)
             COMPREPLY=( $(compgen -W "${profiles}" -- "${cur}") )
             return 0
@@ -2194,9 +2354,11 @@ Commands:
   ai import <archive> <profile> Import AI conversations into an existing profile
   ai sync <src> <dest>        Synchronize AI conversations directly between two profiles
   ai list <profile>           List AI conversations in a profile
+  ai quota [profile]          Show AI token limits, usage percentage, and reset time
   mcp <status|share|isolate> <profile> Manage MCP server configuration sharing
   skills <status|share|isolate> <profile> Manage skills and plugins configuration sharing
   config <status|share|isolate> <profile> Manage config.json and permission grants sharing
+  quota [profile]             Show AI token limits, usage percentage, and reset time
   update                      Update multigravity to the latest version
   doctor                      Run a system diagnosis
   stats                       Show storage usage per profile
@@ -2279,6 +2441,10 @@ case "$cmd" in
   config)
     shift
     config_cmd "$@"
+    ;;
+  quota)
+    shift
+    quota_cmd "$@"
     ;;
   update)
     update_cli

@@ -348,9 +348,11 @@ function Write-Usage {
     Write-Host "  ai import <archive> <name>  Import AI conversations into an existing profile"
     Write-Host "  ai sync <src> <dest>        Synchronize AI conversations directly between two profiles"
     Write-Host "  ai list <name>              List AI conversations in a profile"
+    Write-Host "  ai quota [name]             Show AI token limits, usage percentage, and reset time"
     Write-Host "  mcp <status|share|isolate> <name> Manage MCP server configuration sharing"
     Write-Host "  skills <status|share|isolate> <name> Manage skills and plugins configuration sharing"
     Write-Host "  config <status|share|isolate> <name> Manage config.json and permission grants sharing"
+    Write-Host "  quota [name]                Show AI token limits, usage percentage, and reset time"
     Write-Host "  update                      Update multigravity to the latest version"
     Write-Host "  doctor                      Run a system diagnosis"
     Write-Host "  stats                       Show storage usage per profile"
@@ -979,7 +981,7 @@ function Invoke-GenerateCompletion {
         @"
 Register-ArgumentCompleter -Native -CommandName multigravity -ScriptBlock {
     param(`$wordToComplete, `$commandAst, `$cursorPosition)
-    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'mcp', 'skills', 'config', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
+    `$opts = @('new', 'color', 'stop', 'restart', 'clean', 'list', 'status', 'rename', 'delete', 'clone', 'template', 'export', 'import', 'ai', 'mcp', 'skills', 'config', 'quota', 'update', 'doctor', 'stats', 'completion', 'version', 'help')
     `$profiles = if (Test-Path '$BASE') { Get-ChildItem -Directory -Path '$BASE' | Select-Object -ExpandProperty Name } else { @() }
     (`$opts + `$profiles) | Where-Object { `$_ -like "`$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new(`$_, `$_, 'ParameterValue', `$_)
@@ -1421,8 +1423,9 @@ function Invoke-AiCmd {
         "import" { Invoke-AiImportProfile $arg1 $arg2 }
         "sync"   { Invoke-AiSyncProfile $arg1 $arg2 }
         "list"   { Invoke-AiListProfile $arg1 }
+        "quota"  { Invoke-QuotaCmd $arg1 }
         default  {
-            Write-Error "Error: usage: multigravity ai <export|import|sync|list> [args...]"
+            Write-Error "Error: usage: multigravity ai <export|import|sync|list|quota> [args...]"
             exit 1
         }
     }
@@ -1675,6 +1678,145 @@ function Invoke-ConfigCmd {
     }
 }
 
+function Invoke-QuotaCmd {
+    param($targetProfile)
+
+    if ($targetProfile) {
+        Validate-Name $targetProfile
+        $pDir = "$BASE\$targetProfile"
+        if (!(Test-Path $pDir)) {
+            Write-Error "Error: profile '$targetProfile' does not exist"
+            exit 1
+        }
+    }
+
+    $procs = Get-CimInstance Win32_Process -Filter "Name = 'language_server.exe'" -ErrorAction SilentlyContinue
+    if (!$procs) {
+        if ($targetProfile) {
+            Write-Host "Profile '$targetProfile' is not running."
+            Write-Host "To check quota and token consumption, launch it first: multigravity $targetProfile"
+        } else {
+            Write-Host "No active Antigravity profile or Language Server found in execution."
+            Write-Host "Launch a profile to monitor quota: multigravity <name>"
+        }
+        return
+    }
+
+    $foundAny = $false
+    foreach ($proc in $procs) {
+        $cmdLine = $proc.CommandLine
+        if ([string]::IsNullOrEmpty($cmdLine)) { continue }
+
+        $csrfMatch = [regex]::Match($cmdLine, "--csrf_token\s+([a-f0-9-]+)")
+        if (!$csrfMatch.Success) { continue }
+        $csrf = $csrfMatch.Groups[1].Value
+
+        $profileName = "host"
+        $ppid = $proc.ParentProcessId
+        if ($ppid) {
+            $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $ppid" -ErrorAction SilentlyContinue
+            if ($parent -and $parent.CommandLine) {
+                $m = [regex]::Match($parent.CommandLine, "AntigravityProfiles[\\/]([^\\/ ]+)")
+                if ($m.Success) {
+                    $profileName = $m.Groups[1].Value
+                }
+            }
+        }
+
+        if ($targetProfile -and ($profileName -ne $targetProfile)) { continue }
+
+        $ports = @()
+        $conns = Get-NetTCPConnection -OwningProcess $proc.ProcessId -State Listen -ErrorAction SilentlyContinue
+        if ($conns) {
+            foreach ($c in $conns) {
+                $ports += $c.LocalPort
+            }
+        }
+
+        $resData = $null
+        $usedPort = 0
+        foreach ($port in ($ports | Select-Object -Unique)) {
+            $url = "https://127.0.0.1:$port/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
+            try {
+                $headers = @{
+                    "Content-Type" = "application/json"
+                    "X-Codeium-Csrf-Token" = $csrf
+                }
+                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+                $resp = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body "{}" -TimeoutSec 3 -ErrorAction Stop
+                if ($resp -and $resp.response) {
+                    $resData = $resp.response
+                    $usedPort = $port
+                    break
+                }
+            } catch {}
+        }
+
+        if (!$resData) { continue }
+        $foundAny = $true
+
+        Write-Host ""
+        Write-Host "Quota Status — Profile: $profileName (PID $($proc.ProcessId), Port $usedPort)"
+        Write-Host "============================================================"
+        
+        $groups = $resData.groups
+        if (!$groups) {
+            Write-Host "  No quota information returned."
+            continue
+        }
+
+        foreach ($g in $groups) {
+            Write-Host ""
+            Write-Host "• $($g.displayName) ($($g.description)):"
+            foreach ($b in $g.buckets) {
+                $remFrac = [double]$b.remainingFraction
+                $remPct  = [math]::Round($remFrac * 100, 1)
+                $usedPct = [math]::Round(100 - $remPct, 1)
+                $timeLeftStr = ""
+                if ($b.resetTime) {
+                    try {
+                        $rt = [DateTime]::Parse($b.resetTime).ToUniversalTime()
+                        $now = [DateTime]::UtcNow
+                        $diff = $rt - $now
+                        if ($diff.TotalSeconds -gt 0) {
+                            $hours = [math]::Floor($diff.TotalHours)
+                            $mins = $diff.Minutes
+                            $timeLeftStr = " | Resets in: $($hours)h $($mins)m"
+                        } else {
+                            $timeLeftStr = " | Quota refreshed!"
+                        }
+                    } catch {
+                        $timeLeftStr = " | Reset: $($b.resetTime)"
+                    }
+                }
+
+                $barLen = 20
+                $filled = [int][math]::Round($barLen * ($remPct / 100.0))
+                if ($filled -lt 0) { $filled = 0 }
+                if ($filled -gt $barLen) { $filled = $barLen }
+                $bar = "[" + ("=" * $filled) + (" " * ($barLen - $filled)) + "]"
+
+                Write-Host "  - $($b.displayName):"
+                Write-Host "    $bar Remaining: $remPct% | Used: $usedPct%$timeLeftStr"
+                if ($b.description) {
+                    Write-Host "    Details: $($b.description)"
+                }
+            }
+        }
+        Write-Host ""
+    }
+
+    if (!$foundAny) {
+        if ($targetProfile) {
+            Write-Host "Profile '$targetProfile' is not running."
+            Write-Host "To check quota and token consumption, launch it first: multigravity $targetProfile"
+        } else {
+            Write-Host "No active Antigravity profile or Language Server found in execution."
+            Write-Host "Launch a profile to monitor quota: multigravity <name>"
+        }
+    }
+}
+
 function Invoke-InteractiveMenu {
     if (!(Test-Path $BASE)) {
         Write-Host "No profiles found."
@@ -1820,6 +1962,9 @@ switch ($cmd) {
     }
     "config" {
         Invoke-ConfigCmd $arg1 $arg2
+    }
+    "quota" {
+        Invoke-QuotaCmd $arg1
     }
     "update" {
         Invoke-UpdateCli

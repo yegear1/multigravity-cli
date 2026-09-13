@@ -80,3 +80,13 @@
   - Implementar comando `multigravity config <status|share|isolate> <profile>` para gerenciar o vínculo e permitir opt-out via `--isolated-config` / `.isolated_config`.
   - Preservar integridade dos perfis existentes criando backup `config.json.bak` antes da substituição por symlink.
   - Garantir paridade 100% entre Bash e PowerShell.
+
+### 2026-09-13 [Task 02.2] Telemetria e Monitoramento de Cotas e Tokens (multigravity quota)
+
+- **Contexto:** Usuários não tinham visibilidade de consumo de tokens, porcentagem restante de cota nem do tempo exato para o reset de limites das janelas móveis nos seus perfis.
+- **Descoberta Técnica:** O Antigravity executa localmente o binário `language_server` (em Go) com uma porta HTTPS dinâmica e um token `--csrf_token <uuid>`. Ele expõe o serviço gRPC/HTTPS `/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`. A autenticação exige o cabeçalho HTTP `X-Codeium-Csrf-Token: <csrf_token>`.
+- **Estrutura de Cota:** A resposta divide os limites em buckets:
+  - `gemini-5h`: Janela deslizante de 5 horas para suavização de pico global de tráfego. Retorna `remainingFraction` (float) e `resetTime` (timestamp ISO).
+  - `gemini-weekly`: Janela semanal atrelada ao tier individual da conta Google.
+  - `3p-5h` e `3p-weekly`: Janelas para modelos externos (Claude Opus/Sonnet, GPT).
+- **Decisão:** Criar `multigravity quota [perfil]` e alias `multigravity ai quota [perfil]`, mapeando os processos ativos de cada perfil e formatando as barras de progresso e contagens regressivas em horas/minutos, com paridade 100% entre Bash e PowerShell.
