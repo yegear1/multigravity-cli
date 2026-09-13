@@ -2201,13 +2201,17 @@ install_cron_job() {
   mkdir -p "$log_dir"
   local log_file="$log_dir/prime.log"
   local cron_tag="# multigravity-prime:$profile"
-  local cron_line="15 * * * * \"$script\" prime \"$profile\" --quiet >> \"$log_file\" 2>&1"
+  local extra_flags=""
+  if [ "${2:-0}" -eq 1 ]; then
+    extra_flags="--5h "
+  fi
+  local cron_line="15 * * * * \"$script\" prime \"$profile\" ${extra_flags}--quiet >> \"$log_file\" 2>&1"
 
   local current_cron
   current_cron="$(crontab -l 2>/dev/null || true)"
   if echo "$current_cron" | grep -q "$cron_tag"; then
-    print_info "Cron job for profile '$profile' is already installed."
-    return 0
+    # Update existing cron line
+    current_cron="$(echo "$current_cron" | grep -v "$cron_tag" | grep -v "prime \"$profile\"" | grep -v "prime $profile" || true)"
   fi
 
   (
@@ -2219,7 +2223,7 @@ install_cron_job() {
   ) | crontab -
 
   print_info "Installed hourly cron job for profile '$profile'."
-  print_info "Schedule: Every hour at minute 15"
+  print_info "Schedule: Every hour at minute 15${extra_flags:+, including 5-hour limits}"
   print_info "Log file: $log_file"
 }
 
@@ -2234,7 +2238,7 @@ uninstall_cron_job() {
   fi
 
   local filtered
-  filtered="$(echo "$current_cron" | grep -v "$cron_tag" | grep -v "prime \"$profile\" --quiet" | grep -v "prime $profile --quiet" || true)"
+  filtered="$(echo "$current_cron" | grep -v "$cron_tag" | grep -v "prime \"$profile\"" | grep -v "prime $profile" || true)"
   if [ -n "$filtered" ]; then
     echo "$filtered" | crontab -
   else
@@ -2245,6 +2249,7 @@ uninstall_cron_job() {
 
 install_systemd_job() {
   local profile="$1"
+  local include_5h="${2:-0}"
   if ! command -v systemctl >/dev/null 2>&1; then
     abort "systemd is not available on this system"
   fi
@@ -2257,6 +2262,11 @@ install_systemd_job() {
     abort "could not determine multigravity executable path"
   fi
 
+  local extra_flags=""
+  if [ "$include_5h" -eq 1 ]; then
+    extra_flags="--5h "
+  fi
+
   local user_home="${REAL_HOME:-$HOME}"
   local unit_dir="$user_home/.config/systemd/user"
   mkdir -p "$unit_dir"
@@ -2265,12 +2275,12 @@ install_systemd_job() {
 
   cat > "$svc_file" <<EOF
 [Unit]
-Description=Multigravity Weekly Quota Auto-Prime for profile ${profile}
+Description=Multigravity Quota Auto-Prime for profile ${profile}
 After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart="${script}" prime "${profile}" --quiet
+ExecStart="${script}" prime "${profile}" ${extra_flags}--quiet
 EOF
 
   cat > "$timer_file" <<EOF
@@ -2287,7 +2297,7 @@ EOF
 
   systemctl --user daemon-reload
   systemctl --user enable --now "multigravity-prime-${profile}.timer"
-  print_info "Installed and activated systemd timer 'multigravity-prime-${profile}.timer'."
+  print_info "Installed and activated systemd timer 'multigravity-prime-${profile}.timer'${extra_flags:+(including 5-hour limits)}."
 }
 
 uninstall_systemd_job() {
@@ -2313,6 +2323,7 @@ prime_cmd() {
   local no_jitter=0
   local max_jitter=60
   local quiet=0
+  local include_5h=0
   local install_cron=0
   local uninstall_cron=0
   local install_systemd=0
@@ -2320,6 +2331,10 @@ prime_cmd() {
 
   while [ $# -gt 0 ]; do
     case "$1" in
+      --5h|--include-5h)
+        include_5h=1
+        shift
+        ;;
       --force)
         force=1
         shift
@@ -2386,7 +2401,7 @@ prime_cmd() {
     local p_dir
     p_dir="$(profile_dir "$target_profile")"
     [ -d "$p_dir" ] || abort "profile '$target_profile' does not exist"
-    install_cron_job "$target_profile"
+    install_cron_job "$target_profile" "$include_5h"
     return 0
   fi
 
@@ -2403,7 +2418,7 @@ prime_cmd() {
     local p_dir
     p_dir="$(profile_dir "$target_profile")"
     [ -d "$p_dir" ] || abort "profile '$target_profile' does not exist"
-    install_systemd_job "$target_profile"
+    install_systemd_job "$target_profile" "$include_5h"
     return 0
   fi
 
@@ -2435,7 +2450,7 @@ prime_cmd() {
   fi
   local user_home="${REAL_HOME:-$HOME}"
 
-  python3 - "$target_profile" "$BASE" "$action" "$force" "$check" "$no_jitter" "$max_jitter" "$quiet" "$ls_bin" "$user_home" << 'EOF'
+  python3 - "$target_profile" "$BASE" "$action" "$force" "$check" "$no_jitter" "$max_jitter" "$quiet" "$ls_bin" "$user_home" "$include_5h" << 'EOF'
 import sys, os, re, subprocess, urllib.request, ssl, json, time, random, uuid
 from datetime import datetime, timezone, timedelta
 
@@ -2452,6 +2467,7 @@ except Exception:
 quiet = (sys.argv[8] == "1") if len(sys.argv) > 8 else False
 ls_bin_override = sys.argv[9] if len(sys.argv) > 9 and sys.argv[9] else ""
 user_home = sys.argv[10] if len(sys.argv) > 10 and sys.argv[10] else os.path.expanduser("~")
+include_5h = (sys.argv[11] == "1") if len(sys.argv) > 11 else False
 
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
@@ -2533,14 +2549,36 @@ BUCKET_CONFIGS = [
     {
         "key": "gemini",
         "bucket_id": "gemini-weekly",
-        "name": "Gemini Models",
+        "name": "Gemini Models (Weekly)",
+        "period": "weekly",
+        "parent_key": None,
+        "model": "MODEL_PLACEHOLDER_M73",
+        "model_label": "gemini-3.6-flash-low"
+    },
+    {
+        "key": "gemini_5h",
+        "bucket_id": "gemini-5h",
+        "name": "Gemini Models (5-Hour Window)",
+        "period": "5h",
+        "parent_key": "gemini",
         "model": "MODEL_PLACEHOLDER_M73",
         "model_label": "gemini-3.6-flash-low"
     },
     {
         "key": "3p",
         "bucket_id": "3p-weekly",
-        "name": "Claude & GPT models",
+        "name": "Claude & GPT models (Weekly)",
+        "period": "weekly",
+        "parent_key": None,
+        "model": "MODEL_PLACEHOLDER_M35",
+        "model_label": "claude-sonnet-4-6"
+    },
+    {
+        "key": "3p_5h",
+        "bucket_id": "3p-5h",
+        "name": "Claude & GPT models (5-Hour Window)",
+        "period": "5h",
+        "parent_key": "3p",
         "model": "MODEL_PLACEHOLDER_M35",
         "model_label": "claude-sonnet-4-6"
     }
@@ -2772,13 +2810,13 @@ buckets = {}
 for g in groups:
     for b in g.get("buckets", []):
         b_id = b.get("bucketId")
-        if b_id in ("gemini-weekly", "3p-weekly"):
+        if b_id in ("gemini-weekly", "3p-weekly", "gemini-5h", "3p-5h"):
             buckets[b_id] = b
 
 if not buckets:
     cleanup()
     if not quiet:
-        print("Error: No weekly quota buckets found in telemetry.", file=sys.stderr)
+        print("Error: No quota buckets found in telemetry.", file=sys.stderr)
     sys.exit(1)
 
 now = datetime.now(timezone.utc)
@@ -2804,18 +2842,29 @@ if prof_state and "last_reset_time" in prof_state and "gemini" not in prof_state
 if action == "status":
     cleanup()
     cron_installed = False
+    cron_has_5h = False
     try:
         cr_out = subprocess.check_output(["crontab", "-l"], stderr=subprocess.DEVNULL).decode("utf-8", errors="replace")
-        if f"multigravity-prime:{prof_key}" in cr_out or f"prime {prof_key} --quiet" in cr_out or f"prime \"{prof_key}\" --quiet" in cr_out:
+        if f"multigravity-prime:{prof_key}" in cr_out or f"prime {prof_key}" in cr_out or f"prime \"{prof_key}\"" in cr_out:
             cron_installed = True
+            for cl in cr_out.splitlines():
+                if prof_key in cl and ("--5h" in cl or "--include-5h" in cl):
+                    cron_has_5h = True
+                    break
     except Exception:
         pass
 
     systemd_active = False
+    systemd_has_5h = False
     try:
         res = subprocess.run(["systemctl", "--user", "is-active", f"multigravity-prime-{prof_key}.timer"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if res.returncode == 0:
             systemd_active = True
+            svc_p = os.path.join(user_home, f".config/systemd/user/multigravity-prime-{prof_key}.service")
+            if os.path.exists(svc_p):
+                with open(svc_p, "r") as sf:
+                    if "--5h" in sf.read():
+                        systemd_has_5h = True
     except Exception:
         pass
 
@@ -2857,7 +2906,7 @@ if action == "status":
         is_ref = (rem_frac >= 0.999) or (d_sec <= 0)
         alr_primed = (last_rst == rst_str and not is_ref)
         if alr_primed:
-            c_status = "Active (Weekly countdown is running)"
+            c_status = f"Active ({cfg.get('period', 'Weekly')} countdown is running)"
         elif is_ref:
             if target_pt:
                 c_status = f"Pending Prime with Jitter (Scheduled at: {target_pt})"
@@ -2866,14 +2915,16 @@ if action == "status":
         else:
             c_status = "Active (Countdown running)"
 
-        print(f"    Weekly Quota:     {rem_frac * 100:.1f}% remaining | Resets in: {t_left}")
+        print(f"    Limit Quota:      {rem_frac * 100:.1f}% remaining | Resets in: {t_left}")
         print(f"    Reset Target:     {rst_str}")
         print(f"    Last Primed:      {last_p} (model: {last_m}{prompt_info})")
         print(f"    Cycle Status:     {c_status}")
 
     print("\n  Scheduled Watchdog:")
-    print(f"    Crontab:          {'Installed (Hourly)' if cron_installed else 'Not installed'}")
-    print(f"    Systemd Timer:    {'Active' if systemd_active else 'Not active / Not installed'}")
+    cron_desc = 'Installed (Hourly, Weekly + 5h)' if (cron_installed and cron_has_5h) else ('Installed (Hourly, Weekly only)' if cron_installed else 'Not installed')
+    systemd_desc = 'Active (Weekly + 5h)' if (systemd_active and systemd_has_5h) else ('Active (Weekly only)' if systemd_active else 'Not active / Not installed')
+    print(f"    Crontab:          {cron_desc}")
+    print(f"    Systemd Timer:    {systemd_desc}")
     print(f"    Prompts Catalog:  {prompts_file} ({len(prompt_pool)} prompts loaded)")
     print("")
     sys.exit(0)
@@ -2881,10 +2932,26 @@ if action == "status":
 # Action == "prime"
 try:
     used_prompts = set()
+    primed_providers = set()
     for cfg in BUCKET_CONFIGS:
+        # Check if 5h bucket is requested
+        if cfg.get("period") == "5h" and not include_5h and not force:
+            continue
+
         b = buckets.get(cfg["bucket_id"])
         if not b:
             continue
+
+        # Protection: if this is a 5h bucket, check if parent weekly quota has remaining quota (> 5%)
+        if cfg.get("parent_key"):
+            parent_b = buckets.get(cfg["parent_key"] + "-weekly")
+            if parent_b:
+                p_rem = float(parent_b.get("remainingFraction", 0.0))
+                if p_rem <= 0.05 and not force:
+                    if not quiet:
+                        print(f"Skipping 5h prime for {cfg['name']}: weekly quota is exhausted ({p_rem * 100:.1f}% remaining).")
+                    continue
+
         rem_frac = float(b.get("remainingFraction", 0.0))
         rst_str = b.get("resetTime")
         d_sec = 0
@@ -2908,22 +2975,38 @@ try:
         if not force:
             if alr_primed:
                 if not quiet:
-                    print(f"Weekly quota for '{prof_key}' [{cfg['name']}] is already primed and active for this cycle.")
+                    print(f"Quota for '{prof_key}' [{cfg['name']}] is already primed and active for this cycle.")
                     print(f"Current cycle resets in {t_left} ({rst_str}).")
                 continue
 
             if not is_ref:
                 if not quiet:
-                    print(f"Weekly quota for '{prof_key}' [{cfg['name']}] has not reset yet ({rem_frac * 100:.1f}% remaining, resets in {t_left}).")
+                    print(f"Quota for '{prof_key}' [{cfg['name']}] has not reset yet ({rem_frac * 100:.1f}% remaining, resets in {t_left}).")
                 continue
 
             if check_only:
                 if not quiet:
-                    print(f"Weekly quota for '{prof_key}' [{cfg['name']}] is READY for priming (Reset occurred / New cycle waiting).")
+                    print(f"Quota for '{prof_key}' [{cfg['name']}] is READY for priming (Reset occurred / New cycle waiting).")
+                continue
+
+            # Check if this model provider was ALREADY primed in this exact run (e.g. weekly primed just now)
+            if cfg["model"] in primed_providers:
+                b_state["last_primed_at"] = datetime.now(timezone.utc).isoformat()
+                b_state["last_reset_time"] = rst_str
+                b_state["last_model"] = cfg["model_label"]
+                b_state["last_prompt"] = f"(Linked with {cfg['parent_key']} prime)"
+                b_state["target_prime_time"] = None
+                b_state["status"] = "success"
+                prof_state[cfg["key"]] = b_state
+                state["profiles"][prof_key] = prof_state
+                save_state(state)
+                if not quiet:
+                    print(f"✓ 5-Hour window for '{prof_key}' [{cfg['name']}] auto-linked with previous prime in this session.")
                 continue
 
             # Anti-bot jitter per bucket
-            if not no_jitter and max_jitter > 0:
+            bucket_max_jitter = min(max_jitter, 15.0) if cfg.get("period") == "5h" else max_jitter
+            if not no_jitter and bucket_max_jitter > 0:
                 target_str = b_state.get("target_prime_time")
                 target_time = None
                 if target_str:
@@ -2933,7 +3016,7 @@ try:
                         pass
 
                 if not target_time or target_time < now - timedelta(hours=2):
-                    jitter_sec = random.uniform(0, max_jitter * 60)
+                    jitter_sec = random.uniform(0, bucket_max_jitter * 60)
                     target_time = now + timedelta(seconds=jitter_sec)
                     b_state["target_prime_time"] = target_time.isoformat()
                     prof_state[cfg["key"]] = b_state
@@ -2947,6 +3030,35 @@ try:
                     else:
                         print(f"Anti-bot jitter for {cfg['name']}: waiting {wait_s // 60}m {wait_s % 60}s before priming (scheduled for {target_time.strftime('%H:%M:%S UTC')})...")
                         time.sleep(wait_s)
+
+        # Last-mile pre-prime check: verify live telemetry before sending StartCascade
+        manual_activity = False
+        try:
+            chk_req = urllib.request.Request(
+                f"https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary",
+                data=b"{}",
+                headers={"Content-Type": "application/json", "X-Codeium-Csrf-Token": csrf}
+            )
+            with urllib.request.urlopen(chk_req, context=ctx, timeout=3) as chk_r:
+                chk_data = json.loads(chk_r.read().decode("utf-8"))
+                for cg in chk_data.get("response", {}).get("groups", []):
+                    for cb in cg.get("buckets", []):
+                        if cb.get("bucketId") == cfg["bucket_id"]:
+                            fresh_rem = float(cb.get("remainingFraction", 0.0))
+                            fresh_rst = cb.get("resetTime")
+                            # If quota dropped or resetTime changed and not force, user performed manual action
+                            if not force and fresh_rem < 0.999 and (fresh_rst != rst_str or fresh_rem < rem_frac - 0.005):
+                                manual_activity = True
+                                if not quiet:
+                                    print(f"Aborting prime for {cfg['name']}: manual user activity detected (quota now at {fresh_rem * 100:.1f}%).")
+                                b_state["target_prime_time"] = None
+                                save_state(state)
+                                break
+        except Exception:
+            pass
+
+        if manual_activity:
+            continue
 
         # Select a prompt from catalog not yet used in this run
         available = [p for p in prompt_pool if p not in used_prompts]
@@ -2997,16 +3109,21 @@ try:
             prof_state[cfg["key"]] = b_state
             state["profiles"][prof_key] = prof_state
             save_state(state)
+            primed_providers.add(cfg["model"])
 
             if not quiet:
-                print(f"\n✓ Successfully primed weekly quota for profile '{prof_key}' [{cfg['name']}]!")
+                print(f"\n✓ Successfully primed quota for profile '{prof_key}' [{cfg['name']}]!")
                 print(f"  Model: {cfg['model_label']} (minimum token cost)")
                 print(f"  Prompt: \"{selected_prompt}\"")
                 print(f"  Cascade ID: {cascade_id}")
-                print("  7-day reset countdown has officially started!")
+                print("  Reset countdown has officially started!")
+            else:
+                print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}] Primed {prof_key} [{cfg['name']}] with {cfg['model_label']}: \"{selected_prompt}\"")
         except Exception as e:
             if not quiet:
                 print(f"Error priming {cfg['name']}: {e}", file=sys.stderr)
+            else:
+                print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}] Error priming {prof_key} [{cfg['name']}]: {e}", file=sys.stderr)
 finally:
     cleanup()
 EOF
@@ -3337,9 +3454,10 @@ Commands:
   config <status|share|isolate> <profile> Manage config.json and permission grants sharing
   gh <status|share|isolate> <profile> Manage GitHub CLI credentials sharing
   quota [profile]             Show AI token limits, usage percentage, and reset time
-  prime [profile] [options]   Auto-prime weekly token limit on reset (jitter & cron/systemd)
+  prime [profile] [options]   Auto-prime token limits on reset (jitter & cron/systemd)
+      --5h, --include-5h      Include 5-hour rolling limits in prime checks
       --force                 Force send priming prompt immediately
-      --check                 Check if weekly cycle is pending prime
+      --check                 Check if cycle is pending prime
       --status                Show prime automation and quota status
       --no-jitter             Bypass anti-bot random delay
       --jitter <mins>         Set max jitter in minutes (default: 60)
@@ -3347,7 +3465,7 @@ Commands:
       --uninstall-cron        Remove hourly check from crontab
       --install-systemd       Install and enable user systemd timer (Linux)
       --uninstall-systemd     Disable and remove user systemd timer
-      --quiet                 Silent execution (errors only)
+      --quiet                 Silent execution (errors and success events only)
   update                      Update multigravity to the latest version
   doctor                      Run a system diagnosis
   stats                       Show storage usage per profile

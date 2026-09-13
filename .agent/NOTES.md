@@ -137,5 +137,24 @@
   - **Credenciais do GitHub CLI:** Compartilhar por padrão `$REAL_HOME/.config/gh` (Linux/macOS) e `%APPDATA%\GitHub CLI` (Windows) via symlink/junction na criação e lançamento de perfis (`link_gh_config` / `Link-GhConfig`).
   - **Git HTTPS:** Sincronizar `$REAL_HOME/.git-credentials` em `link_dev_dotfiles` / `Link-DevDotfiles`.
   - **Opt-out Granular:** Criar comando `multigravity gh <status|share|isolate> <profile>` e flag `--isolated-gh` (sentinela `.isolated_gh`), além de respeitar `--isolated-dotfiles`.
-  - **Preservação de PATH:** Injetar no ambiente de lançamento do Antigravity (`launch_profile` / `Invoke-LaunchProfile`) os diretórios de binários de usuário existentes (`~/.local/bin`, `~/.cargo/bin`, etc.), garantindo que os executáveis do usuário host funcionem de imediato no terminal integrado sem duplicar binários.
   - **Paridade de Plataformas:** Implementado com 100% de paridade entre Bash (`multigravity`) e PowerShell (`multigravity.ps1`).
+
+### 2026-09-13 [Task 02.6] Suporte a Auto-Priming de Janela de 5 Horas (gemini-5h e 3p-5h) e Checagem Pré-Prime
+
+- **Contexto:** Além das cotas semanais (`gemini-weekly`, `3p-weekly`), o Antigravity gerencia janelas móveis de pico de 5 horas (`gemini-5h`, `3p-5h`). O usuário solicitou que o priming também inicializasse os ciclos de 5 horas assim que refresheds, com verificação de segurança caso o usuário tenha interagido manualmente com a IDE antes do disparo.
+- **Estrutura dos 4 Buckets:**
+  - `gemini-weekly`: Cota semanal do Gemini.
+  - `gemini-5h`: Limite de 5 horas do Gemini (`parent_key: gemini`).
+  - `3p-weekly`: Cota semanal de Claude & GPT.
+  - `3p-5h`: Limite de 5 horas de Claude & GPT (`parent_key: 3p`).
+- **Otimização de Disparo e Vínculo Automático:**
+  - Enviar um prompt para um modelo consome simultaneamente tokens do bucket semanal e do bucket de 5h do mesmo provedor.
+  - Se um provedor já foi primed no mesmo ciclo de execução (ex: semanal acabou de rodar), o script vincula automaticamente o ciclo de 5h (`(Linked with parent prime)`) sem enviar uma mensagem redundante, economizando tokens e evitando poluição do histórico de chat.
+- **Proteção contra Exaustão Semanal:**
+  - O prime de 5 horas só executa se a respectiva cota semanal tiver saldo (> 5%). Se a cota semanal estiver zerada, o bucket de 5 horas é omitido ou ignorado com aviso.
+- **Checagem de Última Milha Pré-Prime:**
+  - Imediatamente antes de despachar `StartCascade`, o script efetua uma re-consulta de telemetria ao vivo. Se a cota caiu (`rem_frac < 0.999`) ou o `resetTime` foi alterado por atividade manual do usuário, o prime é cancelado imediatamente.
+- **Watchdog e Flags:**
+  - Adicionadas flags `--5h` e `--include-5h` na CLI e nos instaladores de cron/systemd/Task Scheduler (`--install-cron --5h`).
+  - Formatação visual no `--status` detalhando os 4 limites organizados por provedor e período.
+

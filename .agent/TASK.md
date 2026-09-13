@@ -17,6 +17,7 @@
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
 | [00.0] | Release v1.5.0 (AI Quota Telemetry, Prime Automation, Permissions & GH Sync) | v1.5.0 | 2026-09-13 |
+| [02.6] | Suporte a Auto-Priming de Limites de 5 Horas (gemini-5h e 3p-5h) e Checagem Pré-Prime | feat(prime) | 2026-09-13 |
 
 ---
 

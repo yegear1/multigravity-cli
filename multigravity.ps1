@@ -1994,6 +1994,8 @@ function Invoke-PrimeCmd {
         [switch]$Status,
         [switch]$NoJitter,
         [int]$JitterMinutes = 60,
+        [switch]$Include5h,
+        [switch]$FiveHours,
         [switch]$InstallTask,
         [switch]$UninstallTask,
         [switch]$Quiet
@@ -2002,6 +2004,10 @@ function Invoke-PrimeCmd {
     if ($args) {
         foreach ($a in $args) {
             switch ($a) {
+                "--5h"             { $Include5h = $true }
+                "--include-5h"     { $Include5h = $true }
+                "-Include5h"       { $Include5h = $true }
+                "-FiveHours"       { $Include5h = $true }
                 "--force"          { $Force = $true }
                 "-Force"           { $Force = $true }
                 "--check"          { $Check = $true }
@@ -2041,10 +2047,11 @@ function Invoke-PrimeCmd {
         Validate-Name $targetProfile
         $psExe = (Get-Process -Id $PID).Path
         if (!$psExe) { $psExe = "powershell.exe" }
-        $action = "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`" prime $targetProfile -Quiet"
+        $extraAction = if ($Include5h -or $FiveHours) { " --5h" } else { "" }
+        $action = "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`" prime $targetProfile$extraAction -Quiet"
         schtasks.exe /create /tn "$taskName" /tr "`"$psExe`" $action" /sc hourly /mo 1 /f | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "Installed hourly scheduled task '$taskName' for profile '$targetProfile'."
+            Write-Host "Installed hourly scheduled task '$taskName' for profile '$targetProfile'$(if ($extraAction) { ' (including 5-hour limits)' })."
             Write-Host "Schedule: Every hour"
         } else {
             Write-Error "Failed to create scheduled task '$taskName'."
@@ -2289,14 +2296,36 @@ function Invoke-PrimeCmd {
         @{
             "key" = "gemini"
             "bucket_id" = "gemini-weekly"
-            "name" = "Gemini Models"
+            "name" = "Gemini Models (Weekly)"
+            "period" = "weekly"
+            "parent_key" = $null
+            "model" = "MODEL_PLACEHOLDER_M73"
+            "model_label" = "gemini-3.6-flash-low"
+        },
+        @{
+            "key" = "gemini_5h"
+            "bucket_id" = "gemini-5h"
+            "name" = "Gemini Models (5-Hour Window)"
+            "period" = "5h"
+            "parent_key" = "gemini"
             "model" = "MODEL_PLACEHOLDER_M73"
             "model_label" = "gemini-3.6-flash-low"
         },
         @{
             "key" = "3p"
             "bucket_id" = "3p-weekly"
-            "name" = "Claude & GPT models"
+            "name" = "Claude & GPT models (Weekly)"
+            "period" = "weekly"
+            "parent_key" = $null
+            "model" = "MODEL_PLACEHOLDER_M35"
+            "model_label" = "claude-sonnet-4-6"
+        },
+        @{
+            "key" = "3p_5h"
+            "bucket_id" = "3p-5h"
+            "name" = "Claude & GPT models (5-Hour Window)"
+            "period" = "5h"
+            "parent_key" = "3p"
             "model" = "MODEL_PLACEHOLDER_M35"
             "model_label" = "claude-sonnet-4-6"
         }
@@ -2306,7 +2335,7 @@ function Invoke-PrimeCmd {
     if ($quotaResp -and $quotaResp.response -and $quotaResp.response.groups) {
         foreach ($g in $quotaResp.response.groups) {
             foreach ($b in $g.buckets) {
-                if ($b.bucketId -eq "gemini-weekly" -or $b.bucketId -eq "3p-weekly") {
+                if ($b.bucketId -in @("gemini-weekly", "3p-weekly", "gemini-5h", "3p-5h")) {
                     $buckets[$b.bucketId] = $b
                 }
             }
@@ -2315,7 +2344,7 @@ function Invoke-PrimeCmd {
 
     if ($buckets.Count -eq 0) {
         if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
-        if (!$Quiet) { Write-Error "No weekly quota buckets found in telemetry." }
+        if (!$Quiet) { Write-Error "No quota buckets found in telemetry." }
         exit 1
     }
 
@@ -2348,8 +2377,12 @@ function Invoke-PrimeCmd {
         if ($headlessProc) { Stop-Process -Id $headlessProc.Id -Force -ErrorAction SilentlyContinue }
         
         $taskInstalled = $false
-        schtasks.exe /query /tn "MultigravityPrime-$profKey" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { $taskInstalled = $true }
+        $taskHas5h = $false
+        $taskQuery = schtasks.exe /query /tn "MultigravityPrime-$profKey" /fo list 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $taskInstalled = $true
+            if ($taskQuery -match "--5h") { $taskHas5h = $true }
+        }
 
         Write-Host ""
         Write-Host "Prime Status — Profile: $profKey"
@@ -2399,7 +2432,7 @@ function Invoke-PrimeCmd {
             $alreadyPrimed = ($lastReset -eq $resetTimeStr) -and (!$isRefreshed)
             $cycleStatus = "Active (Countdown running)"
             if ($alreadyPrimed) {
-                $cycleStatus = "Active (Weekly countdown is currently running)"
+                $cycleStatus = "Active ($($cfg.period) countdown is currently running)"
             } elseif ($isRefreshed) {
                 if ($targetPrimeTime) {
                     $cycleStatus = "Pending Prime with Jitter (Scheduled at: $targetPrimeTime)"
@@ -2408,7 +2441,7 @@ function Invoke-PrimeCmd {
                 }
             }
 
-            Write-Host "    Weekly Quota:     $([math]::Round($remFrac * 100, 1))% remaining | Resets in: $timeLeftStr"
+            Write-Host "    Limit Quota:      $([math]::Round($remFrac * 100, 1))% remaining | Resets in: $timeLeftStr"
             Write-Host "    Reset Target:     $resetTimeStr"
             Write-Host "    Last Primed:      $lastPrimed (model: $lastModel$lastPrompt)"
             Write-Host "    Cycle Status:     $cycleStatus"
@@ -2416,7 +2449,8 @@ function Invoke-PrimeCmd {
 
         Write-Host ""
         Write-Host "  Scheduled Watchdog:"
-        Write-Host "    Scheduled Task:   $(if ($taskInstalled) { 'Installed (Hourly)' } else { 'Not installed' })"
+        $taskDesc = if ($taskInstalled -and $taskHas5h) { "Installed (Hourly, Weekly + 5h)" } elseif ($taskInstalled) { "Installed (Hourly, Weekly only)" } else { "Not installed" }
+        Write-Host "    Scheduled Task:   $taskDesc"
         Write-Host "    Prompts Catalog:  $promptsFile ($($promptPool.Count) prompts loaded)"
         Write-Host ""
         return
@@ -2424,10 +2458,28 @@ function Invoke-PrimeCmd {
 
     # Execute Priming per bucket
     $usedPrompts = @()
+    $primedProviders = @()
     try {
         foreach ($cfg in $bucketConfigs) {
+            if ($cfg.period -eq "5h" -and !$Include5h -and !$FiveHours -and !$Force) {
+                continue
+            }
+
             $b = $buckets[$cfg.bucket_id]
             if (!$b) { continue }
+
+            if ($cfg.parent_key) {
+                $parentB = $buckets["$($cfg.parent_key)-weekly"]
+                if ($parentB) {
+                    $pRem = [double]$parentB.remainingFraction
+                    if ($pRem -le 0.05 -and !$Force) {
+                        if (!$Quiet) {
+                            Write-Host "Skipping 5h prime for $($cfg.name): weekly quota is exhausted ($([math]::Round($pRem * 100, 1))% remaining)."
+                        }
+                        continue
+                    }
+                }
+            }
 
             $remFrac = [double]$b.remainingFraction
             $resetTimeStr = $b.resetTime
@@ -2459,7 +2511,7 @@ function Invoke-PrimeCmd {
             if (!$Force) {
                 if ($alreadyPrimed) {
                     if (!$Quiet) {
-                        Write-Host "Weekly quota for '$profKey' [$($cfg.name)] is already primed and active for this cycle."
+                        Write-Host "Quota for '$profKey' [$($cfg.name)] is already primed and active for this cycle."
                         Write-Host "Current cycle resets in $timeLeftStr ($resetTimeStr)."
                     }
                     continue
@@ -2467,24 +2519,42 @@ function Invoke-PrimeCmd {
 
                 if (!$isRefreshed) {
                     if (!$Quiet) {
-                        Write-Host "Weekly quota for '$profKey' [$($cfg.name)] has not reset yet ($([math]::Round($remFrac * 100, 1))% remaining, resets in $timeLeftStr)."
+                        Write-Host "Quota for '$profKey' [$($cfg.name)] has not reset yet ($([math]::Round($remFrac * 100, 1))% remaining, resets in $timeLeftStr)."
                     }
                     continue
                 }
 
                 if ($Check) {
-                    Write-Host "Weekly quota for '$profKey' [$($cfg.name)] is READY for priming (Reset occurred / New cycle waiting)."
+                    Write-Host "Quota for '$profKey' [$($cfg.name)] is READY for priming (Reset occurred / New cycle waiting)."
                     continue
                 }
 
-                if (!$NoJitter -and ($JitterMinutes -gt 0)) {
+                # Link if provider was already primed in this session
+                if ($primedProviders -contains $cfg.model) {
+                    $bState["last_primed_at"] = [DateTime]::UtcNow.ToString("o")
+                    $bState["last_reset_time"] = $resetTimeStr
+                    $bState["last_model"] = $cfg.model_label
+                    $bState["last_prompt"] = "(Linked with $($cfg.parent_key) prime)"
+                    $bState["target_prime_time"] = $null
+                    $bState["status"] = "success"
+                    $profState[$cfg.key] = $bState
+                    $state["profiles"][$profKey] = $profState
+                    Set-Content -Path $stateFile -Value (ConvertTo-Json $state -Depth 5) -Force
+                    if (!$Quiet) {
+                        Write-Host "✓ 5-Hour window for '$profKey' [$($cfg.name)] auto-linked with previous prime in this session."
+                    }
+                    continue
+                }
+
+                $bucketMaxJitter = if ($cfg.period -eq "5h") { [math]::Min($JitterMinutes, 15) } else { $JitterMinutes }
+                if (!$NoJitter -and ($bucketMaxJitter -gt 0)) {
                     $targetStr = $bState.target_prime_time
                     $targetTime = $null
                     if ($targetStr) {
                         try { $targetTime = [DateTime]::Parse($targetStr).ToUniversalTime() } catch {}
                     }
                     if (!$targetTime -or ($targetTime -lt $now.AddHours(-2))) {
-                        $jitterSec = Get-Random -Minimum 0 -Maximum ($JitterMinutes * 60)
+                        $jitterSec = Get-Random -Minimum 0 -Maximum ($bucketMaxJitter * 60)
                         $targetTime = $now.AddSeconds($jitterSec)
                         $bState["target_prime_time"] = $targetTime.ToString("o")
                         $profState[$cfg.key] = $bState
@@ -2503,6 +2573,34 @@ function Invoke-PrimeCmd {
                     }
                 }
             }
+
+            # Last-mile pre-prime check
+            $manualActivity = $false
+            try {
+                $chkHeaders = @{ "Content-Type" = "application/json"; "X-Codeium-Csrf-Token" = $usedCsrf }
+                $chkResp = Invoke-RestMethod -Uri "https://127.0.0.1:$usedPort/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary" -Method Post -Headers $chkHeaders -Body "{}" -TimeoutSec 3 -ErrorAction SilentlyContinue
+                if ($chkResp -and $chkResp.response -and $chkResp.response.groups) {
+                    foreach ($cg in $chkResp.response.groups) {
+                        foreach ($cb in $cg.buckets) {
+                            if ($cb.bucketId -eq $cfg.bucket_id) {
+                                $freshRem = [double]$cb.remainingFraction
+                                $freshRst = $cb.resetTime
+                                if (!$Force -and ($freshRem -lt 0.999) -and (($freshRst -ne $resetTimeStr) -or ($freshRem -lt ($remFrac - 0.005)))) {
+                                    $manualActivity = $true
+                                    if (!$Quiet) {
+                                        Write-Host "Aborting prime for $($cfg.name): manual user activity detected (quota now at $([math]::Round($freshRem * 100, 1))%)."
+                                    }
+                                    $bState["target_prime_time"] = $null
+                                    Set-Content -Path $stateFile -Value (ConvertTo-Json $state -Depth 5) -Force
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {}
+
+            if ($manualActivity) { continue }
 
             # Pick prompt not yet used in this run
             $available = $promptPool | Where-Object { $usedPrompts -notcontains $_ }
@@ -2546,14 +2644,17 @@ function Invoke-PrimeCmd {
             $profState[$cfg.key] = $bState
             $state["profiles"][$profKey] = $profState
             Set-Content -Path $stateFile -Value (ConvertTo-Json $state -Depth 5) -Force
+            $primedProviders += $cfg.model
 
             if (!$Quiet) {
                 Write-Host ""
-                Write-Host "✓ Successfully primed weekly quota for profile '$profKey' [$($cfg.name)]!" -ForegroundColor Green
+                Write-Host "✓ Successfully primed quota for profile '$profKey' [$($cfg.name)]!" -ForegroundColor Green
                 Write-Host "  Model: $($cfg.model_label) (minimum token cost)"
                 Write-Host "  Prompt: `"$selectedPrompt`""
                 Write-Host "  Cascade ID: $cascadeId"
-                Write-Host "  7-day reset countdown has officially started!"
+                Write-Host "  Reset countdown has officially started!"
+            } else {
+                Write-Host "[$([DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss UTC'))] Primed $profKey [$($cfg.name)] with $($cfg.model_label): `"$selectedPrompt`""
             }
         }
     } finally {
