@@ -5,7 +5,7 @@ shopt -s nullglob
 
 REAL_HOME="${HOME}"
 BASE="${MULTIGRAVITY_HOME:-$HOME/AntigravityProfiles}"
-VERSION="1.3.0"
+VERSION="1.4.0"
 cmd="${1-}"
 
 abort() {

@@ -19,7 +19,7 @@ param (
 
 $REAL_USERPROFILE = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $env:USERPROFILE }
 $BASE = if ($env:MULTIGRAVITY_HOME) { $env:MULTIGRAVITY_HOME } else { "$REAL_USERPROFILE\AntigravityProfiles" }
-$VERSION = "1.3.0"
+$VERSION = "1.4.0"
 
 function Find-Antigravity {
     $override = if ($env:MULTIGRAVITY_APP) { $env:MULTIGRAVITY_APP } else { $env:AGY_APP }
