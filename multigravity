@@ -752,6 +752,35 @@ EOF
   fi
 }
 
+get_profile_color() {
+  local profile="${1-}"
+  [ -z "$profile" ] && return 0
+
+  local profile_path
+  profile_path="$(profile_dir "$profile")"
+  [ ! -d "$profile_path" ] && return 0
+
+  local settings_file="$(user_data_dir "$profile_path")/User/settings.json"
+  [ ! -f "$settings_file" ] && return 0
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$settings_file" <<'PYEOF'
+import sys, json
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        data = json.load(f)
+    val = data.get("workbench.colorCustomizations", {}).get("titleBar.activeBackground", "")
+    if val:
+        print(val)
+except Exception:
+    pass
+PYEOF
+  elif command -v grep >/dev/null 2>&1 && command -v sed >/dev/null 2>&1; then
+    grep -o '"titleBar\.activeBackground"[[:space:]]*:[[:space:]]*"[^"]*"' "$settings_file" 2>/dev/null | \
+      sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/' || true
+  fi
+}
+
 profile_color_cmd() {
   local profile="${1-}"
   local color_arg="${2-}"
@@ -769,23 +798,11 @@ profile_color_cmd() {
   fi
 
   if [ -z "$color_arg" ]; then
-    local settings_file="$(user_data_dir "$profile_path")/User/settings.json"
-    if [ -f "$settings_file" ] && command -v python3 >/dev/null 2>&1; then
-      local current_color
-      current_color=$(python3 - "$settings_file" <<'PYEOF'
-import sys, json, os
-try:
-    with open(sys.argv[1], "r", encoding="utf-8") as f:
-        data = json.load(f)
-    print(data.get("workbench.colorCustomizations", {}).get("titleBar.activeBackground", ""))
-except Exception:
-    pass
-PYEOF
-)
-      if [ -n "$current_color" ]; then
-        print_info "Profile '$profile' color: $current_color"
-        return 0
-      fi
+    local current_color
+    current_color="$(get_profile_color "$profile")"
+    if [ -n "$current_color" ]; then
+      print_info "Profile '$profile' color: $current_color"
+      return 0
     fi
     print_info "Profile '$profile' has no custom color set."
     return 0

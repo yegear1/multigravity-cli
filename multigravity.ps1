@@ -339,6 +339,22 @@ function Set-ProfileColor {
     Write-Host "Set theme color for profile '$profileName' to $colorArg."
 }
 
+function Get-ProfileColor {
+    param([string]$profileName)
+    if ([string]::IsNullOrWhiteSpace($profileName)) { return "" }
+    $profileDir = "$BASE\$profileName"
+    if (!(Test-Path $profileDir)) { return "" }
+    $settingsFile = "$profileDir\AppData\Roaming\Antigravity\User\settings.json"
+    if (Test-Path $settingsFile) {
+        try {
+            $obj = (Get-Content -Raw -Path $settingsFile -Encoding UTF8) | ConvertFrom-Json
+            $c = $obj.'workbench.colorCustomizations'.'titleBar.activeBackground'
+            if ($c) { return [string]$c }
+        } catch {}
+    }
+    return ""
+}
+
 function Invoke-ColorProfile {
     param([string]$profileName, [string]$colorArg)
 
@@ -355,16 +371,10 @@ function Invoke-ColorProfile {
     }
 
     if ([string]::IsNullOrWhiteSpace($colorArg)) {
-        $settingsFile = "$profileDir\AppData\Roaming\Antigravity\User\settings.json"
-        if (Test-Path $settingsFile) {
-            try {
-                $obj = (Get-Content -Raw -Path $settingsFile -Encoding UTF8) | ConvertFrom-Json
-                $curr = $obj.'workbench.colorCustomizations'.'titleBar.activeBackground'
-                if ($curr) {
-                    Write-Host "Profile '$profileName' color: $curr"
-                    return
-                }
-            } catch {}
+        $curr = Get-ProfileColor $profileName
+        if ($curr) {
+            Write-Host "Profile '$profileName' color: $curr"
+            return
         }
         Write-Host "Profile '$profileName' has no custom color set."
         return
@@ -2687,15 +2697,9 @@ function Invoke-InteractiveMenu {
         $runStatus = if ($isRunning) { "● running" } else { "○ idle" }
         $ptype = if (Test-Path "$($p.FullName)\.shared") { "shared" } else { "isolated" }
 
-        $settingsFile = "$($p.FullName)\AppData\Roaming\Antigravity\User\settings.json"
         $colorLabel = ""
-        if (Test-Path $settingsFile) {
-            try {
-                $raw = Get-Content $settingsFile -Raw | ConvertFrom-Json
-                $c = $raw.'workbench.colorCustomizations'.'titleBar.activeBackground'
-                if ($c) { $colorLabel = "[$c]" }
-            } catch {}
-        }
+        $c = Get-ProfileColor $name
+        if ($c) { $colorLabel = "[$c]" }
 
         $num = "[{0}]" -f ($i + 1)
         if ($isRunning) {

@@ -158,3 +158,12 @@
   - Adicionadas flags `--5h` e `--include-5h` na CLI e nos instaladores de cron/systemd/Task Scheduler (`--install-cron --5h`).
   - Formatação visual no `--status` detalhando os 4 limites organizados por provedor e período.
 
+### 2026-09-14 [Task 01.3] Correção de Crash no Menu TUI por Ausência de `get_profile_color` (Issue #1)
+
+- **Contexto:** Ao iniciar o `multigravity` de forma interativa sem argumentos, o menu TUI chamava `custom_color="$(get_profile_color "$name")"`. A função `get_profile_color` não estava definida, provocando encerramento imediato via `command not found` devido a `set -euo pipefail`.
+- **Decisão:**
+  - Criar `get_profile_color <profile>` no Bash (`multigravity`) para consultar com segurança `workbench.colorCustomizations.titleBar.activeBackground` em `User/settings.json`, usando Python 3 e fallback via `grep`/`sed`.
+  - Refatorar `profile_color_cmd` para reutilizar `get_profile_color`.
+  - Criar função equivalente `Get-ProfileColor` no PowerShell (`multigravity.ps1`) e reutilizá-la tanto em `Invoke-ColorProfile` quanto no menu interativo, mantendo paridade integral de plataformas e eliminando código duplicado.
+
+
