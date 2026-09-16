@@ -254,6 +254,16 @@ multigravity new projeto-b --from base
 multigravity template list
 ```
 
+## Integração de Skill para Agentes de IA
+
+O Multigravity inclui uma Skill canônica para agentes de IA ([`skills/multigravity/SKILL.md`](skills/multigravity/SKILL.md)) seguindo o padrão `agent-skills`, ensinando assistentes autônomos (como Antigravity e Cursor) a inspecionar cotas, acionar ciclos de priming, gerenciar fronteiras de isolamento de perfis e sincronizar brains de conversas com total segurança.
+
+Para instalar e sincronizar a skill nas pastas globais de descoberta da IA (`~/.gemini/config/skills` e `~/.cursor/skills`):
+
+```bash
+./scripts/install-agent-skills.sh
+```
+
 ---
 
 ## Autocompletar no Shell

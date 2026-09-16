@@ -166,4 +166,13 @@
   - Refatorar `profile_color_cmd` para reutilizar `get_profile_color`.
   - Criar função equivalente `Get-ProfileColor` no PowerShell (`multigravity.ps1`) e reutilizá-la tanto em `Invoke-ColorProfile` quanto no menu interativo, mantendo paridade integral de plataformas e eliminando código duplicado.
 
+### 2026-09-15 [Task 02.1] Criação de Skill Canônica do Multigravity para Agentes de IA
+
+- **Contexto:** Assistentes de IA autônomos (Antigravity e Cursor) precisam consultar cotas de tokens (`quota`), gerenciar limites e ciclos de priming (`prime`), orquestrar isolamento de credenciais (`mcp`, `skills`, `config`, `gh`), e manipular brains de conversas (`ai sync`, `ai export`) sem violar os contratos de `HOME` ou destruir perfis ativos.
+- **Decisão:**
+  - Criar especificação canônica em `skills/multigravity/SKILL.md` seguindo rigorosamente o template canônico de `000-template.md` (`agent-skills`).
+  - Desenvolver `scripts/install-agent-skills.sh` seguindo a arquitetura de distribuição de skills da organização (`infra-victoria-logs`), com suporte a `--dry-run`, `--list`, `--antigravity`, `--cursor` e `--target`.
+  - Sincronizar e disponibilizar a skill globalmente em `~/.gemini/config/skills/multigravity` e registrar o catálogo central em `ye-sandbox/agent-skills`.
+
+
 
