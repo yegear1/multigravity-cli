@@ -474,17 +474,186 @@ skills_cmd() {
   esac
 }
 
+seed_default_permissions() {
+  local config_file=$1
+  local config_dir
+  config_dir="$(dirname "$config_file")"
+  mkdir -p "$config_dir"
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$config_file" <<'PYEOF'
+import sys, json, os
+
+path = sys.argv[1]
+data = {}
+if os.path.exists(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+
+if not isinstance(data, dict):
+    data = {}
+
+user_settings = data.setdefault("userSettings", {})
+if not isinstance(user_settings, dict):
+    user_settings = {}
+    data["userSettings"] = user_settings
+
+gpg = user_settings.setdefault("globalPermissionGrants", {})
+if not isinstance(gpg, dict):
+    gpg = {}
+    user_settings["globalPermissionGrants"] = gpg
+
+allow_list = gpg.setdefault("allow", [])
+if not isinstance(allow_list, list):
+    allow_list = []
+    gpg["allow"] = allow_list
+
+raw_cmds = [
+    # Git inspection and status
+    "git status",
+    "git log",
+    "git diff",
+    "git show",
+    "git branch",
+    "git tag",
+    "git remote",
+    "git rev-parse",
+    "git describe",
+    "git config --get",
+    "git config --list",
+    # Shell / POSIX / system inspection
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "grep",
+    "rg",
+    "find",
+    "which",
+    "whereis",
+    "where",
+    "file",
+    "stat",
+    "wc",
+    "uname",
+    "pwd",
+    "echo",
+    "env",
+    "printenv",
+    "df",
+    "du",
+    "ps",
+    "uptime",
+    "date",
+    "whoami",
+    "hostname",
+    "tree",
+    # Dev tooling, package managers & linters (npm, pnpm, uv)
+    "npm test",
+    "npm run lint",
+    "npm run check",
+    "npm run typecheck",
+    "npm list",
+    "npm view",
+    "npm audit",
+    "npm outdated",
+    "pnpm test",
+    "pnpm run lint",
+    "pnpm run check",
+    "pnpm run typecheck",
+    "pnpm list",
+    "pnpm audit",
+    "pnpm outdated",
+    "uv run ruff check",
+    "uv run ruff format --check",
+    "uv run pytest",
+    "uv run pyright",
+    "uv run mypy",
+    "uv pip list",
+    "uv tree",
+    # Linters and test runners directly
+    "ruff check",
+    "ruff format --check",
+    "pytest",
+    "pyright",
+    "mypy",
+    "eslint",
+    "tsc --noEmit",
+    "prettier --check",
+    # Windows utilities
+    "dir",
+    "type",
+    "Get-ChildItem",
+    "Get-Content",
+    "Get-Process",
+    "Get-Item",
+    "Get-Location",
+]
+
+desired_grants = []
+for c in raw_cmds:
+    c_str = f"command({c})"
+    u_str = f"unsandboxed({c})"
+    if c_str not in desired_grants:
+        desired_grants.append(c_str)
+    if u_str not in desired_grants:
+        desired_grants.append(u_str)
+
+existing_set = set(allow_list)
+changed = False
+for g in desired_grants:
+    if g not in existing_set:
+        allow_list.append(g)
+        existing_set.add(g)
+        changed = True
+
+if changed or not os.path.exists(path):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+PYEOF
+  else
+    if [ ! -f "$config_file" ]; then
+      cat <<'EOF' > "$config_file"
+{
+  "userSettings": {
+    "globalPermissionGrants": {
+      "allow": [
+        "command(git status)",
+        "unsandboxed(git status)",
+        "command(git log)",
+        "unsandboxed(git log)",
+        "command(git diff)",
+        "unsandboxed(git diff)",
+        "command(ls)",
+        "unsandboxed(ls)"
+      ]
+    }
+  }
+}
+EOF
+    fi
+  fi
+}
+
 link_user_config() {
   local profile_path=$1
-
-  if [ -f "$profile_path/.isolated_config" ]; then
-    return 0
-  fi
 
   local user_home="${REAL_HOME:-$HOME}"
   local host_config="$user_home/.gemini/config/config.json"
   local target_config_dir="$profile_path/.gemini/config"
   local target_config="$target_config_dir/config.json"
+
+  if [ -f "$profile_path/.isolated_config" ]; then
+    seed_default_permissions "$target_config"
+    return 0
+  fi
+
+  # Ensure default read-only permissions are seeded in host config
+  seed_default_permissions "$host_config"
 
   if [ -f "$host_config" ] && [ ! -e "$target_config" ]; then
     mkdir -p "$target_config_dir"
@@ -493,16 +662,59 @@ link_user_config() {
 }
 
 config_cmd() {
-  local action="${1-}" profile="${2-}"
-  [ -n "$action" ] && [ -n "$profile" ] || abort "usage: multigravity config <status|share|isolate> <profile>"
+  local action="${1-}"
+  [ -n "$action" ] || abort "usage: multigravity config <status|share|isolate|seed> <profile|--all|--host>"
+
+  local user_home="${REAL_HOME:-$HOME}"
+  local host_config="$user_home/.gemini/config/config.json"
+
+  case "$action" in
+    seed|allow-readonly)
+      local target_arg="${2-}"
+      if [ "$target_arg" = "--host" ]; then
+        seed_default_permissions "$host_config"
+        print_info "Default read-only permissions seeded in host config.json"
+      elif [ "$target_arg" = "--all" ] || [ -z "$target_arg" ]; then
+        seed_default_permissions "$host_config"
+        print_info "Default read-only permissions seeded in host config.json"
+        if [ -d "$BASE" ]; then
+          local p
+          for p in "$BASE"/*; do
+            if [ -d "$p" ]; then
+              local p_cfg="$p/.gemini/config/config.json"
+              if [ -f "$p_cfg" ] && [ ! -L "$p_cfg" ]; then
+                seed_default_permissions "$p_cfg"
+                print_info "Seeded read-only permissions in standalone config for '$(basename "$p")'"
+              fi
+            fi
+          done
+        fi
+      else
+        validate_name "$target_arg"
+        local p_path
+        p_path="$(profile_dir "$target_arg")"
+        [ -d "$p_path" ] || abort "profile '$target_arg' does not exist"
+        local p_cfg="$p_path/.gemini/config/config.json"
+        if [ -L "$p_cfg" ]; then
+          seed_default_permissions "$host_config"
+          print_info "Profile '$target_arg' shares host config. Host config.json seeded."
+        else
+          seed_default_permissions "$p_cfg"
+          print_info "Seeded read-only permissions in config.json for '$target_arg'."
+        fi
+      fi
+      return 0
+      ;;
+  esac
+
+  local profile="${2-}"
+  [ -n "$profile" ] || abort "usage: multigravity config <status|share|isolate|seed> <profile|--all|--host>"
   validate_name "$profile"
 
   local profile_path
   profile_path="$(profile_dir "$profile")"
   [ -d "$profile_path" ] || abort "profile '$profile' does not exist"
 
-  local user_home="${REAL_HOME:-$HOME}"
-  local host_config="$user_home/.gemini/config/config.json"
   local target_config="$profile_path/.gemini/config/config.json"
 
   case "$action" in
@@ -541,10 +753,11 @@ config_cmd() {
           print_info "Copied host config.json to standalone file for '$profile'."
         fi
       fi
+      seed_default_permissions "$target_config"
       print_info "Profile '$profile' is now isolated from host config updates."
       ;;
     *)
-      abort "usage: multigravity config <status|share|isolate> <profile>"
+      abort "usage: multigravity config <status|share|isolate|seed> <profile|--all|--host>"
       ;;
   esac
 }
@@ -3220,7 +3433,7 @@ _multigravity() {
         'ai:Manage AI chats and brains (export, import, list)'
         'mcp:Manage MCP server configuration (status, share, isolate)'
         'skills:Manage skills and plugins configuration (status, share, isolate)'
-        'config:Manage config.json and permissions sharing (status, share, isolate)'
+        'config:Manage config.json and permissions sharing (status, share, isolate, seed)'
         'gh:Manage GitHub CLI credentials sharing (status, share, isolate)'
         'quota:Show AI token limits, usage percentage, and reset time'
         'prime:Prime weekly token quota and manage reset automations'
@@ -3264,7 +3477,7 @@ _multigravity() {
                     ;;
                 config)
                     local -a subcommands
-                    subcommands=('status:Show config sharing status' 'share:Share host config.json' 'isolate:Isolate config.json locally')
+                    subcommands=('status:Show config sharing status' 'share:Share host config.json' 'isolate:Isolate config.json locally' 'seed:Seed default read-only permissions in config.json')
                     _describe -t subcommands 'subcommand' subcommands
                     ;;
                 gh)
@@ -3318,7 +3531,7 @@ _multigravity_completions() {
             return 0
             ;;
         config)
-            COMPREPLY=( $(compgen -W "status share isolate" -- "${cur}") )
+            COMPREPLY=( $(compgen -W "status share isolate seed" -- "${cur}") )
             return 0
             ;;
         gh)
@@ -3468,7 +3681,7 @@ Commands:
   ai prime [profile] [opt]    Trigger minimal token prompt to start 7-day cycle
   mcp <status|share|isolate> <profile> Manage MCP server configuration sharing
   skills <status|share|isolate> <profile> Manage skills and plugins configuration sharing
-  config <status|share|isolate> <profile> Manage config.json and permission grants sharing
+  config <status|share|isolate|seed> <profile|--all|--host> Manage config.json and permission grants sharing
   gh <status|share|isolate> <profile> Manage GitHub CLI credentials sharing
   quota [profile]             Show AI token limits, usage percentage, and reset time
   prime [profile] [options]   Auto-prime token limits on reset (jitter & cron/systemd)

@@ -95,11 +95,14 @@ The agent MUST NOT activate this skill when:
 
    # Re-share global skills with a profile
    multigravity skills share <profile>
+
+   # Seed default read-only permissions (git, posix, npm, pnpm, uv) in config.json
+   multigravity config seed <profile|--all|--host>
    ```
 3. Verify presence or absence of sentinel files:
    - `.isolated_mcp`: MCP servers isolated
    - `.isolated_skills`: Global skills and plugins isolated
-   - `.isolated_config`: `config.json` and AI permissions isolated
+   - `.isolated_config`: `config.json` and AI permissions isolated (seeded with default read-only commands)
    - `.isolated_gh`: GitHub CLI credentials (`~/.config/gh`) isolated
    - `.isolated_dotfiles`: Host `.gitconfig` and `.ssh` isolated
 

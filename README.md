@@ -116,6 +116,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity config status <name>` | Check config.json and permission grants sharing status |
 | `multigravity config share <name>` | Share host config.json and permissions (`~/.gemini/config/config.json`) |
 | `multigravity config isolate <name>` | Isolate profile with a private copy of config.json |
+| `multigravity config seed [name\|--all\|--host]` | Seed default read-only permissions (git, posix, npm, pnpm, uv) in config.json |
 | `multigravity gh status <name>` | Check GitHub CLI credentials sharing status |
 | `multigravity gh share <name>` | Share host GitHub CLI credentials (`~/.config/gh` or `%APPDATA%\GitHub CLI`) |
 | `multigravity gh isolate <name>` | Isolate profile with a private copy of GitHub CLI credentials |
@@ -228,13 +229,21 @@ multigravity skills share work
 
 ## Config & Permissions Sharing (`config.json`)
 
-By default, all profiles link to the host system's configuration (`~/.gemini/config/config.json`), sharing global permission grants (such as "Always allow" approvals for read-only Git, shell commands, or MCP tools) and UI preferences in real-time across windows without duplicating approvals:
+By default, all profiles link to the host system's configuration (`~/.gemini/config/config.json`), sharing global permission grants and UI preferences in real-time across windows without duplicating approvals.
+
+In addition, multigravity **automatically seeds default read-only permissions** in `"Always allow"` (`.userSettings.globalPermissionGrants.allow`) for both sandboxed (`command(...)`) and unsandboxed (`unsandboxed(...)`) execution. This includes:
+- **Git:** `git status`, `git log`, `git diff`, `git show`, `git branch`, `git tag`, `git remote`, etc.
+- **POSIX & System:** `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `find`, `which`, `stat`, `df`, `ps`, etc.
+- **Dev Tooling & Linters:** `npm test`, `npm run lint/check`, `pnpm test/lint`, `uv run pytest/ruff/pyright/mypy`, `ruff check`, `eslint`, `tsc --noEmit`, etc.
 
 ```bash
 # Check config & permissions sharing status for a profile
 multigravity config status work
 
-# Create a profile with isolated config and permissions
+# Seed or refresh default read-only permissions across all profiles
+multigravity config seed --all
+
+# Create a profile with isolated config and permissions (seeded automatically)
 multigravity new client-x --isolated-config
 
 # Switch an existing profile between shared and isolated modes

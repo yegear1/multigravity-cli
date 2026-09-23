@@ -174,5 +174,16 @@
   - Desenvolver `scripts/install-agent-skills.sh` seguindo a arquitetura de distribuição de skills da organização (`infra-victoria-logs`), com suporte a `--dry-run`, `--list`, `--antigravity`, `--cursor` e `--target`.
   - Sincronizar e disponibilizar a skill globalmente em `~/.gemini/config/skills/multigravity` e registrar o catálogo central em `ye-sandbox/agent-skills`.
 
+### 2026-09-23 [Task 02.2] Injeção de Comandos Read-Only Padrão em "Always Allow" nos Perfis (config.json)
+
+- **Contexto:** Ao criar novos perfis ou utilizar perfis com configuração isolada (`.isolated_config`), o assistente de IA ficava sem permissões de execução persistidas, forçando o usuário a aprovar manualmente no diálogo do terminal dezenas de comandos rotineiros de leitura (Git, POSIX, inspeção e runners de linters/testes).
+- **Decisão:**
+  - Definir lista canônica de comandos estritamente read-only cobrindo Git (`status`, `log`, `diff`, `show`, `branch`, `tag`, `remote`, `rev-parse`, `describe`, `config --get/--list`), ferramentas POSIX (`ls`, `cat`, `head`, `tail`, `grep`, `rg`, `find`, `which`, `whereis`, `where`, `file`, `stat`, `wc`, `uname`, `pwd`, `echo`, `env`, `printenv`, `df`, `du`, `ps`, `uptime`, `date`, `whoami`, `hostname`, `tree`), gerenciadores/ferramentas dev (`npm test/run lint/check/typecheck/list/view/audit/outdated`, `pnpm test/run lint/check/typecheck/list/audit/outdated`, `uv run ruff/pytest/pyright/mypy/pip list/tree`), linters diretos (`ruff check/format --check`, `pytest`, `pyright`, `mypy`, `eslint`, `tsc --noEmit`, `prettier --check`) e equivalentes Windows (`dir`, `type`, `Get-ChildItem`, `Get-Content`, `Get-Process`, `Get-Item`, `Get-Location`).
+  - Mapear cada comando para as duas modalidades de execução do Antigravity: `command(<cmd>)` (sandbox padrão) e `unsandboxed(<cmd>)` (bypass sandbox), assegurando autonomia total sem quebras de segurança.
+  - Implementar funções aditivas e idempotentes: `seed_default_permissions` no Bash (`multigravity`) e `Seed-DefaultPermissions` no PowerShell (`multigravity.ps1`).
+  - Integrar o seeding automaticamente em `link_user_config` / `Link-UserConfig` (tanto para perfis compartilhados via `$host_config` quanto para perfis isolados) e na ação `isolate`.
+  - Adicionar comando CLI `multigravity config seed <perfil|--all|--host>` (alias `allow-readonly`) com autocomplete e documentação.
+
+
 
 

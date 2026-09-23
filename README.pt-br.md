@@ -116,6 +116,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity config status <nome>` | Consulta o status de compartilhamento de permissões e config.json |
 | `multigravity config share <nome>` | Compartilha config.json e permissões do host (`~/.gemini/config/config.json`) |
 | `multigravity config isolate <nome>` | Isola o perfil com uma cópia independente do config.json |
+| `multigravity config seed [nome\|--all\|--host]` | Semeia permissões padrão read-only (git, posix, npm, pnpm, uv) no config.json |
 | `multigravity gh status <nome>` | Consulta o status de compartilhamento de credenciais do GitHub CLI |
 | `multigravity gh share <nome>` | Compartilha as credenciais do GitHub CLI (`~/.config/gh` ou `%APPDATA%\GitHub CLI`) |
 | `multigravity gh isolate <nome>` | Isola o perfil com cópia local independente do GitHub CLI |
@@ -222,6 +223,32 @@ multigravity new cliente-x --isolated-skills
 # Alternar um perfil existente entre os modos compartilhado e isolado
 multigravity skills isolate trabalho
 multigravity skills share trabalho
+```
+
+---
+
+## Compartilhamento de Configuração e Permissões (`config.json`)
+
+Por padrão, todos os perfis vinculam as configurações do assistente do host (`~/.gemini/config/config.json`), compartilhando permissões globais e preferências de interface em tempo real entre janelas sem duplicar aprovações.
+
+Além disso, o multigravity **semeia automaticamente permissões padrão de leitura** no *"Always allow"* (`.userSettings.globalPermissionGrants.allow`) para execução tanto em sandbox padrão (`command(...)`) quanto em bypass (`unsandboxed(...)`). Isso inclui:
+- **Git:** `git status`, `git log`, `git diff`, `git show`, `git branch`, `git tag`, `git remote`, etc.
+- **POSIX e Sistema:** `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `find`, `which`, `stat`, `df`, `ps`, etc.
+- **Ferramentas Dev e Linters:** `npm test`, `npm run lint/check`, `pnpm test/lint`, `uv run pytest/ruff/pyright/mypy`, `ruff check`, `eslint`, `tsc --noEmit`, etc.
+
+```bash
+# Consultar o status de compartilhamento de config/permissões de um perfil
+multigravity config status trabalho
+
+# Semear ou atualizar permissões padrão de leitura em todos os perfis
+multigravity config seed --all
+
+# Criar um perfil com config e permissões isoladas (semeadas automaticamente)
+multigravity new cliente-x --isolated-config
+
+# Alternar um perfil existente entre os modos compartilhado e isolado
+multigravity config isolate trabalho
+multigravity config share trabalho
 ```
 
 ---

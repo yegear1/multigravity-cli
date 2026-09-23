@@ -67,6 +67,7 @@
 - **Symlink Seguro e Tempo Real:** Vincular `~/.gemini/config/config.json` por symlink garante que concessões concedidas em qualquer janela reflitam imediatamente em todos os outros perfis em tempo real.
 - **Opt-out (.isolated_config):** Qualquer perfil contendo o arquivo sentinela `.isolated_config` mantém seu próprio `config.json` desvinculado do host.
 - **Preservação de Dados:** Migrações ou trocas para modo compartilhado via CLI realizam backup prévio (`config.json.bak`) de arquivos existentes.
+- **Injeção Canônica de Permissões Read-Only:** Perfis criados, lançados ou semeados via `multigravity config seed` garantem a presença de permissões padrão em *"Always allow"* (`command(...)` para sandbox e `unsandboxed(...)` para bypass) para comandos estritamente de leitura (Git, POSIX, inspeção, npm/pnpm/uv lint/test/check). Essa injeção é aditiva, preservando quaisquer concessões manuais existentes sem duplicatas.
 
 ---
 

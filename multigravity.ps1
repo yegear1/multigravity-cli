@@ -180,9 +180,157 @@ function Link-SkillsConfig {
     }
 }
 
+function Seed-DefaultPermissions {
+    param([string]$configPath)
+
+    $configDir = Split-Path -Parent $configPath
+    if (!(Test-Path $configDir)) {
+        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    }
+
+    $rawCmds = @(
+        # Git inspection and status
+        "git status",
+        "git log",
+        "git diff",
+        "git show",
+        "git branch",
+        "git tag",
+        "git remote",
+        "git rev-parse",
+        "git describe",
+        "git config --get",
+        "git config --list",
+        # Shell / system inspection
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "grep",
+        "rg",
+        "find",
+        "which",
+        "whereis",
+        "where",
+        "file",
+        "stat",
+        "wc",
+        "uname",
+        "pwd",
+        "echo",
+        "env",
+        "printenv",
+        "df",
+        "du",
+        "ps",
+        "uptime",
+        "date",
+        "whoami",
+        "hostname",
+        "tree",
+        # Dev tooling, package managers & linters (npm, pnpm, uv)
+        "npm test",
+        "npm run lint",
+        "npm run check",
+        "npm run typecheck",
+        "npm list",
+        "npm view",
+        "npm audit",
+        "npm outdated",
+        "pnpm test",
+        "pnpm run lint",
+        "pnpm run check",
+        "pnpm run typecheck",
+        "pnpm list",
+        "pnpm audit",
+        "pnpm outdated",
+        "uv run ruff check",
+        "uv run ruff format --check",
+        "uv run pytest",
+        "uv run pyright",
+        "uv run mypy",
+        "uv pip list",
+        "uv tree",
+        # Linters and test runners directly
+        "ruff check",
+        "ruff format --check",
+        "pytest",
+        "pyright",
+        "mypy",
+        "eslint",
+        "tsc --noEmit",
+        "prettier --check",
+        # Windows utilities
+        "dir",
+        "type",
+        "Get-ChildItem",
+        "Get-Content",
+        "Get-Process",
+        "Get-Item",
+        "Get-Location"
+    )
+
+    $desiredGrants = [System.Collections.Generic.List[string]]::new()
+    foreach ($c in $rawCmds) {
+        $cStr = "command($c)"
+        $uStr = "unsandboxed($c)"
+        if (!$desiredGrants.Contains($cStr)) { $desiredGrants.Add($cStr) }
+        if (!$desiredGrants.Contains($uStr)) { $desiredGrants.Add($uStr) }
+    }
+
+    $data = $null
+    if (Test-Path $configPath) {
+        try {
+            $content = Get-Content -Path $configPath -Raw -Encoding UTF8
+            $data = $content | ConvertFrom-Json
+        } catch {
+            $data = $null
+        }
+    }
+
+    if ($null -eq $data) {
+        $data = [PSCustomObject]@{}
+    }
+
+    if ($null -eq $data.PSObject.Properties['userSettings']) {
+        $data | Add-Member -MemberType NoteProperty -Name 'userSettings' -Value ([PSCustomObject]@{})
+    }
+    $userSettings = $data.userSettings
+
+    if ($null -eq $userSettings.PSObject.Properties['globalPermissionGrants']) {
+        $userSettings | Add-Member -MemberType NoteProperty -Name 'globalPermissionGrants' -Value ([PSCustomObject]@{})
+    }
+    $gpg = $userSettings.globalPermissionGrants
+
+    if ($null -eq $gpg.PSObject.Properties['allow']) {
+        $gpg | Add-Member -MemberType NoteProperty -Name 'allow' -Value @()
+    }
+
+    $existingAllow = [System.Collections.Generic.List[object]]::new()
+    if ($gpg.allow) {
+        foreach ($item in $gpg.allow) {
+            $existingAllow.Add($item)
+        }
+    }
+
+    $changed = $false
+    foreach ($g in $desiredGrants) {
+        if (!$existingAllow.Contains($g)) {
+            $existingAllow.Add($g)
+            $changed = $true
+        }
+    }
+
+    $gpg.allow = $existingAllow.ToArray()
+
+    if ($changed -or !(Test-Path $configPath)) {
+        $json = $data | ConvertTo-Json -Depth 10
+        [System.IO.File]::WriteAllText($configPath, $json, [System.Text.Encoding]::UTF8)
+    }
+}
+
 function Link-UserConfig {
     param($profileDir)
-    if (Test-Path "$profileDir\.isolated_config") { return }
 
     $realUser = if ($env:REAL_USERPROFILE) { $env:REAL_USERPROFILE } else { $REAL_USERPROFILE }
     if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
@@ -190,6 +338,14 @@ function Link-UserConfig {
     $hostConfig = "$realUser\.gemini\config\config.json"
     $targetConfigDir = "$profileDir\.gemini\config"
     $targetConfig = "$targetConfigDir\config.json"
+
+    if (Test-Path "$profileDir\.isolated_config") {
+        Seed-DefaultPermissions $targetConfig
+        return
+    }
+
+    # Ensure default read-only permissions are seeded in host config
+    Seed-DefaultPermissions $hostConfig
 
     if ((Test-Path $hostConfig) -and !(Test-Path $targetConfig)) {
         if (!(Test-Path $targetConfigDir)) {
@@ -418,7 +574,7 @@ function Write-Usage {
     Write-Host "  ai prime [name] [options]   Auto-prime weekly token cycle on reset with random jitter"
     Write-Host "  mcp <status|share|isolate> <name> Manage MCP server configuration sharing"
     Write-Host "  skills <status|share|isolate> <name> Manage skills and plugins configuration sharing"
-    Write-Host "  config <status|share|isolate> <name> Manage config.json and permission grants sharing"
+    Write-Host "  config <status|share|isolate|seed> <name|--all|--host> Manage config.json and permission grants sharing"
     Write-Host "  gh <status|share|isolate> <name> Manage GitHub CLI credentials sharing"
     Write-Host "  quota [name]                Show AI token limits, usage percentage, and reset time"
     Write-Host "  prime [name] [options]      Auto-prime weekly token cycle on reset with random jitter"
@@ -1706,16 +1862,8 @@ function Invoke-SkillsCmd {
 function Invoke-ConfigCmd {
     param($action, $profile)
 
-    if ([string]::IsNullOrEmpty($action) -or [string]::IsNullOrEmpty($profile)) {
-        Write-Error "Error: usage: multigravity config <status|share|isolate> <profile>"
-        exit 1
-    }
-
-    Test-ValidName $profile
-
-    $profilePath = "$BASE\$profile"
-    if (!(Test-Path $profilePath)) {
-        Write-Error "Error: profile '$profile' does not exist"
+    if ([string]::IsNullOrEmpty($action)) {
+        Write-Error "Error: usage: multigravity config <status|share|isolate|seed> <profile|--all|--host>"
         exit 1
     }
 
@@ -1723,6 +1871,62 @@ function Invoke-ConfigCmd {
     if ([string]::IsNullOrEmpty($realUser)) { $realUser = $env:USERPROFILE }
 
     $hostConfig = "$realUser\.gemini\config\config.json"
+
+    if ($action -in @("seed", "allow-readonly")) {
+        if ($profile -eq "--host") {
+            Seed-DefaultPermissions $hostConfig
+            Write-Host "Default read-only permissions seeded in host config.json"
+        } elseif (($profile -eq "--all") -or [string]::IsNullOrEmpty($profile)) {
+            Seed-DefaultPermissions $hostConfig
+            Write-Host "Default read-only permissions seeded in host config.json"
+            if (Test-Path $BASE) {
+                $dirs = Get-ChildItem -Directory -Path $BASE
+                foreach ($d in $dirs) {
+                    $pCfg = Join-Path $d.FullName ".gemini\config\config.json"
+                    if (Test-Path $pCfg) {
+                        $pItem = Get-Item -Path $pCfg -ErrorAction SilentlyContinue
+                        $isLink = $pItem -and ($pItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+                        if (!$isLink) {
+                            Seed-DefaultPermissions $pCfg
+                            Write-Host "Seeded read-only permissions in standalone config for '$($d.Name)'"
+                        }
+                    }
+                }
+            }
+        } else {
+            Validate-Name $profile
+            $profilePath = "$BASE\$profile"
+            if (!(Test-Path $profilePath)) {
+                Write-Error "Error: profile '$profile' does not exist"
+                exit 1
+            }
+            $targetConfig = "$profilePath\.gemini\config\config.json"
+            $cItem = Get-Item -Path $targetConfig -ErrorAction SilentlyContinue
+            $isShared = $cItem -and ($cItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+            if ($isShared) {
+                Seed-DefaultPermissions $hostConfig
+                Write-Host "Profile '$profile' shares host config. Host config.json seeded."
+            } else {
+                Seed-DefaultPermissions $targetConfig
+                Write-Host "Seeded read-only permissions in config.json for '$profile'."
+            }
+        }
+        return
+    }
+
+    if ([string]::IsNullOrEmpty($profile)) {
+        Write-Error "Error: usage: multigravity config <status|share|isolate|seed> <profile|--all|--host>"
+        exit 1
+    }
+
+    Validate-Name $profile
+
+    $profilePath = "$BASE\$profile"
+    if (!(Test-Path $profilePath)) {
+        Write-Error "Error: profile '$profile' does not exist"
+        exit 1
+    }
+
     $targetConfig = "$profilePath\.gemini\config\config.json"
 
     switch ($action) {
@@ -1770,10 +1974,11 @@ function Invoke-ConfigCmd {
                     Write-Host "Copied host config.json to standalone file for '$profile'."
                 }
             }
+            Seed-DefaultPermissions $targetConfig
             Write-Host "Profile '$profile' is now isolated from host config updates."
         }
         default {
-            Write-Error "Error: usage: multigravity config <status|share|isolate> <profile>"
+            Write-Error "Error: usage: multigravity config <status|share|isolate|seed> <profile|--all|--host>"
             exit 1
         }
     }

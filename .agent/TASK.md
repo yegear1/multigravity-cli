@@ -7,6 +7,8 @@
 ## Tarefa Ativa
  
 - [ ] Nenhuma tarefa em execução. Pronto para próximo ciclo ou release.
+
+
  
 ---
  
@@ -16,6 +18,7 @@
  
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [02.2] | Injetar comandos read-only padrão (git, posix, npm, pnpm, uv) em "Always allow" (`config.json`) | feat(config) | 2026-09-23 |
 | [02.1] | Criar Skill Canônica do Multigravity para Agentes de IA (`skills/multigravity/SKILL.md`) | 375dd1c | 2026-09-15 |
 | [01.3] | Fix do crash no menu interativo TUI (get_profile_color command not found) (fixes #1) | 55fb258 | 2026-09-14 |
 | [00.0] | Release v1.5.0 (AI Quota Telemetry, Prime Automation, Permissions & GH Sync) | v1.5.0 | 2026-09-13 |
