@@ -76,3 +76,21 @@
 - **Git e GitHub CLI (`gh`):** A autenticação do `gh` (`~/.config/gh` no Linux/macOS ou `%APPDATA%\GitHub CLI` no Windows) e o arquivo `~/.git-credentials` são compartilhados por symlink/junction por padrão para permitir pull/push e operações dev no terminal integrado sem atrito.
 - **Opt-out granular (.isolated_gh):** Perfis contendo o arquivo sentinela `.isolated_gh` ou `.isolated_dotfiles` mantêm suas credenciais do GitHub CLI estritamente isoladas, permitindo perfis dedicados a múltiplas contas/identidades.
 - **Preservação de PATH de Usuário:** O Antigravity enriquece o `PATH` com os diretórios de binários de usuário do host (`~/.local/bin`, `~/.cargo/bin`, etc.) no momento do lançamento (`launch_profile`), assegurando acesso aos executáveis do usuário sem quebrar o isolamento de `HOME`.
+
+---
+
+## 8. Mapeamento Canônico de Diretórios do Antigravity
+
+Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam dados, credenciais, configurações e artefatos (relativos ao `$HOME` do perfil ou do host):
+
+| Recurso | Caminho Canônico no Antigravity | Finalidade / Conteúdo | Isolamento / Sensibilidade |
+| :--- | :--- | :--- | :--- |
+| **Skills** | `~/.gemini/config/skills/<skill-name>/SKILL.md` | Playbooks markdown, instruções, scripts e recursos dos agentes. | Seguro compartilhar via symlink (sem credenciais). Opt-out: `.isolated_skills`. |
+| **Plugins** | `~/.gemini/config/plugins/<plugin-name>/` | Plugins da IDE e manifests de extensão de IA. | Seguro compartilhar via symlink. Opt-out: `.isolated_skills`. |
+| **Permissões / Always Allow** | `~/.gemini/config/config.json` | Array `.userSettings.globalPermissionGrants.allow` com comandos aprovados (`command(...)`, `unsandboxed(...)`). | Seguro compartilhar via symlink (apenas preferências e grants, zero tokens). Opt-out: `.isolated_config`. |
+| **MCP Config** | `~/.gemini/config/mcp_config.json` | Definições e endpoints de servidores MCP globais. | Seguro compartilhar via symlink. Opt-out: `.isolated_mcp`. |
+| **MCP Schemas** | `~/.gemini/antigravity/mcp/<server>/` | Schemas de ferramentas locais e specs de chamadas MCP gerados pela IDE. | Seguro compartilhar via symlink. Opt-out: `.isolated_mcp`. |
+| **Auth Tokens (OAuth / IA)** | Raiz de `~/.gemini/` (`jetski-standalone-oauth-token`, `installation_id`) + Keyrings/Keychains do SO | Tokens de autenticação de sessão e login de IA. | **ESTRITAMENTE ISOLADO.** Fica fora de `config/`. Nunca compartilhar nem exportar em backups. |
+| **Conversas, Chats e Brains** | `~/.gemini/antigravity/` (`conversations/*.db`, `brain/<uuid>/*`, `annotations/*.pbtxt`) | Histórico de chats, planos, logs de passos e memórias das sessões de agentes. | Manipulado via `multigravity ai export/sync/import` com sanitização automática de tokens. |
+| **Configurações UI da IDE** | `$MULTIGRAVITY_HOME/<perfil>/User/settings.json` | Tema, fontes, atalhos e preferências de editor do perfil. | Específico de cada perfil. |
+| **Dev Auth (Git & GitHub CLI)** | `~/.config/gh/` (ou `%APPDATA%\GitHub CLI`), `~/.git-credentials`, `~/.gitconfig`, `~/.ssh` | Identidade dev, chaves SSH, configs Git e sessão CLI do GitHub. | Compartilhado por symlink para usabilidade dev; opt-out granular via `.isolated_gh` ou `.isolated_dotfiles`. |
