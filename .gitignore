@@ -12,3 +12,6 @@ test.sh
 # OS and Editor metadata
 .DS_Store
 Thumbs.db
+
+# Build artifacts
+bin/
