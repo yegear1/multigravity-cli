@@ -402,6 +402,21 @@ func TestCobraQuotaPrimeAI(t *testing.T) {
 		t.Errorf("expected empty chats message, got: %s", out)
 	}
 
+	out, err = executeCommand(rootCmd, "ai", "list", "ai-test-prof", "--active")
+	if err != nil || !strings.Contains(out, "has no active AI chats") {
+		t.Errorf("expected active chats empty message, got: %s (err: %v)", out, err)
+	}
+
+	out, err = executeCommand(rootCmd, "ai", "list", "ai-test-prof", "--archived")
+	if err != nil || !strings.Contains(out, "has no archived AI chats") {
+		t.Errorf("expected archived chats empty message, got: %s (err: %v)", out, err)
+	}
+
+	out, err = executeCommand(rootCmd, "ai", "list", "ai-test-prof", "--json")
+	if err != nil || !strings.Contains(out, "[]") {
+		t.Errorf("expected empty json array for ai list --json, got: %s (err: %v)", out, err)
+	}
+
 	// 5. Test prime flag verification
 	out, err = executeCommand(rootCmd, "prime", "--help")
 	if err != nil {

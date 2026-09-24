@@ -205,7 +205,11 @@ func (s *Server) handleGetResourceSharing(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleGetConversations(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	convs, err := chat.GetConversations(name)
+	filter := chat.ConversationFilter(r.URL.Query().Get("filter"))
+	if filter != chat.FilterActive && filter != chat.FilterArchived {
+		filter = chat.FilterAll
+	}
+	convs, err := chat.GetFilteredConversations(name, filter)
 	if err != nil {
 		s.writeError(w, http.StatusNotFound, err.Error())
 		return

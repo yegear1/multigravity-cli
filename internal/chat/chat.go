@@ -3,34 +3,62 @@ package chat
 import (
 	"archive/tar"
 	"archive/zip"
+	"bufio"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
 
-var titleRegex = regexp.MustCompile(`title:\s*"([^"]*)"`)
+var (
+	titleRegex      = regexp.MustCompile(`title:\s*"([^"]*)"`)
+	archivedRegex   = regexp.MustCompile(`archived:\s*true`)
+	archivedTsRegex = regexp.MustCompile(`archival_status_timestamp:\s*\{\s*seconds:\s*(\d+)`)
+	lastViewTsRegex = regexp.MustCompile(`last_user_view_time:\s*\{\s*seconds:\s*(\d+)`)
+	tagStripRegex   = regexp.MustCompile(`@\[[^\]]+\]\s*`)
+)
+
+// ConversationFilter defines filter criteria for listing conversations
+type ConversationFilter string
+
+const (
+	FilterAll      ConversationFilter = "all"
+	FilterActive   ConversationFilter = "active"
+	FilterArchived ConversationFilter = "archived"
+)
 
 // ConversationInfo holds metadata about a single AI conversation
 type ConversationInfo struct {
-	ID            string `json:"id"`
-	Title         string `json:"title"`
-	ArtifactCount int    `json:"artifact_count"`
+	ID            string     `json:"id"`
+	Title         string     `json:"title"`
+	ArtifactCount int        `json:"artifact_count"`
+	Archived      bool       `json:"archived"`
+	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
+	LastViewAt    *time.Time `json:"last_view_at,omitempty"`
 }
 
 // ListConversations prints a table of AI conversations in a profile
 func ListConversations(profileName string) error {
-	return ListConversationsWriter(os.Stdout, profileName)
+	return ListConversationsFilter(os.Stdout, profileName, FilterAll)
 }
 
 // GetConversations returns structured metadata of all AI conversations in a profile
 func GetConversations(profileName string) ([]ConversationInfo, error) {
+	return GetFilteredConversations(profileName, FilterAll)
+}
+
+// GetFilteredConversations returns structured metadata of AI conversations filtered by status
+func GetFilteredConversations(profileName string, filter ConversationFilter) ([]ConversationInfo, error) {
 	if err := config.ValidateProfileName(profileName); err != nil {
 		return nil, err
 	}
@@ -62,12 +90,49 @@ func GetConversations(profileName string) ([]ConversationInfo, error) {
 		}
 		uuid := strings.TrimSuffix(entry.Name(), ".db")
 
-		title := "(untitled conversation)"
+		title := ""
+		isArchived := false
+		var archivedAt *time.Time
+		var lastViewAt *time.Time
+
 		annotFile := filepath.Join(geminiDir, "annotations", uuid+".pbtxt")
 		if data, err := os.ReadFile(annotFile); err == nil {
-			m := titleRegex.FindStringSubmatch(string(data))
-			if len(m) >= 2 && strings.TrimSpace(m[1]) != "" {
+			content := string(data)
+			if archivedRegex.MatchString(content) {
+				isArchived = true
+			}
+			if m := archivedTsRegex.FindStringSubmatch(content); len(m) >= 2 {
+				if sec, err := strconv.ParseInt(m[1], 10, 64); err == nil {
+					t := time.Unix(sec, 0)
+					archivedAt = &t
+				}
+			}
+			if m := lastViewTsRegex.FindStringSubmatch(content); len(m) >= 2 {
+				if sec, err := strconv.ParseInt(m[1], 10, 64); err == nil {
+					t := time.Unix(sec, 0)
+					lastViewAt = &t
+				}
+			}
+			if m := titleRegex.FindStringSubmatch(content); len(m) >= 2 && strings.TrimSpace(m[1]) != "" {
 				title = strings.TrimSpace(m[1])
+			}
+		}
+
+		// Apply filter
+		if filter == FilterActive && isArchived {
+			continue
+		}
+		if filter == FilterArchived && !isArchived {
+			continue
+		}
+
+		// If title not found in annotations, try transcript
+		if title == "" || title == "(untitled conversation)" {
+			transcriptFile := filepath.Join(brainDir, uuid, ".system_generated", "logs", "transcript.jsonl")
+			if t := extractTitleFromTranscript(transcriptFile); t != "" {
+				title = t
+			} else {
+				title = "(untitled conversation)"
 			}
 		}
 
@@ -85,29 +150,131 @@ func GetConversations(profileName string) ([]ConversationInfo, error) {
 			ID:            uuid,
 			Title:         title,
 			ArtifactCount: mdCount,
+			Archived:      isArchived,
+			ArchivedAt:    archivedAt,
+			LastViewAt:    lastViewAt,
 		})
 	}
+
+	// Sort: Active conversations first, then by last activity (most recent first)
+	sort.SliceStable(convs, func(i, j int) bool {
+		if convs[i].Archived != convs[j].Archived {
+			return !convs[i].Archived
+		}
+		var ti, tj int64
+		if convs[i].Archived && convs[i].ArchivedAt != nil {
+			ti = convs[i].ArchivedAt.Unix()
+		} else if convs[i].LastViewAt != nil {
+			ti = convs[i].LastViewAt.Unix()
+		}
+
+		if convs[j].Archived && convs[j].ArchivedAt != nil {
+			tj = convs[j].ArchivedAt.Unix()
+		} else if convs[j].LastViewAt != nil {
+			tj = convs[j].LastViewAt.Unix()
+		}
+		return ti > tj
+	})
 
 	return convs, nil
 }
 
+type transcriptPayload struct {
+	Content string `json:"content"`
+}
+
+func extractTitleFromTranscript(transcriptPath string) string {
+	f, err := os.Open(transcriptPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	reader := bufio.NewReader(f)
+	line, err := reader.ReadBytes('\n')
+	if err != nil && len(line) == 0 {
+		return ""
+	}
+
+	var entry transcriptPayload
+	if err := json.Unmarshal(line, &entry); err != nil {
+		return ""
+	}
+
+	text := entry.Content
+	if idx := strings.Index(text, "<USER_REQUEST>"); idx != -1 {
+		text = text[idx+len("<USER_REQUEST>"):]
+	}
+	if idx := strings.Index(text, "</USER_REQUEST>"); idx != -1 {
+		text = text[:idx]
+	}
+	text = tagStripRegex.ReplaceAllString(text, "")
+	text = strings.TrimSpace(text)
+
+	lines := strings.Split(text, "\n")
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			if len(l) > 60 {
+				return l[:57] + "..."
+			}
+			return l
+		}
+	}
+	return ""
+}
+
 // ListConversationsWriter prints a table of AI conversations to the provided writer
 func ListConversationsWriter(w io.Writer, profileName string) error {
-	convs, err := GetConversations(profileName)
+	return ListConversationsFilter(w, profileName, FilterAll)
+}
+
+// ListConversationsFilter prints a table of AI conversations matching the filter
+func ListConversationsFilter(w io.Writer, profileName string, filter ConversationFilter) error {
+	convs, err := GetFilteredConversations(profileName, filter)
 	if err != nil {
 		return err
 	}
 
 	if len(convs) == 0 {
-		fmt.Fprintf(w, "Profile '%s' has no saved AI chats.\n", profileName)
+		switch filter {
+		case FilterActive:
+			fmt.Fprintf(w, "Profile '%s' has no active AI chats.\n", profileName)
+		case FilterArchived:
+			fmt.Fprintf(w, "Profile '%s' has no archived AI chats.\n", profileName)
+		default:
+			fmt.Fprintf(w, "Profile '%s' has no saved AI chats.\n", profileName)
+		}
 		return nil
 	}
 
+	activeCount := 0
+	archivedCount := 0
+	for _, c := range convs {
+		if c.Archived {
+			archivedCount++
+		} else {
+			activeCount++
+		}
+	}
+
 	fmt.Fprintf(w, "AI Conversations in profile '%s':\n", profileName)
-	fmt.Fprintf(w, "%-38s %-32s %s\n", "CONVERSATION ID", "TITLE", "ARTIFACTS")
-	fmt.Fprintf(w, "%-38s %-32s %s\n", "---------------", "-----", "---------")
+	fmt.Fprintf(w, "%-38s %-10s %-16s %-32s %s\n", "CONVERSATION ID", "STATUS", "LAST ACTIVITY", "TITLE / TOPIC", "ARTIFACTS")
+	fmt.Fprintf(w, "%-38s %-10s %-16s %-32s %s\n", "---------------", "------", "-------------", "-------------", "---------")
 
 	for _, c := range convs {
+		status := "active"
+		if c.Archived {
+			status = "archived"
+		}
+
+		timeStr := "N/A"
+		if c.Archived && c.ArchivedAt != nil {
+			timeStr = c.ArchivedAt.Local().Format("2006-01-02 15:04")
+		} else if c.LastViewAt != nil {
+			timeStr = c.LastViewAt.Local().Format("2006-01-02 15:04")
+		}
+
 		dispTitle := c.Title
 		if len(dispTitle) > 30 {
 			dispTitle = dispTitle[:27] + "..."
@@ -118,10 +285,16 @@ func ListConversationsWriter(w io.Writer, profileName string) error {
 			artCount = fmt.Sprintf("%d file(s)", c.ArtifactCount)
 		}
 
-		fmt.Fprintf(w, "%-38s %-32s %s\n", c.ID, dispTitle, artCount)
+		fmt.Fprintf(w, "%-38s %-10s %-16s %-32s %s\n", c.ID, status, timeStr, dispTitle, artCount)
 	}
 
-	fmt.Fprintf(w, "\nTotal conversations: %d\n", len(convs))
+	if filter == FilterActive {
+		fmt.Fprintf(w, "\nTotal active conversations: %d\n", activeCount)
+	} else if filter == FilterArchived {
+		fmt.Fprintf(w, "\nTotal archived conversations: %d\n", archivedCount)
+	} else {
+		fmt.Fprintf(w, "\nTotal conversations: %d (%d active, %d archived)\n", len(convs), activeCount, archivedCount)
+	}
 	return nil
 }
 

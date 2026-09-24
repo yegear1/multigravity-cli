@@ -396,4 +396,17 @@
   - **Instalação Hermética (`install.sh`, `uninstall.sh`):** Suporte estrito a `REAL_HOME="${REAL_HOME:-$HOME}"` para garantir que instalações disparadas de dentro do terminal integrado do Antigravity (onde `$HOME` aponta para a pasta do perfil) instalem no diretório real do usuário (`/home/luis/.local/bin`), e compilação intermediária em `bin/multigravity` antes de copiar com `cp -f`, evitando erros de `go build` ao sobrescrever scripts texto legados existentes.
   - **Validação no Ambiente Real:** Executada bateria completa de comandos no host real (`doctor`, `list`, `stats`, `status`, `mcp status`, `skills status`, `config status`, `gh status`, `ai list`, `quota`). Confirmada detecção precisa do perfil ativo `yegear` (processos ativos, status running, cota via gRPC/HTTPS) e perfis idle `joaoww` e `luisfmb` com integridade 100% preservada.
 
+### 2026-09-24 [Task 05.2] Detecção de Estado Arquivado/Ativo e Extração de Tópicos em 'ai list'
+
+- **Contexto:** Necessidade de identificar e filtrar conversas de IA ativas vs arquivadas, além de extrair o tópico/prompt inicial dos chats que não possuem título explícito definido na anotação `.pbtxt`.
+- **Descobertas e Decisões Técnicas:**
+  - **Mapeamento de Arquivamento:** O Antigravity grava o estado de arquivamento em `~/.gemini/antigravity/annotations/<uuid>.pbtxt` através do campo `archived:true` e timestamp `archival_status_timestamp:{seconds:... nanos:...}`. Quando o chat está ativo, a chave `archived:true` inexiste e apenas `last_user_view_time` é registrado.
+  - **Extração de Tópico do Transcript:** Para conversas sem título explícito (padrão `(untitled conversation)`), o parser agora inspeciona a primeira linha do log de execução em `~/.gemini/antigravity/brain/<uuid>/.system_generated/logs/transcript.jsonl`, extraindo e sanitizando o conteúdo do primeiro `USER_INPUT` (removendo tags `<USER_REQUEST>`, `@[...]`, quebras de linha e truncando em 60 caracteres).
+  - **Ordenação Inteligente:** Conversas ativas aparecem priorizadas no topo da listagem, ordenadas de forma decrescente pelo timestamp da última interação (`last_view_at` / `archived_at`).
+  - **Filtros e Contrato JSON/HTTP:**
+    - CLI `ai list <profile>`: suporte a `--active`, `--archived` e `--all` (com saída padrão exibindo colunas `CONVERSATION ID`, `STATUS`, `LAST ACTIVITY`, `TITLE / TOPIC`, `ARTIFACTS`).
+    - Flags `--json`: serialização dos novos campos `archived` (bool), `archived_at` (ISO timestamp) e `last_view_at` (ISO timestamp).
+    - API REST HTTP: `GET /api/v1/profiles/{name}/conversations?filter=active|archived|all` suportando os mesmos filtros e formato.
+
+
 

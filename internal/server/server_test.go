@@ -179,6 +179,20 @@ func TestProfilesAndStatsEndpoints(t *testing.T) {
 		t.Fatalf("expected 200 for conversations, got %d", rec.Code)
 	}
 
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/profiles/srv-test-prof/conversations?filter=active", nil)
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for active conversations, got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/profiles/srv-test-prof/conversations?filter=archived", nil)
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for archived conversations, got %d", rec.Code)
+	}
+
 	// 8. Clean profile
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/profiles/srv-test-prof/clean", nil)
 	rec = httptest.NewRecorder()

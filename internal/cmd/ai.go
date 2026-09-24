@@ -13,15 +13,24 @@ var aiCmd = &cobra.Command{
 	Short: "Manage AI conversations, quota telemetry, and priming",
 }
 
-var aiListJSON bool
-
 var aiListCmd = &cobra.Command{
 	Use:   "list <profile>",
 	Short: "List AI conversations in a profile",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if aiListJSON {
-			convs, err := chat.GetConversations(args[0])
+		active, _ := cmd.Flags().GetBool("active")
+		archived, _ := cmd.Flags().GetBool("archived")
+		jsonOut, _ := cmd.Flags().GetBool("json")
+
+		filter := chat.FilterAll
+		if active && !archived {
+			filter = chat.FilterActive
+		} else if archived && !active {
+			filter = chat.FilterArchived
+		}
+
+		if jsonOut {
+			convs, err := chat.GetFilteredConversations(args[0], filter)
 			if err != nil {
 				return err
 			}
@@ -32,7 +41,12 @@ var aiListCmd = &cobra.Command{
 			enc.SetIndent("", "  ")
 			return enc.Encode(convs)
 		}
-		return chat.ListConversationsWriter(cmd.OutOrStdout(), args[0])
+		return chat.ListConversationsFilter(cmd.OutOrStdout(), args[0], filter)
+	},
+	PostRun: func(cmd *cobra.Command, args []string) {
+		_ = cmd.Flags().Set("active", "false")
+		_ = cmd.Flags().Set("archived", "false")
+		_ = cmd.Flags().Set("json", "false")
 	},
 }
 
@@ -72,7 +86,9 @@ var aiSyncCmd = &cobra.Command{
 }
 
 func init() {
-	aiListCmd.Flags().BoolVar(&aiListJSON, "json", false, "Output conversations in JSON format")
+	aiListCmd.Flags().Bool("json", false, "Output conversations in JSON format")
+	aiListCmd.Flags().Bool("active", false, "Show only active conversations")
+	aiListCmd.Flags().Bool("archived", false, "Show only archived conversations")
 
 	aiCmd.AddCommand(aiListCmd)
 	aiCmd.AddCommand(aiExportCmd)

@@ -106,3 +106,78 @@ func TestChatListExportImportSync(t *testing.T) {
 		t.Fatalf("synced conversation db missing: %v", err)
 	}
 }
+
+func TestChatActiveAndArchivedFiltering(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tmpDir)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", tmpDir)
+
+	_ = profile.CreateProfile(profile.CreateOptions{Name: "filter-prof"})
+	profDir := filepath.Join(tmpDir, "filter-prof")
+	geminiDir := filepath.Join(profDir, ".gemini", "antigravity")
+	_ = os.MkdirAll(filepath.Join(geminiDir, "conversations"), 0755)
+	_ = os.MkdirAll(filepath.Join(geminiDir, "annotations"), 0755)
+	_ = os.MkdirAll(filepath.Join(geminiDir, "brain", "active-conv", ".system_generated", "logs"), 0755)
+	_ = os.MkdirAll(filepath.Join(geminiDir, "brain", "archived-conv", ".system_generated", "logs"), 0755)
+
+	// Create active conversation
+	_ = os.WriteFile(filepath.Join(geminiDir, "conversations", "active-conv.db"), []byte("data"), 0644)
+	_ = os.WriteFile(filepath.Join(geminiDir, "annotations", "active-conv.pbtxt"), []byte("last_user_view_time:{seconds:1790000000 nanos:0}"), 0644)
+	transcriptActive := `{"type":"USER_INPUT","content":"<USER_REQUEST>\n@[AGENTS.md] Como funciona a CLI?\n</USER_REQUEST>"}`
+	_ = os.WriteFile(filepath.Join(geminiDir, "brain", "active-conv", ".system_generated", "logs", "transcript.jsonl"), []byte(transcriptActive), 0644)
+
+	// Create archived conversation
+	_ = os.WriteFile(filepath.Join(geminiDir, "conversations", "archived-conv.db"), []byte("data"), 0644)
+	_ = os.WriteFile(filepath.Join(geminiDir, "annotations", "archived-conv.pbtxt"), []byte("archived:true archival_status_timestamp:{seconds:1790001000 nanos:0} title:\"Old Task\""), 0644)
+
+	// 1. GetFilteredConversations with FilterAll
+	allConvs, err := GetFilteredConversations("filter-prof", FilterAll)
+	if err != nil {
+		t.Fatalf("FilterAll failed: %v", err)
+	}
+	if len(allConvs) != 2 {
+		t.Fatalf("expected 2 conversations, got %d", len(allConvs))
+	}
+
+	// Active should be first
+	if allConvs[0].Archived {
+		t.Errorf("expected first conversation to be active")
+	}
+	if allConvs[0].Title != "Como funciona a CLI?" {
+		t.Errorf("expected title extracted from transcript, got: %q", allConvs[0].Title)
+	}
+	if !allConvs[1].Archived {
+		t.Errorf("expected second conversation to be archived")
+	}
+	if allConvs[1].Title != "Old Task" {
+		t.Errorf("expected title 'Old Task', got: %q", allConvs[1].Title)
+	}
+
+	// 2. FilterActive
+	activeConvs, err := GetFilteredConversations("filter-prof", FilterActive)
+	if err != nil {
+		t.Fatalf("FilterActive failed: %v", err)
+	}
+	if len(activeConvs) != 1 || activeConvs[0].ID != "active-conv" {
+		t.Errorf("FilterActive unexpected result: %+v", activeConvs)
+	}
+
+	// 3. FilterArchived
+	archivedConvs, err := GetFilteredConversations("filter-prof", FilterArchived)
+	if err != nil {
+		t.Fatalf("FilterArchived failed: %v", err)
+	}
+	if len(archivedConvs) != 1 || archivedConvs[0].ID != "archived-conv" {
+		t.Errorf("FilterArchived unexpected result: %+v", archivedConvs)
+	}
+
+	// 4. Output formatting
+	var buf strings.Builder
+	if err := ListConversationsFilter(&buf, "filter-prof", FilterAll); err != nil {
+		t.Fatalf("ListConversationsFilter failed: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "active") || !strings.Contains(out, "archived") {
+		t.Errorf("expected active and archived in output, got:\n%s", out)
+	}
+}
