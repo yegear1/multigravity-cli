@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"syscall"
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
@@ -108,16 +107,10 @@ func DeleteProfile(name string, force bool) error {
 		}
 
 		// Force stop processes
-		pids, err := GetProfilePIDs(name)
-		if err == nil {
-			for _, pid := range pids {
-				p, err := os.FindProcess(pid)
-				if err == nil {
-					_ = p.Signal(syscall.SIGKILL)
-				}
-			}
-			time.Sleep(200 * time.Millisecond)
+		if err := StopProfile(name, true); err != nil {
+			return fmt.Errorf("failed to stop running profile %q: %w", name, err)
 		}
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	if err := os.RemoveAll(profileDir); err != nil {

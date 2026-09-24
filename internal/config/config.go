@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 )
 
 const (
@@ -45,4 +46,21 @@ func GetMultigravityHome() string {
 // GetProfileDir returns the absolute path to a profile's root directory
 func GetProfileDir(name string) string {
 	return filepath.Join(GetMultigravityHome(), name)
+}
+
+// GetUserDataDir returns the platform-specific user-data-dir for Antigravity
+func GetUserDataDir(profileDir string) string {
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(profileDir, "Library", "Application Support", "Antigravity")
+	case "windows":
+		return filepath.Join(profileDir, "AppData", "Roaming", "Antigravity")
+	default: // linux, freebsd, etc.
+		return filepath.Join(profileDir, ".config", "Antigravity")
+	}
+}
+
+// GetExtensionsDir returns the extensions directory for a profile
+func GetExtensionsDir(profileDir string) string {
+	return filepath.Join(profileDir, ".antigravity", "extensions")
 }

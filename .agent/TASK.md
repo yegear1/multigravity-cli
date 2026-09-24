@@ -5,19 +5,18 @@
 ---
 
 ## Tarefa Ativa
- 
-- [ ] Nenhuma tarefa em execução. Pronto para próximo ciclo ou release.
 
+- [ ] **[90.4] [PRONTO PARA PLANEJAMENTO] Portar Lançamento de Perfis (`<name> [args...]`), Detecção de Executável (`antigravity`/`agy`) e Atalhos de Desktop (.desktop, .app, .lnk)**
 
- 
 ---
- 
+
 ## Log de Tarefas Concluídas
- 
+
 > Histórico anterior arquivado em `ARCHIVE.md` sob `[v1.5.0] - 2026-09-13`.
- 
+
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [90.3] | Implementação de Ciclo de Vida (`stop`, `restart`) e Limpeza de Caches (`clean`) em Go | feat(go) | 2026-09-24 |
 | [90.2] | Implementação dos Comandos de Gestão de Perfis em Go (`new`, `delete`, `rename`) | feat(go) | 2026-09-24 |
 | [90.1] | Setup da branch `feat/go-rewrite`, toolchain Go e inicialização do projeto Go com Cobra CLI | feat(go) | 2026-09-23 |
 | [02.3] | Documentar Mapeamento Canônico de Diretórios do Antigravity em `INVARIANTS.md` | docs(invariants) | 2026-09-23 |
@@ -31,7 +30,11 @@
 
 ## Backlog (Próximas, em ordem)
 
-- [ ] Promover próxima feature do backlog
+- [ ] **[90.5]** Portar Theming Visual (`color`) e Comandos de Compartilhamento/Isolamento Modular (`config`, `mcp`, `skills`, `gh`)
+- [ ] **[90.6]** Portar Backup, Restauração e Templates (`clone`, `export`, `import`, `template`, `stats`)
+- [ ] **[90.7]** Portar Telemetria de Cotas de IA (`quota`) e Automação de Priming (`prime`) via Language Server
+- [ ] **[90.8]** Portar Menu Interativo TUI sem argumentos, Diagnóstico do Sistema (`doctor`) e Shell Completion
+- [ ] **[90.9]** Validação de Paridade com Scripts Legados, Instalação e Troca do Ponto de Entrada Padrão
 
 ---
 

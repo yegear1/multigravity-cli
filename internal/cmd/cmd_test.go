@@ -59,6 +59,49 @@ func TestCobraNewDeleteRename(t *testing.T) {
 	}
 }
 
+func TestCobraStopRestartClean(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+
+	// Create profile for testing
+	_, err := executeCommand(rootCmd, "new", "svc-profile")
+	if err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	// Test stop on idle profile
+	out, err := executeCommand(rootCmd, "stop", "svc-profile")
+	if err != nil {
+		t.Fatalf("expected stop on idle profile to succeed, got: %v", err)
+	}
+
+	// Test stop with --force
+	_, err = executeCommand(rootCmd, "stop", "svc-profile", "--force")
+	if err != nil {
+		t.Fatalf("expected stop --force to succeed, got: %v", err)
+	}
+
+	// Test restart
+	_, err = executeCommand(rootCmd, "restart", "svc-profile")
+	if err != nil {
+		t.Fatalf("expected restart to succeed, got: %v", err)
+	}
+
+	// Test clean single profile
+	_, err = executeCommand(rootCmd, "clean", "svc-profile")
+	if err != nil {
+		t.Fatalf("expected clean single profile to succeed, got: %v", err)
+	}
+
+	// Test clean --all
+	_, err = executeCommand(rootCmd, "clean", "--all")
+	if err != nil {
+		t.Fatalf("expected clean --all to succeed, got: %v", err)
+	}
+
+	_ = out
+}
+
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

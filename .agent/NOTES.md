@@ -195,9 +195,13 @@
     - `RenameProfile`: validação de nomes de origem e destino, garantia de não sobrescrita de perfis existentes e verificação ativa de processos em execução.
   - **Comandos Cobra:** criados `internal/cmd/new.go`, `internal/cmd/delete.go` (com prompt interativo `[y/N]` na ausência de `--force`) e `internal/cmd/rename.go`.
   - **Testes Unitários:** implementados em `internal/profile/manager_test.go` e `internal/cmd/cmd_test.go` utilizando `t.TempDir()` e `MULTIGRAVITY_HOME`, cobrindo 100% dos fluxos de criação, renomeação, deleção e validações de erro.
-  - **Cross-Compilation:** validada compilação para Linux (amd64/arm64), macOS (amd64/arm64) e Windows (amd64).
+### 2026-09-24 [Task 90.3] Implementação de Ciclo de Vida (`stop`, `restart`) e Limpeza de Caches (`clean`) em Go
 
-
-
-
+- **Contexto:** Portar os comandos de controle de processos (`stop`, `restart`) e limpeza segura de caches (`clean`) para a CLI em Go (`feat/go-rewrite`).
+- **Decisões:**
+  - **Process Detection & Termination (`internal/profile/process_unix.go` e `process_windows.go`):** Separação por tags de build. No Unix, usa `ps -eo pid,ppid,args` inspecionando `dataDir` (`GetUserDataDir`) e `profileDir`, ignorando o próprio PID e PPID para evitar matar o próprio terminal/processo pai. No Windows, consulta `Win32_Process` via PowerShell/WMI e utiliza `taskkill`.
+  - **Graceful Stop (`internal/profile/lifecycle.go`):** Envio de `SIGTERM` e espera ativa por até 3 segundos (15 iterações de 200ms) para flush de dados/SQLite, com fallback forçado via `SIGKILL` em caso de timeout. Flag `--force` (`-f`) pula a espera e envia `SIGKILL` imediatamente. Mensagens com 100% de paridade com o legado.
+  - **Restart (`internal/profile/lifecycle.go`, `internal/cmd/restart.go`):** `restart <name> [args...]` efetua stop gracioso, aguarda 500ms e despacha relançamento via `LaunchProfile`. Utilizado `Flags().SetInterspersed(false)` no Cobra para preservar passthrough de flags arbitrárias destinadas ao Antigravity.
+  - **Limpeza Cirúrgica (`internal/profile/clean.go`, `internal/cmd/clean.go`):** `CleanProfile` e `CleanSingleProfile` removem apenas caches voláteis (Chromium, Electron, GPUCache, Crashpad, Service Worker, crashes, npm cache), preservando intactos arquivos de preferências (`User/settings.json`), extensões e credenciais. Recria `.cache` vazio (e `AppData/Local/Temp` no Windows). Trava ativa impede limpar perfil em execução, e `--all` pula perfis abertos com warning.
+  - **Cálculo de Tamanho de Diretório:** `GetDirSizeStr` utiliza `du -sh` no Unix com fallback para caminhamento puro em Go (`filepath.Walk`), garantindo independência de ferramentas externas no Windows.
 
