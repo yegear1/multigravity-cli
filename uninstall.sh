@@ -17,8 +17,10 @@ echo ""
 
 REMOVED=0
 
+USER_HOME="${REAL_HOME:-$HOME}"
+
 # ── binary + icon ─────────────────────────────────────────────────────────────
-for dir in "/usr/local/bin" "$HOME/.local/bin"; do
+for dir in "/usr/local/bin" "$USER_HOME/.local/bin" "$HOME/.local/bin"; do
   if [ -f "$dir/multigravity" ]; then
     print_step "Removing $dir/multigravity"
     rm -f "$dir/multigravity"

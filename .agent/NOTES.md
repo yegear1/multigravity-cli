@@ -388,3 +388,12 @@
     - Documentado na skill canônica (`skills/multigravity/SKILL.md`) e no `README.md`.
     - Testes unitários herméticos em `internal/server/server_test.go` cobrindo handshake SSE, evento de inicialização, eventos customizados, notificação de ações e encerramento de conexões.
 
+### 2026-09-24 [Task 05.1] Robustez na Detecção de Executável (FindApp), Resolução de REAL_HOME no Instalador e Validação no Host
+
+- **Contexto:** Instalação e validação operacional da CLI Go compilada no ambiente real do usuário, preservando perfis preexistentes (`joaoww`, `luisfmb`, `yegear`).
+- **Descobertas e Decisões Técnicas:**
+  - **Detecção de Executável (`internal/app/detector.go`):** Quando `MULTIGRAVITY_APP` ou `AGY_APP` é fornecida como sobreposição explícita, se o arquivo apontado não existir ou não for executável, a função agora retorna erro imediatamente em vez de efetuar fallthrough silencioso para os diretórios padrão do sistema (`/opt/antigravity`, `/usr/bin`, etc.). Isso previne o lançamento acidental de binários não pretendidos e assegura que os testes unitários (`TestRequireAppNotFound` e `doctor`) passem em hosts com Antigravity instalado globalmente.
+  - **Instalação Hermética (`install.sh`, `uninstall.sh`):** Suporte estrito a `REAL_HOME="${REAL_HOME:-$HOME}"` para garantir que instalações disparadas de dentro do terminal integrado do Antigravity (onde `$HOME` aponta para a pasta do perfil) instalem no diretório real do usuário (`/home/luis/.local/bin`), e compilação intermediária em `bin/multigravity` antes de copiar com `cp -f`, evitando erros de `go build` ao sobrescrever scripts texto legados existentes.
+  - **Validação no Ambiente Real:** Executada bateria completa de comandos no host real (`doctor`, `list`, `stats`, `status`, `mcp status`, `skills status`, `config status`, `gh status`, `ai list`, `quota`). Confirmada detecção precisa do perfil ativo `yegear` (processos ativos, status running, cota via gRPC/HTTPS) e perfis idle `joaoww` e `luisfmb` com integridade 100% preservada.
+
+

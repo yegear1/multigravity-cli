@@ -26,6 +26,7 @@ func FindApp() (string, error) {
 		if path, err := exec.LookPath(override); err == nil {
 			return path, nil
 		}
+		return "", fmt.Errorf("configured app executable not found: %s", override)
 	}
 
 	userHome, _ := os.UserHomeDir()

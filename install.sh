@@ -41,24 +41,25 @@ command -v curl &>/dev/null || abort "curl is required but not found"
 
 # fall back to ~/.local/bin if /usr/local/bin isn't writable without sudo
 if [ ! -w "$INSTALL_DIR" ]; then
-  INSTALL_DIR="$HOME/.local/bin"
+  USER_HOME="${REAL_HOME:-$HOME}"
+  INSTALL_DIR="$USER_HOME/.local/bin"
   mkdir -p "$INSTALL_DIR"
 
   # auto-add to PATH in the user's shell profile if not already there
   if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     case "${SHELL:-}" in
-      */zsh)  SHELL_RC="$HOME/.zshrc" ;;
-      */fish) SHELL_RC="$HOME/.config/fish/config.fish" ;;
-      *)      SHELL_RC="$HOME/.bashrc" ;;
+      */zsh)  SHELL_RC="$USER_HOME/.zshrc" ;;
+      */fish) SHELL_RC="$USER_HOME/.config/fish/config.fish" ;;
+      *)      SHELL_RC="$USER_HOME/.bashrc" ;;
     esac
 
     LINE='export PATH="$HOME/.local/bin:$PATH"'
 
-    if [ "$SHELL_RC" = "$HOME/.config/fish/config.fish" ]; then
+    if [ "$SHELL_RC" = "$USER_HOME/.config/fish/config.fish" ]; then
       LINE='fish_add_path "$HOME/.local/bin"'
     fi
 
-    if ! grep -qF "$HOME/.local/bin" "$SHELL_RC" 2>/dev/null; then
+    if ! grep -qF "$USER_HOME/.local/bin" "$SHELL_RC" 2>/dev/null && ! grep -qF '$HOME/.local/bin' "$SHELL_RC" 2>/dev/null; then
       echo "" >> "$SHELL_RC"
       echo "# Added by Multigravity installer" >> "$SHELL_RC"
       echo "$LINE" >> "$SHELL_RC"
@@ -78,7 +79,9 @@ INSTALLED=0
 # Option A: Build from local source if inside repository and Go toolchain is available
 if [ -f "./cmd/multigravity/main.go" ] && command -v go &>/dev/null; then
   print_step "Building binary from local source with Go..."
-  if go build -o "$INSTALL_DIR/multigravity" ./cmd/multigravity; then
+  mkdir -p bin
+  if go build -o "bin/multigravity" ./cmd/multigravity; then
+    cp -f "bin/multigravity" "$INSTALL_DIR/multigravity"
     chmod +x "$INSTALL_DIR/multigravity"
     INSTALLED=1
   fi
