@@ -17,18 +17,25 @@ import (
 
 var titleRegex = regexp.MustCompile(`title:\s*"([^"]*)"`)
 
+// ConversationInfo holds metadata about a single AI conversation
+type ConversationInfo struct {
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	ArtifactCount int    `json:"artifact_count"`
+}
+
 // ListConversations prints a table of AI conversations in a profile
 func ListConversations(profileName string) error {
 	return ListConversationsWriter(os.Stdout, profileName)
 }
 
-// ListConversationsWriter prints a table of AI conversations to the provided writer
-func ListConversationsWriter(w io.Writer, profileName string) error {
+// GetConversations returns structured metadata of all AI conversations in a profile
+func GetConversations(profileName string) ([]ConversationInfo, error) {
 	if err := config.ValidateProfileName(profileName); err != nil {
-		return err
+		return nil, err
 	}
 	if !profile.ProfileExists(profileName) {
-		return fmt.Errorf("profile '%s' does not exist", profileName)
+		return nil, fmt.Errorf("profile '%s' does not exist", profileName)
 	}
 
 	pDir := config.GetProfileDir(profileName)
@@ -40,21 +47,15 @@ func ListConversationsWriter(w io.Writer, profileName string) error {
 	brainExists := dirExists(brainDir)
 
 	if !convExists && !brainExists {
-		fmt.Fprintf(w, "Profile '%s' has no saved AI chats.\n", profileName)
-		return nil
+		return []ConversationInfo{}, nil
 	}
 
 	entries, err := os.ReadDir(convDir)
 	if err != nil || len(entries) == 0 {
-		fmt.Fprintf(w, "Profile '%s' has no saved AI chats.\n", profileName)
-		return nil
+		return []ConversationInfo{}, nil
 	}
 
-	fmt.Fprintf(w, "AI Conversations in profile '%s':\n", profileName)
-	fmt.Fprintf(w, "%-38s %-32s %s\n", "CONVERSATION ID", "TITLE", "ARTIFACTS")
-	fmt.Fprintf(w, "%-38s %-32s %s\n", "---------------", "-----", "---------")
-
-	count := 0
+	var convs []ConversationInfo
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".db") {
 			continue
@@ -70,33 +71,57 @@ func ListConversationsWriter(w io.Writer, profileName string) error {
 			}
 		}
 
-		if len(title) > 30 {
-			title = title[:27] + "..."
-		}
-
-		artCount := "none"
+		mdCount := 0
 		uBrainDir := filepath.Join(brainDir, uuid)
 		if bEntries, err := os.ReadDir(uBrainDir); err == nil {
-			mdCount := 0
 			for _, be := range bEntries {
 				if !be.IsDir() && strings.HasSuffix(be.Name(), ".md") {
 					mdCount++
 				}
 			}
-			if mdCount > 0 {
-				artCount = fmt.Sprintf("%d file(s)", mdCount)
-			}
 		}
 
-		fmt.Fprintf(w, "%-38s %-32s %s\n", uuid, title, artCount)
-		count++
+		convs = append(convs, ConversationInfo{
+			ID:            uuid,
+			Title:         title,
+			ArtifactCount: mdCount,
+		})
 	}
 
-	if count == 0 {
-		fmt.Fprintln(w, "No conversations found.")
-	} else {
-		fmt.Fprintf(w, "\nTotal conversations: %d\n", count)
+	return convs, nil
+}
+
+// ListConversationsWriter prints a table of AI conversations to the provided writer
+func ListConversationsWriter(w io.Writer, profileName string) error {
+	convs, err := GetConversations(profileName)
+	if err != nil {
+		return err
 	}
+
+	if len(convs) == 0 {
+		fmt.Fprintf(w, "Profile '%s' has no saved AI chats.\n", profileName)
+		return nil
+	}
+
+	fmt.Fprintf(w, "AI Conversations in profile '%s':\n", profileName)
+	fmt.Fprintf(w, "%-38s %-32s %s\n", "CONVERSATION ID", "TITLE", "ARTIFACTS")
+	fmt.Fprintf(w, "%-38s %-32s %s\n", "---------------", "-----", "---------")
+
+	for _, c := range convs {
+		dispTitle := c.Title
+		if len(dispTitle) > 30 {
+			dispTitle = dispTitle[:27] + "..."
+		}
+
+		artCount := "none"
+		if c.ArtifactCount > 0 {
+			artCount = fmt.Sprintf("%d file(s)", c.ArtifactCount)
+		}
+
+		fmt.Fprintf(w, "%-38s %-32s %s\n", c.ID, dispTitle, artCount)
+	}
+
+	fmt.Fprintf(w, "\nTotal conversations: %d\n", len(convs))
 	return nil
 }
 

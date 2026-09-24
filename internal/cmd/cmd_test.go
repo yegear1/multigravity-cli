@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/ye-dev/multigravity-cli/internal/chat"
+	"github.com/ye-dev/multigravity-cli/internal/doctor"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
 
@@ -608,4 +611,92 @@ func TestUpdateCommand(t *testing.T) {
 		t.Fatalf("expected update to fail on non-existent repo")
 	}
 }
+
+func TestJSONContractOutputs(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", t.TempDir())
+
+	// 1. Create a profile for testing
+	_, err := executeCommand(rootCmd, "new", "json-test-prof", "--shared")
+	if err != nil {
+		t.Fatalf("failed to create test profile: %v", err)
+	}
+
+	// 2. Test list --json
+	out, err := executeCommand(rootCmd, "list", "--json")
+	if err != nil {
+		t.Fatalf("list --json failed: %v", err)
+	}
+	var profiles []profile.ProfileInfo
+	if err := json.Unmarshal([]byte(out), &profiles); err != nil {
+		t.Fatalf("failed to parse list --json output: %v, raw output: %s", err, out)
+	}
+	if len(profiles) != 1 || profiles[0].Name != "json-test-prof" {
+		t.Errorf("expected 1 profile named json-test-prof, got: %+v", profiles)
+	}
+
+	// 3. Test stats --json
+	out, err = executeCommand(rootCmd, "stats", "--json")
+	if err != nil {
+		t.Fatalf("stats --json failed: %v", err)
+	}
+	var statsReport profile.ProfileStatsReport
+	if err := json.Unmarshal([]byte(out), &statsReport); err != nil {
+		t.Fatalf("failed to parse stats --json output: %v, raw output: %s", err, out)
+	}
+	if len(statsReport.Profiles) != 1 || statsReport.Profiles[0].Name != "json-test-prof" {
+		t.Errorf("expected 1 profile stat for json-test-prof, got: %+v", statsReport)
+	}
+
+	// 4. Test doctor --json
+	out, err = executeCommand(rootCmd, "doctor", "--json")
+	if err != nil {
+		t.Fatalf("doctor --json failed: %v", err)
+	}
+	var docReport doctor.DiagnosticReport
+	if err := json.Unmarshal([]byte(out), &docReport); err != nil {
+		t.Fatalf("failed to parse doctor --json output: %v, raw output: %s", err, out)
+	}
+	if docReport.Platform == "" || len(docReport.Checks) == 0 {
+		t.Errorf("expected valid doctor report, got: %+v", docReport)
+	}
+
+	// 5. Test quota --json (without running server, should return empty array JSON)
+	out, err = executeCommand(rootCmd, "quota", "--json")
+	if err != nil {
+		t.Fatalf("quota --json failed: %v", err)
+	}
+	var quotaServers []interface{}
+	if err := json.Unmarshal([]byte(out), &quotaServers); err != nil {
+		t.Fatalf("failed to parse quota --json output: %v, raw output: %s", err, out)
+	}
+
+	// 6. Test mcp status <profile> --json
+	out, err = executeCommand(rootCmd, "mcp", "status", "json-test-prof", "--json")
+	if err != nil {
+		t.Fatalf("mcp status --json failed: %v", err)
+	}
+	var mcpStatus profile.SharingStatus
+	if err := json.Unmarshal([]byte(out), &mcpStatus); err != nil {
+		t.Fatalf("failed to parse mcp status --json output: %v, raw output: %s", err, out)
+	}
+	if mcpStatus.Profile != "json-test-prof" || mcpStatus.Resource != "mcp" {
+		t.Errorf("unexpected mcp status: %+v", mcpStatus)
+	}
+
+	// 7. Test ai list <profile> --json
+	out, err = executeCommand(rootCmd, "ai", "list", "json-test-prof", "--json")
+	if err != nil {
+		t.Fatalf("ai list --json failed: %v", err)
+	}
+	var convs []chat.ConversationInfo
+	if err := json.Unmarshal([]byte(out), &convs); err != nil {
+		t.Fatalf("failed to parse ai list --json output: %v, raw output: %s", err, out)
+	}
+	if len(convs) != 0 {
+		t.Errorf("expected 0 conversations for new profile, got: %+v", convs)
+	}
+}
+
 

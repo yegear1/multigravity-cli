@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -12,11 +13,25 @@ var aiCmd = &cobra.Command{
 	Short: "Manage AI conversations, quota telemetry, and priming",
 }
 
+var aiListJSON bool
+
 var aiListCmd = &cobra.Command{
 	Use:   "list <profile>",
 	Short: "List AI conversations in a profile",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if aiListJSON {
+			convs, err := chat.GetConversations(args[0])
+			if err != nil {
+				return err
+			}
+			if convs == nil {
+				convs = []chat.ConversationInfo{}
+			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(convs)
+		}
 		return chat.ListConversationsWriter(cmd.OutOrStdout(), args[0])
 	},
 }
@@ -57,6 +72,8 @@ var aiSyncCmd = &cobra.Command{
 }
 
 func init() {
+	aiListCmd.Flags().BoolVar(&aiListJSON, "json", false, "Output conversations in JSON format")
+
 	aiCmd.AddCommand(aiListCmd)
 	aiCmd.AddCommand(aiExportCmd)
 	aiCmd.AddCommand(aiImportCmd)

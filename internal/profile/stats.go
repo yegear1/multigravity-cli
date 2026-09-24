@@ -10,10 +10,17 @@ import (
 
 // ProfileStat holds size and extension count stats for a profile
 type ProfileStat struct {
-	Name           string
-	Size           string
-	ExtensionCount int
+	Name           string `json:"name"`
+	Size           string `json:"size"`
+	ExtensionCount int    `json:"extension_count"`
 }
+
+// ProfileStatsReport represents the aggregated storage stats
+type ProfileStatsReport struct {
+	Profiles  []ProfileStat `json:"profiles"`
+	TotalSize string        `json:"total_size"`
+}
+
 
 // GetProfileStats gathers storage and extension counts for all profiles
 func GetProfileStats() ([]ProfileStat, string, error) {

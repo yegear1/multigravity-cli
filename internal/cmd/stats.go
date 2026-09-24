@@ -1,9 +1,13 @@
 package cmd
 
 import (
+	"encoding/json"
+
 	"github.com/spf13/cobra"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
+
+var statsJSON bool
 
 var statsCmd = &cobra.Command{
 	Use:   "stats",
@@ -13,6 +17,19 @@ var statsCmd = &cobra.Command{
 		stats, total, err := profile.GetProfileStats()
 		if err != nil {
 			return err
+		}
+
+		if statsJSON {
+			if stats == nil {
+				stats = []profile.ProfileStat{}
+			}
+			report := profile.ProfileStatsReport{
+				Profiles:  stats,
+				TotalSize: total,
+			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(report)
 		}
 
 		if len(stats) == 0 {
@@ -33,3 +50,8 @@ var statsCmd = &cobra.Command{
 		return nil
 	},
 }
+
+func init() {
+	statsCmd.Flags().BoolVar(&statsJSON, "json", false, "Output stats in JSON format")
+}
+

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -10,7 +11,9 @@ import (
 )
 
 func newQuotaCmd() *cobra.Command {
-	return &cobra.Command{
+	var quotaJSON bool
+
+	cmd := &cobra.Command{
 		Use:   "quota [profile]",
 		Short: "Show AI token limits, usage percentage, and reset time",
 		Args:  cobra.MaximumNArgs(1),
@@ -31,6 +34,15 @@ func newQuotaCmd() *cobra.Command {
 				return err
 			}
 
+			if quotaJSON {
+				if servers == nil {
+					servers = []quota.ActiveServer{}
+				}
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(servers)
+			}
+
 			if len(servers) == 0 {
 				if targetProf != "" {
 					fmt.Fprintf(cmd.OutOrStdout(), "Profile '%s' is not running.\n", targetProf)
@@ -46,6 +58,9 @@ func newQuotaCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&quotaJSON, "json", false, "Output quota summary in JSON format")
+	return cmd
 }
 
 var quotaCmd = newQuotaCmd()

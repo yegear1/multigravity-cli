@@ -23,11 +23,11 @@ type QuotaSummaryResponse struct {
 }
 
 type ActiveServer struct {
-	Profile string
-	PID     int
-	Port    int
-	CSRF    string
-	Data    *QuotaSummaryResponse
+	Profile string                `json:"profile"`
+	PID     int                   `json:"pid"`
+	Port    int                   `json:"port"`
+	CSRF    string                `json:"csrf,omitempty"`
+	Data    *QuotaSummaryResponse `json:"data,omitempty"`
 }
 
 type StartCascadeRequest struct {

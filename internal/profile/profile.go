@@ -10,14 +10,14 @@ import (
 )
 
 type ProfileInfo struct {
-	Name      string
-	Path      string
-	IsRunning bool
-	PIDs      []int
-	Type      string // "full" or "shared"
-	LastUsed  time.Time
-	Size      string
-	Color     string
+	Name      string    `json:"name"`
+	Path      string    `json:"path"`
+	IsRunning bool      `json:"is_running"`
+	PIDs      []int     `json:"pids,omitempty"`
+	Type      string    `json:"type"` // "full" or "shared"
+	LastUsed  time.Time `json:"last_used"`
+	Size      string    `json:"size"`
+	Color     string    `json:"color,omitempty"`
 }
 
 // ProfileExists returns whether a profile exists

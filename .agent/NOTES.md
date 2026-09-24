@@ -331,5 +331,14 @@
   - Compilação do binário Go em `bin/multigravity` bem-sucedida.
   - `./multigravity doctor` executado com sucesso validando runtime, executável do Antigravity, binário global e permissões de escrita em `$MULTIGRAVITY_HOME`.
 
+### 2026-09-24 [Task 02.1] Padronização e Suporte a Contratos Machine-Readable (--json) nos Comandos de Consulta
 
-
+- **Contexto:** Necessidade de permitir consumo automatizado de telemetria e estado de perfis por agentes de IA, VictoriaLogs e futuras UIs/APIs (Diretrizes #6 e #7 do `AGENTS.md`).
+- **Decisões:**
+  - **`list`:** Adicionada flag `--json` serializando `[]profile.ProfileInfo` com tags JSON completas (`name`, `path`, `is_running`, `pids`, `type`, `last_used`, `size`, `color`).
+  - **`stats`:** Adicionada struct `profile.ProfileStatsReport` (`profiles` e `total_size`) e flag `--json` no comando `stats`.
+  - **`doctor`:** Desacoplamento da lógica de diagnóstico em função pura `doctor.Diagnose() (*DiagnosticReport, error)` e structs `DiagnosticCheck` e `DiagnosticReport`, mantendo `doctor.RunDoctor(w)` como camada de apresentação e adicionando `--json`.
+  - **`quota`:** Adicionada flag `--json` serializando as instâncias ativas do Language Server (`[]quota.ActiveServer`) com os respectivos buckets de limite, consumo e reset time.
+  - **`ai list`:** Desacoplamento de `chat.GetConversations(profile) ([]ConversationInfo, error)` e suporte à flag `--json` retornando metadados de chats e artefatos.
+  - **`mcp status`:** Criadas structs `profile.SharingStatus` e `profile.GetMcpStatus(profile)`, adicionando `--json` ao subcomando `mcp status <profile>`.
+  - **Paridade e Retrocompatibilidade:** Saída padrão em texto/tabelas/ANSI 100% preservada na ausência da flag `--json`.

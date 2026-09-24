@@ -42,30 +42,68 @@ func isDir(path string) bool {
 	return fi.IsDir()
 }
 
+// SharingStatus represents the sharing/isolation status of a profile resource
+type SharingStatus struct {
+	Profile     string `json:"profile"`
+	Resource    string `json:"resource"`
+	Mode        string `json:"mode"`
+	Target      string `json:"target,omitempty"`
+	Description string `json:"description"`
+}
+
 // --- MCP ---
 
-func McpStatus(profile string) (string, error) {
+func GetMcpStatus(profile string) (*SharingStatus, error) {
 	if err := config.ValidateProfileName(profile); err != nil {
-		return "", err
+		return nil, err
 	}
 	profileDir := config.GetProfileDir(profile)
 	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
-		return "", fmt.Errorf("profile %q does not exist", profile)
+		return nil, fmt.Errorf("profile %q does not exist", profile)
 	}
 
 	targetMCP := filepath.Join(profileDir, ".gemini", "config", "mcp_config.json")
 
 	if hasSentinel(profileDir, config.SentinelIsolatedMCP) {
-		return fmt.Sprintf("Profile %q has isolated MCP servers (--isolated-mcp active).", profile), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "mcp",
+			Mode:        "isolated",
+			Description: fmt.Sprintf("Profile %q has isolated MCP servers (--isolated-mcp active).", profile),
+		}, nil
 	}
 	if isSymlink(targetMCP) {
 		target, _ := os.Readlink(targetMCP)
-		return fmt.Sprintf("Profile %q shares host MCP servers -> %s", profile, target), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "mcp",
+			Mode:        "shared",
+			Target:      target,
+			Description: fmt.Sprintf("Profile %q shares host MCP servers -> %s", profile, target),
+		}, nil
 	}
 	if isRegularFile(targetMCP) {
-		return fmt.Sprintf("Profile %q has a standalone local mcp_config.json.", profile), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "mcp",
+			Mode:        "standalone",
+			Description: fmt.Sprintf("Profile %q has a standalone local mcp_config.json.", profile),
+		}, nil
 	}
-	return fmt.Sprintf("Profile %q has no MCP servers configured.", profile), nil
+	return &SharingStatus{
+		Profile:     profile,
+		Resource:    "mcp",
+		Mode:        "none",
+		Description: fmt.Sprintf("Profile %q has no MCP servers configured.", profile),
+	}, nil
+}
+
+func McpStatus(profile string) (string, error) {
+	st, err := GetMcpStatus(profile)
+	if err != nil {
+		return "", err
+	}
+	return st.Description, nil
 }
 
 func McpShare(profile string) ([]string, error) {
