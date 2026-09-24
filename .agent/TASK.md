@@ -32,7 +32,16 @@
 
 ## Backlog (Próximas, em ordem)
 
-*(Nenhuma tarefa pendente no ciclo ativo)*
+- [ ] **[07.1]** Gerenciamento Completo de Perfis via API (Criação, Exclusão, Renomeação e Launch de Instâncias)
+- [ ] **[07.2]** Mutação de Compartilhamento Dinâmico via API (Toggle de MCP, Skills, Config, Git/GitHub)
+- [ ] **[07.3]** Priming e Aquecimento de Cotas via API com Emissão de Progresso
+- [ ] **[08.1]** Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil
+- [ ] **[08.2]** Invocação e Gestão de Agentes Headless em Background com Isolamento de Identidade
+- [ ] **[08.3]** Sistema de Snapshots e Rollback Seguro de Perfis e Conversas
+- [ ] **[09.1]** Histórico Temporal de Consumo de Cotas e Métricas de Tokens por Perfil
+- [ ] **[09.2]** Streaming de Logs em Tempo Real (Live Log Stream do Language Server e Processos da IDE)
+- [ ] **[09.3]** Sistema de Alertas Proativos e Notificações de Eventos (Cota Crítica, Quedas, Processos Órfãos)
+- [ ] **[10.1]** Catálogo Centralizado e Diagnóstico de Saúde de Ferramentas (MCP Hub e Skills Registry)
 
 ---
 
