@@ -6,37 +6,23 @@
 
 ## Tarefa Ativa
 
-*(Nenhuma tarefa em execução. Reescrita em Go concluída; aguardando autorização para 99.1)*
+*(Nenhuma tarefa em execução. Release v2.0.0 concluída)*
 
 ---
 
 ## Log de Tarefas Concluídas
 
-> Histórico anterior arquivado em `ARCHIVE.md` sob `[v1.5.0] - 2026-09-13`.
+> Histórico anterior arquivado em `ARCHIVE.md` sob `[v2.0.0] - 2026-09-24`.
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
-| [90.9] | Validação de Paridade com Scripts Legados, Instalação e Troca do Ponto de Entrada Padrão | f72b027 | 2026-09-24 |
-| [90.8] | Portar Menu Interativo TUI sem argumentos, Diagnóstico do Sistema (`doctor`) e Shell Completion | 8ac1bad | 2026-09-24 |
-| [90.7] | Portar Telemetria de Cotas de IA (`quota`), Automação de Priming (`prime`) e Gestão de Chats (`ai`) via Language Server | 7a62868 | 2026-09-24 |
-| [90.6] | Portar Backup, Restauração e Templates (`clone`, `export`, `import`, `template`, `stats`) | feat(go) | 2026-09-24 |
-| [90.5] | Portar Theming Visual (`color`) e Comandos de Compartilhamento/Isolamento Modular (`config`, `mcp`, `skills`, `gh`) | 37895ae | 2026-09-24 |
-| [90.4] | Implementação de Lançamento de Perfis, Detecção de Executável (antigravity/agy) e Atalhos de Desktop em Go | feat(go) | 2026-09-24 |
-| [90.3] | Implementação de Ciclo de Vida (`stop`, `restart`) e Limpeza de Caches (`clean`) em Go | feat(go) | 2026-09-24 |
-| [90.2] | Implementação dos Comandos de Gestão de Perfis em Go (`new`, `delete`, `rename`) | feat(go) | 2026-09-24 |
-| [90.1] | Setup da branch `feat/go-rewrite`, toolchain Go e inicialização do projeto Go com Cobra CLI | feat(go) | 2026-09-23 |
-| [02.3] | Documentar Mapeamento Canônico de Diretórios do Antigravity em `INVARIANTS.md` | docs(invariants) | 2026-09-23 |
-| [02.2] | Injetar comandos read-only padrão (git, posix, npm, pnpm, uv) em "Always allow" (`config.json`) | feat(config) | 2026-09-23 |
-| [02.1] | Criar Skill Canônica do Multigravity para Agentes de IA (`skills/multigravity/SKILL.md`) | 375dd1c | 2026-09-15 |
-| [01.3] | Fix do crash no menu interativo TUI (get_profile_color command not found) (fixes #1) | 55fb258 | 2026-09-14 |
-| [00.0] | Release v1.5.0 (AI Quota Telemetry, Prime Automation, Permissions & GH Sync) | v1.5.0 | 2026-09-13 |
-| [02.6] | Suporte a Auto-Priming de Limites de 5 Horas (gemini-5h e 3p-5h) e Checagem Pré-Prime | feat(prime) | 2026-09-13 |
+| [99.1] | Preparar Release v2.0.0 (Tag Git, Changelog e Binários) e Sanitizar Contexto | chore: release v2.0.0 | 2026-09-24 |
 
 ---
 
 ## Backlog (Próximas, em ordem)
 
-*(Vazio — todas as tarefas da fase 90.x foram concluídas)*
+- [ ] **[00.1]** Diagnóstico e monitoramento contínuo pós-lançamento da v2.0.0 (`PRONTO PARA PLANEJAMENTO`)
 
 ---
 

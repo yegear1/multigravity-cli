@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-24
+
+### Added
+- **Native Go Architecture:** Completely re-engineered multigravity in Go using the Cobra CLI framework, delivering near-instant execution speed and self-contained static binaries across Linux, macOS, and Windows.
+- **Zero Runtime Dependencies:** Eliminated external runtime dependencies (including Python 3) for permission injection, JSON manipulation, and quota telemetry.
+- **Interactive TUI Menu:** Terminal-friendly menu when launched without arguments, featuring live profile status indicators (`● running` / `○ idle`), color preview, quick numeric launcher, and graceful non-interactive fallback.
+- **Environment Diagnostics (`doctor`):** Added `multigravity doctor` to run comprehensive pre-flight health checks covering IDE executable detection, permissions, PATH integrity, and profile directory health.
+- **Shell Autocompletion:** Added dynamic completions for Bash, Zsh, Fish, and PowerShell (`multigravity completion`) with contextual profile discovery.
+- **Cross-Platform Desktop Integration:** Native desktop launchers generated automatically for Linux (`.desktop` with POSIX wrapper), macOS (`.app` bundles), and Windows (`.lnk` shortcuts).
+- **Graceful Lifecycle Management:** Robust `stop` and `restart` commands with SQLite flush protection, process timeouts, and concurrency locks preventing accidental operations while profiles are active.
+- **AI Chat & Memory Operations:** Granular management (`ai list`, `ai export`, `ai import`, `ai sync`) with non-destructive merge, Zip Slip defense, and zero token leakage.
+- **AI Quota & Multi-Bucket Priming:** Telemetry (`quota`) and background priming engine (`prime`) with multi-bucket support (`gemini-weekly`, `gemini-5h`, `3p-weekly`, `3p-5h`), external prompt catalog, and schedulers for cron, systemd user timers, and Windows Task Scheduler.
+- **Smart Entrypoints & Legacy Fallback:** Root launcher scripts with 3-tier execution (compiled binary -> auto-compile -> legacy scripts in `legacy/`).
+- **Modernized Installation:** Updated `install.sh` and `install.ps1` with automated architecture detection (`amd64`, `arm64`) and direct GitHub release binary distribution.
+
 ## [1.5.0] - 2026-09-13
 
 ### Added
