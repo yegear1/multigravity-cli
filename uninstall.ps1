@@ -12,7 +12,7 @@ Write-Host ""
 $removed = 0
 
 # ── binary + wrapper ──────────────────────────────────────────────────────────
-foreach ($file in @("multigravity.ps1", "multigravity.cmd")) {
+foreach ($file in @("multigravity.exe", "multigravity.ps1", "multigravity.cmd")) {
     $path = "$INSTALL_DIR\$file"
     if (Test-Path $path) {
         Write-Step "Removing $path"

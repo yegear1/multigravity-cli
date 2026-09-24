@@ -38,23 +38,56 @@ if (!$IN_PATH) {
     Write-Host ""
 }
 
-Write-Step "Downloading multigravity.ps1..."
-# Use -UseBasicParsing for compatibility with PS 5.1 on some systems
-# We download to a string first to ensure we can save with the correct encoding
-try {
-    $scriptContent = Invoke-WebRequest -Uri "$RAW/multigravity.ps1" -UseBasicParsing -ErrorAction Stop
-    [System.IO.File]::WriteAllText("$INSTALL_DIR\multigravity.ps1", $scriptContent.Content, [System.Text.Encoding]::UTF8)
-} catch {
-    Abort "Failed to download multigravity.ps1: $_"
+$installed = $false
+
+# Option A: Build from local source if Go is available and inside repository
+$GoCmd = Get-Command go -ErrorAction SilentlyContinue
+if ((Test-Path ".\cmd\multigravity\main.go") -and $GoCmd) {
+    Write-Step "Building binary from local source with Go..."
+    & go build -o "$INSTALL_DIR\multigravity.exe" ./cmd/multigravity 2>$null
+    if ($LASTEXITCODE -eq 0 -and (Test-Path "$INSTALL_DIR\multigravity.exe")) {
+        $installed = $true
+    }
+}
+
+# Option B: Download pre-compiled release binary
+if (!$installed) {
+    $assetName = "multigravity-windows-amd64.exe"
+    $releaseUrl = "https://github.com/$REPO/releases/latest/download/$assetName"
+    Write-Step "Downloading pre-compiled binary ($assetName)..."
+    try {
+        Invoke-WebRequest -Uri $releaseUrl -OutFile "$INSTALL_DIR\multigravity.exe" -UseBasicParsing -ErrorAction Stop
+        $installed = $true
+    } catch {
+        # Release asset might not be available yet
+    }
+}
+
+# Option C: Fallback to standalone PowerShell script
+if (!$installed) {
+    Write-Step "Release binary unavailable; falling back to PowerShell script..."
+    try {
+        $scriptContent = Invoke-WebRequest -Uri "$RAW/legacy/multigravity.ps1" -UseBasicParsing -ErrorAction SilentlyContinue
+        if (!$scriptContent) {
+            $scriptContent = Invoke-WebRequest -Uri "$RAW/multigravity.ps1" -UseBasicParsing -ErrorAction Stop
+        }
+        [System.IO.File]::WriteAllText("$INSTALL_DIR\multigravity.ps1", $scriptContent.Content, [System.Text.Encoding]::UTF8)
+        $installed = $true
+    } catch {
+        Abort "Failed to download multigravity: $_"
+    }
 }
 
 Write-Step "Creating wrapper script..."
 $wrapper = @"
 @echo off
-powershell.exe -ExecutionPolicy Bypass -File "%~dp0multigravity.ps1" %*
+if exist "%~dp0multigravity.exe" (
+    "%~dp0multigravity.exe" %*
+) else (
+    powershell.exe -ExecutionPolicy Bypass -File "%~dp0multigravity.ps1" %*
+)
 "@
 
-# Save wrapper as ASCII for widest compatibility with cmd.exe
 [System.IO.File]::WriteAllText("$INSTALL_DIR\multigravity.cmd", $wrapper, [System.Text.Encoding]::ASCII)
 
 Write-Host ""

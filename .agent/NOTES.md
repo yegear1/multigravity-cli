@@ -296,4 +296,31 @@
     - Guia inteligente sem argumentos que detecta a shell atual (`$SHELL` no Unix ou `$PROFILE` no Windows) e instrui a adição correta ao arquivo de inicialização.
     - Implementado `ValidArgsFunction` em `rootCmd` e em todos os comandos aplicáveis (`color`, `stop`, `restart`, `clean`, `delete`, `rename`, `clone`, `export`, `quota`, `prime`, `mcp`, `skills`, `config`, `gh`) para autocompletion dinâmico e contextual dos perfis existentes.
 
+### 2026-09-24 [Task 90.9] Validação de Paridade com Scripts Legados, Instalação e Troca do Ponto de Entrada Padrão
+
+- **Contexto:** Conclusão da reescrita em Go na branch `feat/go-rewrite`. Validação de paridade integral de comandos, flags e aliases com os scripts legados Bash e PowerShell, preservação do legado em `legacy/`, troca do ponto de entrada padrão da raiz do repositório e modernização dos instaladores.
+- **Decisões:**
+  - **Paridade de Aliases e Comandos:**
+    - Adicionados aliases canônicos nos comandos Cobra: `create` para `new`, `rm` para `delete`, `mv` para `rename`, `cp` para `clone` e `ls` para `list`.
+    - Implementado `update` (`internal/cmd/update.go`) com verificação e download atômico da release correta por SO e arquitetura (`multigravity-{GOOS}-{GOARCH}`).
+  - **Preservação dos Scripts Legados (`legacy/`):**
+    - Scripts Bash e PowerShell legados movidos para `legacy/multigravity` e `legacy/multigravity.ps1` via `git mv`, preservando histórico Git e permitindo fallback seguro.
+  - **Launchers Inteligentes como Ponto de Entrada na Raiz (`multigravity`, `multigravity.ps1`):**
+    - Script raiz `./multigravity` (POSIX/Bash):
+      1. Se `bin/multigravity` existir, executa imediatamente via `exec`.
+      2. Se `go` estiver instalado, compila automaticamente para `bin/multigravity` e executa.
+      3. Se `go` não estiver instalado nem houver binário, delega transparentemente para `legacy/multigravity`.
+    - Script raiz `./multigravity.ps1` (PowerShell/Windows):
+      1. Executa `bin\multigravity.exe` se presente.
+      2. Se `go` estiver disponível, compila ou roda `go run`.
+      3. Se não, delega transparentemente para `legacy\multigravity.ps1`.
+  - **Instaladores e Desinstaladores Atualizados (`install.sh`, `install.ps1`, `uninstall.ps1`):**
+    - Detecção automática de arquitetura (`amd64`, `arm64`) e SO (`linux`, `darwin`, `windows`).
+    - Prioridade 1: compilação local se executado dentro do repositório clonado com `go`.
+    - Prioridade 2: download do binário pré-compilado via GitHub Releases (`multigravity-$PLATFORM-$ARCH`).
+    - Prioridade 3: fallback para script standalone se release não contiver o asset.
+    - `uninstall.ps1` atualizado para remover `multigravity.exe` além dos scripts e wrappers.
+    - Adicionado target `install` no `Makefile`.
+
+
 

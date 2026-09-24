@@ -10,7 +10,7 @@ INSTALL_DIR="/usr/local/bin"
 print_step () { echo "  → $1"; }
 abort ()       { echo "Error: $1" >&2; exit 1; }
 
-# ── platform ─────────────────────────────────────────────────────────────────
+# ── platform & architecture ──────────────────────────────────────────────────
 case "$(uname -s)" in
   Darwin)
     PLATFORM="darwin"
@@ -20,6 +20,19 @@ case "$(uname -s)" in
     ;;
   *)
     abort "unsupported platform. Multigravity currently supports macOS and Linux."
+    ;;
+esac
+
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64|amd64)
+    ARCH="amd64"
+    ;;
+  arm64|aarch64)
+    ARCH="arm64"
+    ;;
+  *)
+    abort "unsupported architecture: $ARCH"
     ;;
 esac
 
@@ -59,10 +72,40 @@ fi
 
 echo "Installing Multigravity to $INSTALL_DIR ..."
 
-# ── download multigravity script ─────────────────────────────────────────────
-print_step "Downloading multigravity..."
-curl -fsSL "$RAW/multigravity" -o "$INSTALL_DIR/multigravity"
-chmod +x "$INSTALL_DIR/multigravity"
+# ── install binary or fallback script ────────────────────────────────────────
+INSTALLED=0
+
+# Option A: Build from local source if inside repository and Go toolchain is available
+if [ -f "./cmd/multigravity/main.go" ] && command -v go &>/dev/null; then
+  print_step "Building binary from local source with Go..."
+  if go build -o "$INSTALL_DIR/multigravity" ./cmd/multigravity; then
+    chmod +x "$INSTALL_DIR/multigravity"
+    INSTALLED=1
+  fi
+fi
+
+# Option B: Download pre-compiled release binary
+if [ "$INSTALLED" -eq 0 ]; then
+  ASSET_NAME="multigravity-$PLATFORM-$ARCH"
+  RELEASE_URL="https://github.com/$REPO/releases/latest/download/$ASSET_NAME"
+  print_step "Downloading pre-compiled binary ($ASSET_NAME)..."
+  if curl -fsSL "$RELEASE_URL" -o "$INSTALL_DIR/multigravity" 2>/dev/null; then
+    chmod +x "$INSTALL_DIR/multigravity"
+    INSTALLED=1
+  fi
+fi
+
+# Option C: Fallback to standalone script
+if [ "$INSTALLED" -eq 0 ]; then
+  print_step "Release asset unavailable; falling back to standalone script..."
+  if curl -fsSL "$RAW/legacy/multigravity" -o "$INSTALL_DIR/multigravity" 2>/dev/null || \
+     curl -fsSL "$RAW/multigravity" -o "$INSTALL_DIR/multigravity"; then
+    chmod +x "$INSTALL_DIR/multigravity"
+    INSTALLED=1
+  else
+    abort "failed to install multigravity"
+  fi
+fi
 
 # ── download macOS icon ──────────────────────────────────────────────────────
 if [ "$PLATFORM" = "darwin" ]; then

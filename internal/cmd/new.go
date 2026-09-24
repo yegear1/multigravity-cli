@@ -20,8 +20,9 @@ var (
 )
 
 var newCmd = &cobra.Command{
-	Use:   "new <name>",
-	Short: "Create a new isolated Antigravity profile",
+	Use:     "new <name>",
+	Aliases: []string{"create"},
+	Short:   "Create a new isolated Antigravity profile",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		defer func() {

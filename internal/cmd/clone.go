@@ -6,8 +6,9 @@ import (
 )
 
 var cloneCmd = &cobra.Command{
-	Use:   "clone <src> <dest>",
-	Short: "Copy an existing profile",
+	Use:     "clone <src> <dest>",
+	Aliases: []string{"cp"},
+	Short:   "Copy an existing profile",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		src := args[0]

@@ -1,13 +1,19 @@
 BINARY_NAME=multigravity
 BUILD_DIR=bin
+PREFIX ?= /usr/local
+INSTALL_DIR ?= $(PREFIX)/bin
 
-.PHONY: all build clean test cross-compile
+.PHONY: all build install clean test cross-compile
 
 all: build
 
 build:
 	@mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/multigravity
+
+install: build
+	@mkdir -p $(DESTDIR)$(INSTALL_DIR)
+	install -m 755 $(BUILD_DIR)/$(BINARY_NAME) $(DESTDIR)$(INSTALL_DIR)/$(BINARY_NAME)
 
 test:
 	go test -v ./...

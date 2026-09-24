@@ -13,8 +13,9 @@ import (
 var deleteForce bool
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete <name>",
-	Short: "Delete a profile and all its data",
+	Use:     "delete <name>",
+	Aliases: []string{"rm"},
+	Short:   "Delete a profile and all its data",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

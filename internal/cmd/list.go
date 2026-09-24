@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
@@ -10,8 +8,9 @@ import (
 var listRaw bool
 
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List existing profiles",
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List existing profiles",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profiles, err := profile.ListProfiles()
 		if err != nil {
@@ -20,18 +19,18 @@ var listCmd = &cobra.Command{
 
 		if len(profiles) == 0 {
 			if !listRaw {
-				fmt.Println("Existing profiles:")
-				fmt.Println("(none)")
+				cmd.Println("Existing profiles:")
+				cmd.Println("(none)")
 			}
 			return nil
 		}
 
 		if !listRaw {
-			fmt.Println("Existing profiles:")
+			cmd.Println("Existing profiles:")
 		}
 
 		for _, p := range profiles {
-			fmt.Println(p)
+			cmd.Println(p)
 		}
 		return nil
 	},

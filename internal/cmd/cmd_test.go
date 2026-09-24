@@ -562,3 +562,50 @@ func TestRootCmdInteractiveAndCompletion(t *testing.T) {
 	}
 }
 
+func TestCommandAliases(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", t.TempDir())
+
+	// 1. Test create (alias for new)
+	_, err := executeCommand(rootCmd, "create", "alias-test", "--shared")
+	if err != nil {
+		t.Fatalf("expected create alias to succeed: %v", err)
+	}
+
+	// 2. Test ls (alias for list)
+	out, err := executeCommand(rootCmd, "ls", "--raw")
+	if err != nil {
+		t.Fatalf("expected ls alias to succeed: %v", err)
+	}
+	if !strings.Contains(out, "alias-test") {
+		t.Errorf("expected alias-test in ls output: %s", out)
+	}
+
+	// 3. Test cp (alias for clone)
+	_, err = executeCommand(rootCmd, "cp", "alias-test", "cloned-alias")
+	if err != nil {
+		t.Fatalf("expected cp alias to succeed: %v", err)
+	}
+
+	// 4. Test mv (alias for rename)
+	_, err = executeCommand(rootCmd, "mv", "cloned-alias", "renamed-alias")
+	if err != nil {
+		t.Fatalf("expected mv alias to succeed: %v", err)
+	}
+
+	// 5. Test rm (alias for delete)
+	_, err = executeCommand(rootCmd, "rm", "renamed-alias", "--force")
+	if err != nil {
+		t.Fatalf("expected rm alias to succeed: %v", err)
+	}
+}
+
+func TestUpdateCommand(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_REPO", "non-existent-repo-for-test-xyz123")
+	_, err := executeCommand(rootCmd, "update")
+	if err == nil {
+		t.Fatalf("expected update to fail on non-existent repo")
+	}
+}
+
