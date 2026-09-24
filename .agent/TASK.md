@@ -18,6 +18,7 @@
  
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [90.2] | Implementação dos Comandos de Gestão de Perfis em Go (`new`, `delete`, `rename`) | feat(go) | 2026-09-24 |
 | [90.1] | Setup da branch `feat/go-rewrite`, toolchain Go e inicialização do projeto Go com Cobra CLI | feat(go) | 2026-09-23 |
 | [02.3] | Documentar Mapeamento Canônico de Diretórios do Antigravity em `INVARIANTS.md` | docs(invariants) | 2026-09-23 |
 | [02.2] | Injetar comandos read-only padrão (git, posix, npm, pnpm, uv) em "Always allow" (`config.json`) | feat(config) | 2026-09-23 |

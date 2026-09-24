@@ -40,4 +40,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(newCmd)
+	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(renameCmd)
 }

@@ -184,6 +184,20 @@
   - Integrar o seeding automaticamente em `link_user_config` / `Link-UserConfig` (tanto para perfis compartilhados via `$host_config` quanto para perfis isolados) e na ação `isolate`.
   - Adicionar comando CLI `multigravity config seed <perfil|--all|--host>` (alias `allow-readonly`) com autocomplete e documentação.
 
+### 2026-09-24 [Task 90.2] Implementação dos Comandos de Gestão de Perfis em Go (new, delete, rename)
+
+- **Contexto:** Continuidade da reescrita em Go (`feat/go-rewrite`). Necessidade de portar os comandos de ciclo de vida de diretórios de perfil (`new`, `delete`, `rename`) mantendo paridade com as invariantes de isolamento e concorrência.
+- **Decisão:**
+  - **Toolchain Hermética:** Instalado Go 1.27.1 em `~/.local/go` com symlinks em `~/.local/bin/go`.
+  - **Módulo `internal/profile/manager.go`:**
+    - `CreateProfile`: validação de nome regex `^[a-zA-Z0-9][a-zA-Z0-9-]*$`, criação das subpastas por SO (Linux: `.config/Antigravity`, `.cache`, `.local/share`, `.local/state`; macOS: `Library/Application Support`, link para Keychains), flags de isolamento sentinelas (`.isolated_dotfiles`, `.isolated_mcp`, `.isolated_skills`, `.isolated_config`, `.isolated_gh`) e flag `.shared`.
+    - `DeleteProfile`: verificação ativa se o perfil está em execução via `IsProfileRunning(name)`, abortando a menos que `--force` seja fornecido (com envio de sinal `SIGKILL` para processos remanescentes), e remoção limpa do diretório.
+    - `RenameProfile`: validação de nomes de origem e destino, garantia de não sobrescrita de perfis existentes e verificação ativa de processos em execução.
+  - **Comandos Cobra:** criados `internal/cmd/new.go`, `internal/cmd/delete.go` (com prompt interativo `[y/N]` na ausência de `--force`) e `internal/cmd/rename.go`.
+  - **Testes Unitários:** implementados em `internal/profile/manager_test.go` e `internal/cmd/cmd_test.go` utilizando `t.TempDir()` e `MULTIGRAVITY_HOME`, cobrindo 100% dos fluxos de criação, renomeação, deleção e validações de erro.
+  - **Cross-Compilation:** validada compilação para Linux (amd64/arm64), macOS (amd64/arm64) e Windows (amd64).
+
+
 
 
 
