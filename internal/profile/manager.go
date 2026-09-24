@@ -49,6 +49,18 @@ func CreateProfile(opts CreateOptions) error {
 		return fmt.Errorf("failed to create profile directory: %w", err)
 	}
 
+	if opts.FromTemplate != "" {
+		tplPath := filepath.Join(config.GetTemplatesDir(), opts.FromTemplate)
+		if _, err := os.Stat(tplPath); os.IsNotExist(err) {
+			_ = os.RemoveAll(profileDir)
+			return fmt.Errorf("template %q not found. Run: multigravity template list", opts.FromTemplate)
+		}
+		if err := CopyDir(tplPath, profileDir); err != nil {
+			_ = os.RemoveAll(profileDir)
+			return fmt.Errorf("failed to copy template %q: %w", opts.FromTemplate, err)
+		}
+	}
+
 	// Create sentinel files if isolation flags are specified
 	if opts.IsolatedDotfiles {
 		_ = touchFile(filepath.Join(profileDir, config.SentinelIsolatedDotfiles))

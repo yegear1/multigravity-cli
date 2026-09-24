@@ -16,6 +16,7 @@ var (
 	newIsolatedGH       bool
 	newColor            string
 	newFrom             string
+	newTemplate         string
 )
 
 var newCmd = &cobra.Command{
@@ -24,6 +25,11 @@ var newCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
+
+		templateSource := newFrom
+		if templateSource == "" {
+			templateSource = newTemplate
+		}
 
 		opts := profile.CreateOptions{
 			Name:             name,
@@ -34,7 +40,7 @@ var newCmd = &cobra.Command{
 			IsolatedConfig:   newIsolatedConfig,
 			IsolatedGH:       newIsolatedGH,
 			Color:            newColor,
-			FromTemplate:     newFrom,
+			FromTemplate:     templateSource,
 		}
 
 		if err := profile.CreateProfile(opts); err != nil {
@@ -55,4 +61,6 @@ func init() {
 	newCmd.Flags().BoolVar(&newIsolatedGH, "isolated-gh", false, "Do not link user GitHub CLI authentication")
 	newCmd.Flags().StringVar(&newColor, "color", "", "Visual accent color for profile window")
 	newCmd.Flags().StringVar(&newFrom, "from", "", "Create from a saved template")
+	newCmd.Flags().StringVar(&newTemplate, "template", "", "Create from a saved template (alias for --from)")
 }
+

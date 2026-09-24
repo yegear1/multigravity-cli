@@ -241,3 +241,19 @@
     - Criação de backup `.bak` na transição de arquivos/diretórios locais standalone para symlinks compartilhados.
     - Suporte a aliases e flags em `config seed` (`--host`, `--all`) e comando direto `allow-readonly`.
 
+### 2026-09-24 [Task 90.6] Implementação de Backup, Restauração e Templates (clone, export, import, template, stats) em Go
+
+- **Contexto:** Portar operações de cópia de perfis, gerenciamento de templates, compactação/descompactação de backups e telemetria de uso de disco para a CLI em Go (`feat/go-rewrite`).
+- **Decisões:**
+  - **Cópia Preservando Symlinks (`internal/profile/copy.go`):** `CopyDir` e `CopyFile` implementados com leitura estrita de links via `os.Lstat` e recriação com `os.Symlink`. Evita desreferenciação acidental que duplicaria dotfiles globais do host (`.gitconfig`, `.ssh`) ou quebraria o isolamento e sincronização de `config.json`, `mcp_config.json` e skills.
+  - **Clonagem e Templates (`internal/profile/clone.go`, `internal/profile/template.go`, `internal/cmd/clone.go`, `internal/cmd/template.go`):**
+    - `clone <src> <dest>`: validação estrita de nomes, cópia com `CopyDir` e criação automática de atalhos de desktop por plataforma.
+    - `template <save|list|delete>`: gerencia templates salvos em `$BASE/.templates`. Ao salvar um perfil como template, remove o sentinela `.shared` para garantir que novas instâncias geradas sejam limpas por padrão.
+    - Integração com `new`: suporte a `--from <tpl>` e alias `--template <tpl>` em `internal/cmd/new.go` e `internal/profile/manager.go`, copiando o template e reaplicando `EnsureProfileLayout` sobre regras de isolamento.
+  - **Exportação e Importação Herméticas (`internal/profile/archive.go`, `internal/cmd/export.go`, `internal/cmd/import.go`):**
+    - `export <name> [path] [--include-cache]`: suporte a `.tar.gz` (padrão Unix) e `.zip` (padrão Windows ou por extensão explícita). Quando `!includeCache`, exclui cirurgicamente caches voláteis (Chromium, Electron, GPUCache, logs, Crashpad, Service Worker, npm cacache, Library/Caches, caches de IA) reduzindo drasticamente o tamanho do arquivo.
+    - `import <archive> [name]`: descompactação em Go puro para `.tar.gz` e `.zip` com proteção ativa contra ataques de path traversal (*Zip Slip*). Ajusta a raiz do arquivo descompactado, move deterministicamente para o destino e gera atalhos de sistema.
+  - **Estatísticas de Armazenamento (`internal/profile/stats.go`, `internal/cmd/stats.go`):**
+    - `stats`: renderiza tabela de uso de disco (`PROFILE`, `SIZE`, `EXTENSIONS`) com contagem de extensões em `.antigravity/extensions` e cálculo de uso total de `$BASE` com paridade 100% com o legado.
+
+

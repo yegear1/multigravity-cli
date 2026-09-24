@@ -282,3 +282,79 @@ func TestCobraColorAndSharingCommands(t *testing.T) {
 		t.Fatalf("expected gh share to succeed: %v", err)
 	}
 }
+
+func TestCobraCloneTemplateExportImportStats(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", t.TempDir())
+
+	// Create base profile
+	_, err := executeCommand(rootCmd, "new", "original-prof")
+	if err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	// 1. Test clone
+	out, err := executeCommand(rootCmd, "clone", "original-prof", "cloned-prof")
+	if err != nil {
+		t.Fatalf("clone command failed: %v (out: %s)", err, out)
+	}
+	if !fileExists(filepath.Join(tempHome, "cloned-prof")) {
+		t.Fatalf("expected cloned profile dir to exist")
+	}
+
+	// 2. Test template save, list, delete
+	out, err = executeCommand(rootCmd, "template", "save", "original-prof", "my-tpl")
+	if err != nil {
+		t.Fatalf("template save failed: %v (out: %s)", err, out)
+	}
+
+	out, err = executeCommand(rootCmd, "template", "list")
+	if err != nil || !strings.Contains(out, "my-tpl") {
+		t.Fatalf("template list failed or missing my-tpl: %v (out: %s)", err, out)
+	}
+
+	// Create new profile from template
+	out, err = executeCommand(rootCmd, "new", "tpl-born", "--template", "my-tpl")
+	if err != nil {
+		t.Fatalf("new with --template failed: %v (out: %s)", err, out)
+	}
+	if !fileExists(filepath.Join(tempHome, "tpl-born")) {
+		t.Fatalf("expected tpl-born profile dir to exist")
+	}
+
+	// Delete template
+	out, err = executeCommand(rootCmd, "template", "delete", "my-tpl")
+	if err != nil {
+		t.Fatalf("template delete failed: %v (out: %s)", err, out)
+	}
+
+	// 3. Test export
+	archivePath := filepath.Join(t.TempDir(), "exported.tar.gz")
+	out, err = executeCommand(rootCmd, "export", "original-prof", archivePath, "--include-cache")
+	if err != nil {
+		t.Fatalf("export failed: %v (out: %s)", err, out)
+	}
+	if !fileExists(archivePath) {
+		t.Fatalf("expected export archive %s to exist", archivePath)
+	}
+
+	// 4. Test import
+	out, err = executeCommand(rootCmd, "import", archivePath, "restored-prof")
+	if err != nil {
+		t.Fatalf("import failed: %v (out: %s)", err, out)
+	}
+	if !fileExists(filepath.Join(tempHome, "restored-prof")) {
+		t.Fatalf("expected restored profile dir to exist")
+	}
+
+	// 5. Test stats
+	out, err = executeCommand(rootCmd, "stats")
+	if err != nil {
+		t.Fatalf("stats failed: %v", err)
+	}
+	if !strings.Contains(out, "PROFILE") || !strings.Contains(out, "original-prof") || !strings.Contains(out, "Total usage:") {
+		t.Fatalf("stats output format unexpected: %s", out)
+	}
+}
+

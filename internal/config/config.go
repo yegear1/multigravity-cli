@@ -64,3 +64,9 @@ func GetUserDataDir(profileDir string) string {
 func GetExtensionsDir(profileDir string) string {
 	return filepath.Join(profileDir, ".antigravity", "extensions")
 }
+
+// GetTemplatesDir returns the directory where profile templates are stored (~/AntigravityProfiles/.templates)
+func GetTemplatesDir() string {
+	return filepath.Join(GetMultigravityHome(), ".templates")
+}
+

@@ -55,5 +55,10 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(allowReadonlyCmd)
 	rootCmd.AddCommand(ghCmd)
+	rootCmd.AddCommand(cloneCmd)
+	rootCmd.AddCommand(templateCmd)
+	rootCmd.AddCommand(exportCmd)
+	rootCmd.AddCommand(importCmd)
+	rootCmd.AddCommand(statsCmd)
 	rootCmd.Flags().SetInterspersed(false)
 }
