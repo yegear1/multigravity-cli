@@ -40,18 +40,21 @@ Não está preso à fase `99.x`. Ao publicar `vX.Y.Z`:
 
 ---
 
-## Stack do Projeto
+## Stack do Projeto (v2.0+)
 
 - **Linguagens e Runtimes:**
-  - **Bash (Linux / macOS):** `multigravity`, `install.sh`, `uninstall.sh`. Exige compatibilidade com Bash 4+ e POSIX sh nos scripts de launcher (`~/.local/share/multigravity/launchers/*.sh`).
-  - **PowerShell (Windows):** `multigravity.ps1`, `install.ps1`, `uninstall.ps1`. Compatível com Windows PowerShell 5.1 e PowerShell 7+ (`pwsh`).
-- **Arquitetura:** CLI sem build step ou empacotador binário pré-compilado. Execução direta via interpretador do sistema.
-- **Sistemas Operacionais Suportados:** Linux, macOS (Darwin) e Windows.
-- **Dependências Externas:** Antigravity IDE (ou `agy`), `curl`, `tar`, `ps`, `stat` (POSIX) e COM Objects `WScript.Shell` (Windows).
+  - **Go (1.23+):** Binário nativo principal (`cmd/multigravity`). Toda a lógica de negócios reside desacoplada em submódulos dentro de `internal/` (`profile`, `quota`, `prime`, `chat`, `config`, `doctor`, `shortcut`, `app`, `tui`).
+  - **Launchers Inteligentes (POSIX Bash & PowerShell):** `multigravity` e `multigravity.ps1` na raiz compilam automaticamente via `go` ou despacham para o binário compilado em `bin/`, com fallback gracioso.
+  - **Scripts Legados:** Mantidos em `legacy/multigravity` e `legacy/multigravity.ps1` para ambientes sem suporte a Go ou execução standalone.
+  - **Instalação e Automação:** `install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1` e `Makefile`.
+- **Arquitetura:** CLI moderna em Go baseada em Cobra, com suporte a compilação cruzada (Linux, macOS, Windows; x86_64, arm64).
+- **Dependências Externas:** Antigravity IDE (ou `agy`), Language Server RPC gRPC/HTTPS, `curl`/`tar`/`ps`/`stat` (POSIX) e COM Objects `WScript.Shell` (Windows).
 
-**Validação Local:**
-- Sintaxe Bash: `bash -n multigravity install.sh uninstall.sh`
-- Linters recomendados: `shellcheck` (quando disponível)
+**Validação Local Obrigatória:**
+- Testes unitários Go: `go test -v ./...`
+- Compilação Go: `go build -o bin/multigravity ./cmd/multigravity`
+- Sintaxe Bash dos scripts: `bash -n multigravity install.sh uninstall.sh legacy/multigravity`
+- Linters recomendados: `golangci-lint run` e `shellcheck` (quando disponíveis)
 - **Circuit breaker:** 2 falhas com a mesma causa-raiz → pare e investigue.
 
 ---
@@ -60,8 +63,14 @@ Não está preso à fase `99.x`. Ao publicar `vX.Y.Z`:
 
 1. **Retrocompatibilidade de Perfis:** Nunca altere o layout de pastas de um perfil existente de modo a invalidar dados já criados em `~/AntigravityProfiles`.
 2. **Sem refatoração oportunista:** Não reformate arquivos inteiros. Mantenha diffs cirúrgicos.
-3. **Paridade de Plataformas:** Toda nova feature ou flag de CLI no script Bash (`multigravity`) deve ter, sempre que cabível, paridade correspondente no script PowerShell (`multigravity.ps1`).
-4. **Proteção de Dados:** Operações destrutivas (`delete`, `rename`, `clean`) devem exigir confirmação interativa ou flags explícitas e verificar se o processo está em execução.
+3. **Paridade de Plataformas:** Toda nova feature ou flag de CLI deve funcionar de forma equivalente no Linux, macOS e Windows.
+4. **Proteção de Dados e Concorrência:** Operações destrutivas (`delete`, `rename`, `clean`) e operações de escrita em históricos de IA (`ai import`, `ai sync`) devem verificar ativamente se o perfil está em execução (`IsProfileRunning`), abortando para evitar corrupção de bancos SQLite.
+5. **Sanitização Absoluta de Credenciais:** Tokens de autenticação (`jetski-standalone-oauth-token`, `installation_id`), credenciais de chaveiro e arquivos de sessão NUNCA devem ser exportados, sincronizados ou vinculados por symlink entre perfis.
+6. **Desacoplamento para Agregador/UI:**
+   - Pacotes em `internal/` devem manter a lógica de negócio separada da apresentação de terminal. Não misture formatação ANSI ou prompts interativos diretamente nas funções de gestão de perfis, cotas ou chats.
+   - Retorne erros tipados e structs limpas para que possam ser consumidos tanto pela CLI quanto por uma futura API (REST/gRPC/WebSocket) ou interface gráfica (Tauri, Wails, Svelte).
+7. **Contratos Machine-Readable (`--json`):** Comandos de consulta e telemetria (`list`, `quota`, `stats`, `ai list`, `doctor`, `mcp status`) devem priorizar contratos estruturados em JSON para facilitar a ingestão por agregadores externos e dashboards.
+8. **Invocação Headless Segura:** Ao executar o `language_server` em background/headless para priming ou automações de agentes, exporte explicitamente `$HOME` / `%USERPROFILE%` direcionado para a raiz do perfil do agente para garantir isolamento estrito de cotas e identidade.
 
 ---
 
