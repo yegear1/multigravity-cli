@@ -29,6 +29,12 @@ func CreateProfile(opts CreateOptions) error {
 		return err
 	}
 
+	if opts.Color != "" {
+		if _, _, err := ResolveColor(opts.Color); err != nil {
+			return err
+		}
+	}
+
 	profileDir := config.GetProfileDir(opts.Name)
 	if _, err := os.Stat(profileDir); err == nil {
 		return fmt.Errorf("profile %q already exists", opts.Name)
@@ -65,6 +71,10 @@ func CreateProfile(opts CreateOptions) error {
 
 	if err := EnsureProfileLayout(profileDir); err != nil {
 		return fmt.Errorf("failed to configure profile layout: %w", err)
+	}
+
+	if opts.Color != "" {
+		_ = ApplyProfileColor(opts.Name, opts.Color, false)
 	}
 
 	_ = shortcut.CreateShortcut(opts.Name)

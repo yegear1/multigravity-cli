@@ -96,12 +96,15 @@ func LinkSkillsConfig(profileDir, hostHome string) {
 
 // LinkUserConfig symlinks host config.json if not isolated
 func LinkUserConfig(profileDir, hostHome string) {
+	targetCfg := filepath.Join(profileDir, ".gemini", "config", "config.json")
+	hostCfg := filepath.Join(hostHome, ".gemini", "config", "config.json")
+
 	if hasSentinel(profileDir, config.SentinelIsolatedConfig) {
+		_, _ = SeedDefaultPermissions(targetCfg)
 		return
 	}
 
-	hostCfg := filepath.Join(hostHome, ".gemini", "config", "config.json")
-	targetCfg := filepath.Join(profileDir, ".gemini", "config", "config.json")
+	_, _ = SeedDefaultPermissions(hostCfg)
 	symlinkIfMissing(hostCfg, targetCfg)
 }
 

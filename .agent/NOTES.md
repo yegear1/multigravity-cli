@@ -223,3 +223,21 @@
   - **Cobra CLI Routing (`internal/cmd/root.go`):**
     - Configurado `rootCmd.FParseErrWhitelist.UnknownFlags = true` e `rootCmd.Flags().SetInterspersed(false)`, permitindo invocar diretamente `multigravity <profile> [args...]` sem conflito com flags do VS Code / Antigravity.
 
+### 2026-09-24 [Task 90.5] Implementação de Theming Visual (color) e Compartilhamento Modular (config, mcp, skills, gh) em Go
+
+- **Contexto:** Portar theming visual e controle granular de compartilhamento/isolamento de MCP, skills, permissões read-only e GitHub CLI para a CLI em Go (`feat/go-rewrite`).
+- **Decisões:**
+  - **Theming Visual (`internal/profile/color.go`, `internal/cmd/color.go`):**
+    - Resolução da paleta canônica (15 cores) e hex `#RRGGBB`.
+    - Modificação não-destrutiva de `workbench.colorCustomizations` em `User/settings.json`, com desacoplamento seguro de symlinks em perfis compartilhados.
+    - Suporte a `--clear`, consulta via `color <profile>` e integração transparente com flag `--color` em `CreateProfile`.
+    - Adicionado campo `Color` em `ProfileInfo` recuperado deterministicamente via `GetProfileColor`.
+  - **Injeção de Permissões Read-Only (`internal/profile/permissions.go`):**
+    - Implementação pura em Go para injeção aditiva dos 58 comandos canônicos em `command(...)` e `unsandboxed(...)` (116 grants), eliminando a dependência do interpretador `python3` externo em tempo de execução.
+    - Integrado automaticamente em `LinkUserConfig`, `ConfigIsolate` e `ConfigSeed`.
+  - **Compartilhamento e Isolamento Modular (`internal/profile/sharing.go`, `internal/cmd/`):**
+    - Módulos para `mcp`, `skills`, `config` e `gh` com subcomandos `status`, `share` e `isolate`.
+    - Respeito integral a sentinelas `.isolated_mcp`, `.isolated_skills`, `.isolated_config`, `.isolated_gh` e `.isolated_dotfiles`.
+    - Criação de backup `.bak` na transição de arquivos/diretórios locais standalone para symlinks compartilhados.
+    - Suporte a aliases e flags em `config seed` (`--host`, `--all`) e comando direto `allow-readonly`.
+

@@ -158,3 +158,127 @@ func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+func TestCobraColorAndSharingCommands(t *testing.T) {
+	tempHome := t.TempDir()
+	hostHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("REAL_HOME", hostHome)
+	t.Setenv("HOME", hostHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", t.TempDir())
+
+	// Create host dummy files
+	hostMCP := filepath.Join(hostHome, ".gemini", "config", "mcp_config.json")
+	_ = os.MkdirAll(filepath.Dir(hostMCP), 0755)
+	_ = os.WriteFile(hostMCP, []byte(`{}`), 0644)
+
+	hostSkills := filepath.Join(hostHome, ".gemini", "config", "skills")
+	_ = os.MkdirAll(hostSkills, 0755)
+
+	hostConfig := filepath.Join(hostHome, ".gemini", "config", "config.json")
+	_ = os.WriteFile(hostConfig, []byte(`{}`), 0644)
+
+	hostGH := filepath.Join(hostHome, ".config", "gh")
+	_ = os.MkdirAll(hostGH, 0755)
+
+	// 1. Test new with --color
+	_, err := executeCommand(rootCmd, "new", "themed-profile", "--color", "blue")
+	if err != nil {
+		t.Fatalf("expected new with --color to succeed: %v", err)
+	}
+
+	// 2. Test color command: get color
+	out, err := executeCommand(rootCmd, "color", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected color get to succeed: %v", err)
+	}
+	if !strings.Contains(out, "#1e40af") {
+		t.Errorf("expected color output to contain #1e40af, got: %s", out)
+	}
+
+	// 3. Test color command: change color
+	out, err = executeCommand(rootCmd, "color", "themed-profile", "red")
+	if err != nil {
+		t.Fatalf("expected color change to succeed: %v", err)
+	}
+	if !strings.Contains(out, "Set theme color") {
+		t.Errorf("expected confirmation message, got: %s", out)
+	}
+
+	// 4. Test color command: clear color
+	out, err = executeCommand(rootCmd, "color", "themed-profile", "--clear")
+	if err != nil {
+		t.Fatalf("expected color clear to succeed: %v", err)
+	}
+	if !strings.Contains(out, "Cleared color customizations") {
+		t.Errorf("expected cleared message, got: %s", out)
+	}
+
+	// 5. Test mcp status and isolate/share
+	out, err = executeCommand(rootCmd, "mcp", "status", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected mcp status to succeed: %v", err)
+	}
+	if !strings.Contains(out, "shares host MCP servers") {
+		t.Errorf("unexpected mcp status: %s", out)
+	}
+
+	_, err = executeCommand(rootCmd, "mcp", "isolate", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected mcp isolate to succeed: %v", err)
+	}
+	_, err = executeCommand(rootCmd, "mcp", "share", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected mcp share to succeed: %v", err)
+	}
+
+	// 6. Test skills status and isolate/share
+	out, err = executeCommand(rootCmd, "skills", "status", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected skills status to succeed: %v", err)
+	}
+	_, err = executeCommand(rootCmd, "skills", "isolate", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected skills isolate to succeed: %v", err)
+	}
+	_, err = executeCommand(rootCmd, "skills", "share", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected skills share to succeed: %v", err)
+	}
+
+	// 7. Test config status, isolate, share, seed, allow-readonly
+	out, err = executeCommand(rootCmd, "config", "status", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected config status to succeed: %v", err)
+	}
+	_, err = executeCommand(rootCmd, "config", "isolate", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected config isolate to succeed: %v", err)
+	}
+	_, err = executeCommand(rootCmd, "config", "seed", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected config seed to succeed: %v", err)
+	}
+	_, err = executeCommand(rootCmd, "allow-readonly", "--host")
+	if err != nil {
+		t.Fatalf("expected allow-readonly --host to succeed: %v", err)
+	}
+	_, err = executeCommand(rootCmd, "config", "share", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected config share to succeed: %v", err)
+	}
+
+	// 8. Test gh status, isolate, share
+	out, err = executeCommand(rootCmd, "gh", "status", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected gh status to succeed: %v", err)
+	}
+	_, err = executeCommand(rootCmd, "gh", "isolate", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected gh isolate to succeed: %v", err)
+	}
+	_, err = executeCommand(rootCmd, "gh", "share", "themed-profile")
+	if err != nil {
+		t.Fatalf("expected gh share to succeed: %v", err)
+	}
+}

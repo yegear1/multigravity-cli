@@ -49,5 +49,11 @@ func init() {
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(restartCmd)
 	rootCmd.AddCommand(cleanCmd)
+	rootCmd.AddCommand(colorCmd)
+	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(skillsCmd)
+	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(allowReadonlyCmd)
+	rootCmd.AddCommand(ghCmd)
 	rootCmd.Flags().SetInterspersed(false)
 }

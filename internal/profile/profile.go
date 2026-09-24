@@ -17,6 +17,7 @@ type ProfileInfo struct {
 	Type      string // "full" or "shared"
 	LastUsed  time.Time
 	Size      string
+	Color     string
 }
 
 // ListProfiles returns a sorted list of profile names
@@ -70,6 +71,7 @@ func GetProfiles() ([]ProfileInfo, error) {
 		}
 
 		size := GetDirSizeStr(dir)
+		pColor, _ := GetProfileColor(name)
 
 		list = append(list, ProfileInfo{
 			Name:      name,
@@ -79,6 +81,7 @@ func GetProfiles() ([]ProfileInfo, error) {
 			Type:      pType,
 			LastUsed:  lastUsed,
 			Size:      size,
+			Color:     pColor,
 		})
 	}
 
