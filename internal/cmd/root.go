@@ -90,6 +90,7 @@ func init() {
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(importCmd)
 	rootCmd.AddCommand(statsCmd)
+	rootCmd.AddCommand(serveCmd)
 
 	// Shell completion dynamic profile args
 	stopCmd.ValidArgsFunction = profileArgsCompletion

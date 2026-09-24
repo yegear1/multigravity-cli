@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -74,3 +75,34 @@ func GetProfileStats() ([]ProfileStat, string, error) {
 
 	return stats, totalSize, nil
 }
+
+// GetSingleProfileStat gathers storage and extension counts for a single profile
+func GetSingleProfileStat(name string) (*ProfileStat, error) {
+	if err := config.ValidateProfileName(name); err != nil {
+		return nil, err
+	}
+	base := config.GetMultigravityHome()
+	pDir := filepath.Join(base, name)
+	if _, err := os.Stat(pDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("profile %q does not exist", name)
+	}
+
+	size := GetDirSizeStr(pDir)
+	extCount := 0
+	extDir := config.GetExtensionsDir(pDir)
+	if extEntries, err := os.ReadDir(extDir); err == nil {
+		for _, ext := range extEntries {
+			if !ext.IsDir() && ext.Name() == ".obsolete" {
+				continue
+			}
+			extCount++
+		}
+	}
+
+	return &ProfileStat{
+		Name:           name,
+		Size:           size,
+		ExtensionCount: extCount,
+	}, nil
+}
+

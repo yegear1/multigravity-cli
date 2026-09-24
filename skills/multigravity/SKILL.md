@@ -131,7 +131,61 @@ The agent MUST NOT activate this skill when:
    multigravity clean <profile>
    ```
 
+### Step 6: Machine-Readable Telemetry & Local HTTP API (Aggregator / UI)
+1. Query machine-readable JSON contracts from CLI:
+   ```bash
+   # Profiles inventory and running states
+   multigravity list --json
+
+   # Quota telemetry and window reset timers
+   multigravity quota [profile] --json
+
+   # Storage stats and extension counts
+   multigravity stats --json
+
+   # Environment health and diagnostic checks
+   multigravity doctor --json
+
+   # AI conversations inventory
+   multigravity ai list <profile> --json
+
+   # Component sharing status
+   multigravity mcp status <profile> --json
+   ```
+2. Start the local HTTP REST API server for background aggregators or UIs:
+   ```bash
+   # Bind to default 127.0.0.1:8989
+   multigravity serve
+
+   # Custom port or interface
+   multigravity serve --port 9090 --host 127.0.0.1
+   ```
+3. Available Local API Endpoints:
+   | Method | Endpoint | Description |
+   | :--- | :--- | :--- |
+   | `GET` | `/health` / `/api/v1/health` | Health check, version, and server uptime |
+   | `GET` | `/api/v1/doctor` | Comprehensive system diagnostic report |
+   | `GET` | `/api/v1/profiles` | List of all profiles with running state, color, and PIDs |
+   | `GET` | `/api/v1/profiles/{name}` | Detailed information for a single profile |
+   | `GET` | `/api/v1/profiles/{name}/stats` | Storage size and extension count for a single profile |
+   | `GET` | `/api/v1/stats` | Aggregated storage usage across all profiles |
+   | `GET` | `/api/v1/profiles/{name}/sharing` | MCP, skills, config, and GitHub CLI sharing status |
+   | `GET` | `/api/v1/profiles/{name}/conversations` | AI conversation list and artifact counts |
+   | `GET` | `/api/v1/quota` | Active Language Server quota metrics across all running profiles |
+   | `GET` | `/api/v1/quota/{profile}` | Active quota metrics filtered by profile |
+   | `POST` | `/api/v1/profiles/{name}/stop` | Gracefully stop profile processes (`{"force": false}`) |
+   | `POST` | `/api/v1/profiles/{name}/clean` | Clean volatile caches for a profile |
+
 ## 5. Canonical Examples
+
+### Ingesting Profiles and Quota in Aggregators or Scripts
+```bash
+# Fetch running profiles with PIDs
+curl -s http://127.0.0.1:8989/api/v1/profiles | jq '.data[] | select(.is_running == true)'
+
+# Inspect live quota fractions via CLI or HTTP
+curl -s http://127.0.0.1:8989/api/v1/quota | jq '.data[].buckets'
+```
 
 ### Checking Quota Before Dispatching Large Agentic Tasks
 ```bash

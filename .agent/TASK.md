@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [03.1] | Expansão da skill canônica do Multigravity e endpoints RPC/HTTP locais para Agregador | feat(server): add local HTTP REST server and expand canonical skill | 2026-09-24 |
 | [02.1] | Padronização e Suporte a Contratos Machine-Readable (--json) nos Comandos de Consulta | feat(cli): add --json output flag to list, stats, doctor, quota, ai list, and mcp status | 2026-09-24 |
 | [00.1] | Diagnóstico e Auditoria de Integridade Pós-Release v2.0.0 | test(audit): validate Go tests, bash syntax, and doctor diagnostics post v2.0.0 | 2026-09-24 |
 | [99.1] | Preparar Release v2.0.0 (Tag Git, Changelog e Binários) e Sanitizar Contexto | chore: release v2.0.0 | 2026-09-24 |
@@ -25,10 +26,11 @@
 
 ## Backlog (Próximas, em ordem)
 
-- [ ] **[03.1]** Expansão da skill canônica do Multigravity e endpoints RPC/HTTP locais para Agregador (`PRONTO PARA PLANEJAMENTO`)
+*(Nenhuma tarefa pendente no ciclo ativo)*
 
 ---
 
 ## Backlog Futuro / Ideias (não priorizadas)
 
 - [ ] **[99.1]** Preparar Release (Tag Git) e Sanitizar Contexto (Apenas executar com permissão explícita do usuário)
+

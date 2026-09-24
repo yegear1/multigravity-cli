@@ -174,20 +174,25 @@ func McpIsolate(profile string) ([]string, error) {
 
 // --- Skills ---
 
-func SkillsStatus(profile string) (string, error) {
+func GetSkillsStatus(profile string) (*SharingStatus, error) {
 	if err := config.ValidateProfileName(profile); err != nil {
-		return "", err
+		return nil, err
 	}
 	profileDir := config.GetProfileDir(profile)
 	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
-		return "", fmt.Errorf("profile %q does not exist", profile)
+		return nil, fmt.Errorf("profile %q does not exist", profile)
 	}
 
 	targetSkills := filepath.Join(profileDir, ".gemini", "config", "skills")
 	targetPlugins := filepath.Join(profileDir, ".gemini", "config", "plugins")
 
 	if hasSentinel(profileDir, config.SentinelIsolatedSkills) {
-		return fmt.Sprintf("Profile %q has isolated skills/plugins (--isolated-skills active).", profile), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "skills",
+			Mode:        "isolated",
+			Description: fmt.Sprintf("Profile %q has isolated skills/plugins (--isolated-skills active).", profile),
+		}, nil
 	}
 	if isSymlink(targetSkills) || isSymlink(targetPlugins) {
 		sTarget := "(none)"
@@ -198,13 +203,38 @@ func SkillsStatus(profile string) (string, error) {
 		if isSymlink(targetPlugins) {
 			pTarget, _ = os.Readlink(targetPlugins)
 		}
-		return fmt.Sprintf("Profile %q shares host skills -> %s (plugins -> %s)", profile, sTarget, pTarget), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "skills",
+			Mode:        "shared",
+			Target:      sTarget,
+			Description: fmt.Sprintf("Profile %q shares host skills -> %s (plugins -> %s)", profile, sTarget, pTarget),
+		}, nil
 	}
 	if isDir(targetSkills) || isDir(targetPlugins) {
-		return fmt.Sprintf("Profile %q has standalone local skills/plugins.", profile), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "skills",
+			Mode:        "standalone",
+			Description: fmt.Sprintf("Profile %q has standalone local skills/plugins.", profile),
+		}, nil
 	}
-	return fmt.Sprintf("Profile %q has no custom skills or plugins configured.", profile), nil
+	return &SharingStatus{
+		Profile:     profile,
+		Resource:    "skills",
+		Mode:        "none",
+		Description: fmt.Sprintf("Profile %q has no custom skills or plugins configured.", profile),
+	}, nil
 }
+
+func SkillsStatus(profile string) (string, error) {
+	st, err := GetSkillsStatus(profile)
+	if err != nil {
+		return "", err
+	}
+	return st.Description, nil
+}
+
 
 func SkillsShare(profile string) ([]string, error) {
 	if err := config.ValidateProfileName(profile); err != nil {
@@ -280,29 +310,59 @@ func SkillsIsolate(profile string) ([]string, error) {
 
 // --- Config ---
 
-func ConfigStatus(profile string) (string, error) {
+func GetConfigStatus(profile string) (*SharingStatus, error) {
 	if err := config.ValidateProfileName(profile); err != nil {
-		return "", err
+		return nil, err
 	}
 	profileDir := config.GetProfileDir(profile)
 	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
-		return "", fmt.Errorf("profile %q does not exist", profile)
+		return nil, fmt.Errorf("profile %q does not exist", profile)
 	}
 
 	targetConfig := filepath.Join(profileDir, ".gemini", "config", "config.json")
 
 	if hasSentinel(profileDir, config.SentinelIsolatedConfig) {
-		return fmt.Sprintf("Profile %q has isolated configuration (--isolated-config active).", profile), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "config",
+			Mode:        "isolated",
+			Description: fmt.Sprintf("Profile %q has isolated configuration (--isolated-config active).", profile),
+		}, nil
 	}
 	if isSymlink(targetConfig) {
 		target, _ := os.Readlink(targetConfig)
-		return fmt.Sprintf("Profile %q shares host config.json -> %s", profile, target), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "config",
+			Mode:        "shared",
+			Target:      target,
+			Description: fmt.Sprintf("Profile %q shares host config.json -> %s", profile, target),
+		}, nil
 	}
 	if isRegularFile(targetConfig) {
-		return fmt.Sprintf("Profile %q has a standalone local config.json.", profile), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "config",
+			Mode:        "standalone",
+			Description: fmt.Sprintf("Profile %q has a standalone local config.json.", profile),
+		}, nil
 	}
-	return fmt.Sprintf("Profile %q has no config.json configured.", profile), nil
+	return &SharingStatus{
+		Profile:     profile,
+		Resource:    "config",
+		Mode:        "none",
+		Description: fmt.Sprintf("Profile %q has no config.json configured.", profile),
+	}, nil
 }
+
+func ConfigStatus(profile string) (string, error) {
+	st, err := GetConfigStatus(profile)
+	if err != nil {
+		return "", err
+	}
+	return st.Description, nil
+}
+
 
 func ConfigShare(profile string) ([]string, error) {
 	if err := config.ValidateProfileName(profile); err != nil {
@@ -425,32 +485,89 @@ func getGHPaths(profileDir, hostHome string) (hostGH, targetGH string) {
 	return hostGH, targetGH
 }
 
-func GhStatus(profile string) (string, error) {
+func GetGhStatus(profile string) (*SharingStatus, error) {
 	if err := config.ValidateProfileName(profile); err != nil {
-		return "", err
+		return nil, err
 	}
 	profileDir := config.GetProfileDir(profile)
 	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
-		return "", fmt.Errorf("profile %q does not exist", profile)
+		return nil, fmt.Errorf("profile %q does not exist", profile)
 	}
 
 	_, targetGH := getGHPaths(profileDir, getHostHome())
 
 	if hasSentinel(profileDir, config.SentinelIsolatedGH) {
-		return fmt.Sprintf("Profile %q has isolated GitHub CLI credentials (--isolated-gh active).", profile), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "gh",
+			Mode:        "isolated",
+			Description: fmt.Sprintf("Profile %q has isolated GitHub CLI credentials (--isolated-gh active).", profile),
+		}, nil
 	}
 	if hasSentinel(profileDir, config.SentinelIsolatedDotfiles) {
-		return fmt.Sprintf("Profile %q has isolated dotfiles (--isolated-dotfiles active).", profile), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "gh",
+			Mode:        "isolated",
+			Description: fmt.Sprintf("Profile %q has isolated dotfiles (--isolated-dotfiles active).", profile),
+		}, nil
 	}
 	if isSymlink(targetGH) {
 		target, _ := os.Readlink(targetGH)
-		return fmt.Sprintf("Profile %q shares host GitHub CLI credentials -> %s", profile, target), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "gh",
+			Mode:        "shared",
+			Target:      target,
+			Description: fmt.Sprintf("Profile %q shares host GitHub CLI credentials -> %s", profile, target),
+		}, nil
 	}
 	if isDir(targetGH) {
-		return fmt.Sprintf("Profile %q has standalone local GitHub CLI credentials.", profile), nil
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "gh",
+			Mode:        "standalone",
+			Description: fmt.Sprintf("Profile %q has standalone local GitHub CLI credentials.", profile),
+		}, nil
 	}
-	return fmt.Sprintf("Profile %q has no GitHub CLI credentials configured.", profile), nil
+	return &SharingStatus{
+		Profile:     profile,
+		Resource:    "gh",
+		Mode:        "none",
+		Description: fmt.Sprintf("Profile %q has no GitHub CLI credentials configured.", profile),
+	}, nil
 }
+
+func GhStatus(profile string) (string, error) {
+	st, err := GetGhStatus(profile)
+	if err != nil {
+		return "", err
+	}
+	return st.Description, nil
+}
+
+// GetAllSharingStatus returns sharing status for all resources (mcp, skills, config, gh)
+func GetAllSharingStatus(profile string) ([]SharingStatus, error) {
+	mcpSt, err := GetMcpStatus(profile)
+	if err != nil {
+		return nil, err
+	}
+	skillsSt, err := GetSkillsStatus(profile)
+	if err != nil {
+		return nil, err
+	}
+	configSt, err := GetConfigStatus(profile)
+	if err != nil {
+		return nil, err
+	}
+	ghSt, err := GetGhStatus(profile)
+	if err != nil {
+		return nil, err
+	}
+
+	return []SharingStatus{*mcpSt, *skillsSt, *configSt, *ghSt}, nil
+}
+
 
 func GhShare(profile string) ([]string, error) {
 	if err := config.ValidateProfileName(profile); err != nil {

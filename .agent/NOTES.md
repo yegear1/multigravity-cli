@@ -342,3 +342,31 @@
   - **`ai list`:** Desacoplamento de `chat.GetConversations(profile) ([]ConversationInfo, error)` e suporte à flag `--json` retornando metadados de chats e artefatos.
   - **`mcp status`:** Criadas structs `profile.SharingStatus` e `profile.GetMcpStatus(profile)`, adicionando `--json` ao subcomando `mcp status <profile>`.
   - **Paridade e Retrocompatibilidade:** Saída padrão em texto/tabelas/ANSI 100% preservada na ausência da flag `--json`.
+
+### 2026-09-24 [Task 03.1] Expansão da skill canônica do Multigravity e endpoints RPC/HTTP locais para Agregador
+
+- **Contexto:** Necessidade de permitir que agregadores locais, dashboards, agentes e futuras UIs (Tauri/Wails/Svelte) consumam endpoints REST de forma contínua e segura, além de expandir a skill canônica do Multigravity com a documentação dos contratos de machine-readability e da API.
+- **Decisões:**
+  - **Servidor HTTP Nativo (`internal/server`):**
+    - Construído usando apenas a biblioteca padrão `net/http` do Go 1.23+ com suporte a rotas com path parameters (`GET /api/v1/profiles/{name}`).
+    - Middleware de CORS configurável permitindo integração direta com aplicações web e dashboards locais (`localhost:*`, `127.0.0.1:*`).
+    - Bind seguro em loopback (`127.0.0.1:8989`) por padrão, evitando exposição não autorizada em interfaces de rede pública.
+    - Endpoints implementados:
+      - `GET /health` e `GET /api/v1/health`: uptime, versão e status.
+      - `GET /api/v1/doctor`: relatório estruturado de diagnóstico.
+      - `GET /api/v1/profiles`: listagem completa de perfis e estado running/idle.
+      - `GET /api/v1/profiles/{name}`: metadados de perfil específico.
+      - `GET /api/v1/profiles/{name}/stats`: estatísticas de uso em disco do perfil.
+      - `GET /api/v1/stats`: agregação global de armazenamento.
+      - `GET /api/v1/profiles/{name}/sharing`: status de compartilhamento de MCP, skills, config e GitHub CLI.
+      - `GET /api/v1/profiles/{name}/conversations`: inventário de conversas de IA.
+      - `GET /api/v1/quota`: métricas ao vivo de telemetria e cotas ativas.
+      - `POST /api/v1/profiles/{name}/stop`: parada graciosa via HTTP.
+      - `POST /api/v1/profiles/{name}/clean`: limpeza de caches voláteis via HTTP.
+    - Suporte a graceful shutdown via captura de `SIGINT`/`SIGTERM`.
+  - **Comando CLI `serve` (`internal/cmd/serve.go`):**
+    - Flags `--host` (default `127.0.0.1`) e `--port` / `-p` (default `8989`, com fallback para `MULTIGRAVITY_PORT`).
+  - **Expansão da Skill Canônica (`skills/multigravity/SKILL.md`):**
+    - Adicionado Step 6 detalhando comandos `--json`, tabela de rotas da API HTTP local e exemplos de consumo com `curl` e `jq`.
+    - Sincronização executada com sucesso via `scripts/install-agent-skills.sh --antigravity`.
+
