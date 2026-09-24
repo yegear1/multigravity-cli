@@ -44,8 +44,7 @@ Não está preso à fase `99.x`. Ao publicar `vX.Y.Z`:
 
 - **Linguagens e Runtimes:**
   - **Go (1.23+):** Binário nativo principal (`cmd/multigravity`). Toda a lógica de negócios reside desacoplada em submódulos dentro de `internal/` (`profile`, `quota`, `prime`, `chat`, `config`, `doctor`, `shortcut`, `app`, `tui`).
-  - **Launchers Inteligentes (POSIX Bash & PowerShell):** `multigravity` e `multigravity.ps1` na raiz compilam automaticamente via `go` ou despacham para o binário compilado em `bin/`, com fallback gracioso.
-  - **Scripts Legados:** Mantidos em `legacy/multigravity` e `legacy/multigravity.ps1` para ambientes sem suporte a Go ou execução standalone.
+  - **Launchers Inteligentes (POSIX Bash & PowerShell):** `multigravity` e `multigravity.ps1` na raiz compilam automaticamente via `go` ou despacham para o binário compilado em `bin/`.
   - **Instalação e Automação:** `install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1` e `Makefile`.
 - **Arquitetura:** CLI moderna em Go baseada em Cobra, com suporte a compilação cruzada (Linux, macOS, Windows; x86_64, arm64).
 - **Dependências Externas:** Antigravity IDE (ou `agy`), Language Server RPC gRPC/HTTPS, `curl`/`tar`/`ps`/`stat` (POSIX) e COM Objects `WScript.Shell` (Windows).
@@ -53,7 +52,7 @@ Não está preso à fase `99.x`. Ao publicar `vX.Y.Z`:
 **Validação Local Obrigatória:**
 - Testes unitários Go: `go test -v ./...`
 - Compilação Go: `go build -o bin/multigravity ./cmd/multigravity`
-- Sintaxe Bash dos scripts: `bash -n multigravity install.sh uninstall.sh legacy/multigravity`
+- Sintaxe Bash dos scripts: `bash -n multigravity install.sh uninstall.sh`
 - Linters recomendados: `golangci-lint run` e `shellcheck` (quando disponíveis)
 - **Circuit breaker:** 2 falhas com a mesma causa-raiz → pare e investigue.
 

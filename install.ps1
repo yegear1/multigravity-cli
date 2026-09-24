@@ -63,29 +63,15 @@ if (!$installed) {
     }
 }
 
-# Option C: Fallback to standalone PowerShell script
+# Option C: Abort if neither local build nor release binary was installed
 if (!$installed) {
-    Write-Step "Release binary unavailable; falling back to PowerShell script..."
-    try {
-        $scriptContent = Invoke-WebRequest -Uri "$RAW/legacy/multigravity.ps1" -UseBasicParsing -ErrorAction SilentlyContinue
-        if (!$scriptContent) {
-            $scriptContent = Invoke-WebRequest -Uri "$RAW/multigravity.ps1" -UseBasicParsing -ErrorAction Stop
-        }
-        [System.IO.File]::WriteAllText("$INSTALL_DIR\multigravity.ps1", $scriptContent.Content, [System.Text.Encoding]::UTF8)
-        $installed = $true
-    } catch {
-        Abort "Failed to download multigravity: $_"
-    }
+    Abort "Pre-compiled binary unavailable for windows-$arch and Go toolchain not found. Please install Go (1.23+) or download a binary from https://github.com/$REPO/releases"
 }
 
 Write-Step "Creating wrapper script..."
 $wrapper = @"
 @echo off
-if exist "%~dp0multigravity.exe" (
-    "%~dp0multigravity.exe" %*
-) else (
-    powershell.exe -ExecutionPolicy Bypass -File "%~dp0multigravity.ps1" %*
-)
+"%~dp0multigravity.exe" %*
 "@
 
 [System.IO.File]::WriteAllText("$INSTALL_DIR\multigravity.cmd", $wrapper, [System.Text.Encoding]::ASCII)

@@ -31,12 +31,6 @@ if ($GoCmd) {
     }
 }
 
-# 3. Fallback to legacy PowerShell implementation
-$LegacyScript = Join-Path $ScriptDir "legacy\multigravity.ps1"
-if (Test-Path $LegacyScript) {
-    & $LegacyScript @args
-    exit $LASTEXITCODE
-}
-
-Write-Error "Error: multigravity binary not found and neither Go toolchain nor legacy script is available."
+Write-Error "Error: multigravity binary not found in $ScriptDir\bin and Go toolchain is not available to build it."
+Write-Host "Please install Go (1.23+) or build the binary with: make build" -ForegroundColor Red
 exit 1

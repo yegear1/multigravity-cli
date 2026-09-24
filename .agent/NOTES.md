@@ -434,6 +434,14 @@
     - Regra de Ouro #4 preservada por padrão: sem a flag, o comando continua abortando caso o perfil esteja em execução.
     - Com `--skip-in-use`, detecta quais chats estão abertos pelo SO, emite aviso informativo (ex: `⚠ Profile 'yegear' has 2 open conversation(s) in use. Skipping in-use conversation(s)...`) e exporta/sincroniza com segurança todas as conversas inativas.
 
+### 2026-09-24 [Task 90.1] Preservação de Scripts Legados em Branch Separada e Remoção do Diretório legacy/
 
-
-
+- **Contexto:** A reescrita em Go atingiu 100% de paridade funcional com a implementação legada e superou o legado em features (REST, SSE, --json, handles de SO). O usuário solicitou arquivar/preservar os scripts legados em uma branch separada por precaução e removê-los da branch `main`.
+- **Decisões Técnicas:**
+  - **Preservação em Branch Dedicada (`legacy`):**
+    - Criada a branch local `legacy` a partir do estado da branch `main`, preservando integralmente o diretório `legacy/` (`legacy/multigravity` e `legacy/multigravity.ps1`) com seu histórico Git completo.
+  - **Expurgo Cirúrgico na Branch `main`:**
+    - Diretório `legacy/` removido do índice e da árvore de trabalho via `git rm -r legacy`.
+    - Launchers inteligentes da raiz (`multigravity` e `multigravity.ps1`) atualizados: remoção do passo 3 de fallback para scripts legados. Em caso de ausência do binário e do compilador `go`, o launcher agora exibe mensagem clara instruindo a compilar com Go ou baixar a release.
+    - Scripts de instalação (`install.sh` e `install.ps1`): remoção da opção de fallback para scripts legados remotos. Caso o download da release ou a compilação local falhe, o instalador aborta com diagnóstico preciso.
+    - `AGENTS.md`: atualizado para remover menção aos scripts em `legacy/` e ajustar a validação de sintaxe para `bash -n multigravity install.sh uninstall.sh`.

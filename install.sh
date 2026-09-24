@@ -98,16 +98,9 @@ if [ "$INSTALLED" -eq 0 ]; then
   fi
 fi
 
-# Option C: Fallback to standalone script
+# Option C: Abort if neither local build nor release binary was installed
 if [ "$INSTALLED" -eq 0 ]; then
-  print_step "Release asset unavailable; falling back to standalone script..."
-  if curl -fsSL "$RAW/legacy/multigravity" -o "$INSTALL_DIR/multigravity" 2>/dev/null || \
-     curl -fsSL "$RAW/multigravity" -o "$INSTALL_DIR/multigravity"; then
-    chmod +x "$INSTALL_DIR/multigravity"
-    INSTALLED=1
-  else
-    abort "failed to install multigravity"
-  fi
+  abort "Pre-compiled binary unavailable for ${PLATFORM}-${ARCH} and Go toolchain not found. Please install Go (1.23+) or download a binary from https://github.com/$REPO/releases"
 fi
 
 # ── download macOS icon ──────────────────────────────────────────────────────
