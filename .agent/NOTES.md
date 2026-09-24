@@ -279,4 +279,21 @@
     - `ai export` e `ai import`: empacotamento com sanitização cirúrgica de qualquer token ou credencial (`*token*`, `*oauth*`, `*auth*`, `*credential*`, `installation_id`).
     - `ai sync`: sincronização não-destrutiva entre perfis com trava ativa de concorrência.
 
+### 2026-09-24 [Task 90.8] Portar Menu Interativo TUI sem argumentos, Diagnóstico do Sistema (doctor) e Shell Completion em Go
+
+- **Contexto:** Finalizar a cobertura funcional dos utilitários de conveniência da CLI: menu interativo TUI ao executar `multigravity` sem parâmetros, diagnóstico completo do ambiente (`doctor`) e autocompletion para shells (`completion`) na branch `feat/go-rewrite`.
+- **Decisões:**
+  - **Menu Interativo TUI (`internal/tui/menu.go`):**
+    - Detecção estrita de terminal interativo com `isatty.IsTerminal` e `isatty.IsCygwinTerminal` para `os.Stdin` e `os.Stdout`.
+    - Preservação do contrato legado: ambientes não-interativos (redirecionamentos, pipes, automações, scripts) recebem a saída de `cmd.Help()` e código de saída 1.
+    - Em terminais interativos, renderiza o menu estilizado em ANSI com cabeçalho canônico `MULTIGRAVITY PROFILES`, listagem com número, status (`● running` em verde / `○ idle`), tipo (`shared`/`isolated`) e cor configurada (`[color: ...]`).
+    - Suporte a seleção por número de 1 a N, seleção direta pelo nome do perfil, criação de novo perfil (`n`) e saída suave (`q` / enter vazio).
+  - **Diagnóstico de Ambiente (`doctor`, `internal/doctor/doctor.go`, `internal/cmd/doctor.go`):**
+    - Bateria de diagnósticos: plataforma SO, executável Antigravity/Agy (`app.FindApp()`), binário global no `$PATH`, integridade de `icon.icns` no macOS e teste ativo de escrita em `$MULTIGRAVITY_HOME` com `.write-test`.
+    - Sumário visual com contagem de avisos/erros e mensagens canônicas.
+  - **Shell Completion (`completion`, `internal/cmd/completion.go`):**
+    - Geração de autocompletion nativo via Cobra CLI para `bash`, `zsh`, `fish` e `powershell`.
+    - Guia inteligente sem argumentos que detecta a shell atual (`$SHELL` no Unix ou `$PROFILE` no Windows) e instrui a adição correta ao arquivo de inicialização.
+    - Implementado `ValidArgsFunction` em `rootCmd` e em todos os comandos aplicáveis (`color`, `stop`, `restart`, `clean`, `delete`, `rename`, `clone`, `export`, `quota`, `prime`, `mcp`, `skills`, `config`, `gh`) para autocompletion dinâmico e contextual dos perfis existentes.
+
 

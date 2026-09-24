@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
 
 func executeCommand(root *cobra.Command, args ...string) (output string, err error) {
@@ -414,6 +415,150 @@ func TestCobraQuotaPrimeAI(t *testing.T) {
 	}
 	if !strings.Contains(out, "export") || !strings.Contains(out, "quota") || !strings.Contains(out, "prime") {
 		t.Errorf("ai subcommands missing in help: %s", out)
+	}
+}
+
+func TestDoctorCmd(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+
+	fakeApp := filepath.Join(tempHome, "fake-agy")
+	if err := os.WriteFile(fakeApp, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MULTIGRAVITY_APP", fakeApp)
+
+	out, err := executeCommand(rootCmd, "doctor")
+	if err != nil {
+		t.Fatalf("expected doctor command to succeed: %v", err)
+	}
+	if !strings.Contains(out, "Checking multigravity environment...") {
+		t.Errorf("expected header, got: %s", out)
+	}
+	if !strings.Contains(out, "Platform:") {
+		t.Errorf("expected platform, got: %s", out)
+	}
+}
+
+func TestCompletionCmd(t *testing.T) {
+	// 1. Test completion help (no args)
+	out, err := executeCommand(rootCmd, "completion")
+	if err != nil {
+		t.Fatalf("expected completion help to succeed: %v", err)
+	}
+	if !strings.Contains(out, "To enable autocompletion") {
+		t.Errorf("expected autocompletion help text, got: %s", out)
+	}
+
+	// 2. Test bash completion
+	out, err = executeCommand(rootCmd, "completion", "bash")
+	if err != nil {
+		t.Fatalf("expected bash completion generation to succeed: %v", err)
+	}
+	if !strings.Contains(out, "bash completion") && !strings.Contains(out, "multigravity") {
+		t.Errorf("expected bash completion script, got: %s", out)
+	}
+
+	// 3. Test zsh completion
+	out, err = executeCommand(rootCmd, "completion", "zsh")
+	if err != nil {
+		t.Fatalf("expected zsh completion generation to succeed: %v", err)
+	}
+	if !strings.Contains(out, "compdef") && !strings.Contains(out, "multigravity") {
+		t.Errorf("expected zsh completion script, got: %s", out)
+	}
+
+	// 4. Test fish completion
+	out, err = executeCommand(rootCmd, "completion", "fish")
+	if err != nil {
+		t.Fatalf("expected fish completion generation to succeed: %v", err)
+	}
+	if len(out) == 0 {
+		t.Errorf("expected non-empty fish completion script")
+	}
+
+	// 5. Test powershell completion
+	out, err = executeCommand(rootCmd, "completion", "powershell")
+	if err != nil {
+		t.Fatalf("expected powershell completion generation to succeed: %v", err)
+	}
+	if !strings.Contains(out, "Register-ArgumentCompleter") && !strings.Contains(out, "multigravity") {
+		t.Errorf("expected powershell completion script, got: %s", out)
+	}
+
+	// 6. Test invalid shell
+	_, err = executeCommand(rootCmd, "completion", "unknown-shell")
+	if err == nil {
+		t.Fatalf("expected error for unknown shell")
+	}
+	if !strings.Contains(err.Error(), "unsupported shell type") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestRootCmdInteractiveAndCompletion(t *testing.T) {
+	tempHome := t.TempDir()
+	profilesDir := filepath.Join(tempHome, "profiles")
+	_ = os.MkdirAll(profilesDir, 0755)
+	shortcutsDir := filepath.Join(tempHome, "shortcuts")
+	_ = os.MkdirAll(shortcutsDir, 0755)
+	t.Setenv("MULTIGRAVITY_HOME", profilesDir)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", shortcutsDir)
+
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "c-prof1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "c-prof2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Test profileArgsCompletion
+	comps, directive := profileArgsCompletion(rootCmd, []string{}, "")
+	if len(comps) != 2 || comps[0] != "c-prof1" || comps[1] != "c-prof2" {
+		t.Errorf("unexpected profile completions: %v", comps)
+	}
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("unexpected directive: %v", directive)
+	}
+
+	// 2. Test cleanCmd.ValidArgsFunction
+	cleanComps, _ := cleanCmd.ValidArgsFunction(cleanCmd, []string{}, "")
+	if len(cleanComps) != 3 || cleanComps[2] != "--all" {
+		t.Errorf("unexpected clean completions: %v", cleanComps)
+	}
+
+	// 3. Test mcpCmd.ValidArgsFunction
+	mcpActions, _ := mcpCmd.ValidArgsFunction(mcpCmd, []string{}, "")
+	if len(mcpActions) != 3 || mcpActions[0] != "status" {
+		t.Errorf("unexpected mcp action completions: %v", mcpActions)
+	}
+	mcpProfiles, _ := mcpCmd.ValidArgsFunction(mcpCmd, []string{"status"}, "")
+	if len(mcpProfiles) != 2 {
+		t.Errorf("unexpected mcp profile completions: %v", mcpProfiles)
+	}
+
+	// 4. Test non-interactive rootCmd without args (should show help and return error)
+	oldInteractive := isInteractiveTerminal
+	defer func() { isInteractiveTerminal = oldInteractive }()
+	isInteractiveTerminal = func() bool { return false }
+
+	out, err := executeCommand(rootCmd)
+	if err == nil {
+		t.Fatalf("expected error on non-interactive rootCmd without args")
+	}
+	if !strings.Contains(out, "Usage:") {
+		t.Errorf("expected usage output, got: %s", out)
+	}
+
+	// 5. Test interactive rootCmd without args (mock interactive terminal returning quit "q")
+	isInteractiveTerminal = func() bool { return true }
+	rootCmd.SetIn(bytes.NewBufferString("q\n"))
+	out, err = executeCommand(rootCmd)
+	if err != nil {
+		t.Fatalf("expected interactive menu to quit cleanly: %v", err)
+	}
+	if !strings.Contains(out, "MULTIGRAVITY PROFILES") {
+		t.Errorf("expected TUI menu header in output, got: %s", out)
 	}
 }
 
