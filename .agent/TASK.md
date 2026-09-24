@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [05.3] | Detecção e Exibição de Tamanho de Conversas (bytes/human-readable) em 'ai list' | feat(ai): add size and size_bytes tracking for AI conversations | 2026-09-24 |
 | [05.2] | Detecção de Estado Arquivado/Ativo e Extração de Tópicos em 'ai list' | feat(ai): detect archived and active chats with transcript topic extraction | 2026-09-24 |
 | [05.1] | Validação Operacional no Ambiente Real e Correção de Detecção de Executável (FindApp) | fix(app): enforce error on invalid app override and fix install home resolution | 2026-09-24 |
 | [04.1] | Suporte a Streaming em Tempo Real via Server-Sent Events (SSE) no Servidor HTTP | feat(server): add Server-Sent Events (SSE) streaming endpoint | 2026-09-24 |

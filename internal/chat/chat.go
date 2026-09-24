@@ -45,6 +45,8 @@ type ConversationInfo struct {
 	Archived      bool       `json:"archived"`
 	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
 	LastViewAt    *time.Time `json:"last_view_at,omitempty"`
+	Size          string     `json:"size"`
+	SizeBytes     int64      `json:"size_bytes"`
 }
 
 // ListConversations prints a table of AI conversations in a profile
@@ -94,8 +96,19 @@ func GetFilteredConversations(profileName string, filter ConversationFilter) ([]
 		isArchived := false
 		var archivedAt *time.Time
 		var lastViewAt *time.Time
+		var sizeBytes int64
 
+		// 1. Conversation SQLite DB size
+		dbPath := filepath.Join(convDir, entry.Name())
+		if fi, err := os.Stat(dbPath); err == nil {
+			sizeBytes += fi.Size()
+		}
+
+		// 2. Annotation pbtxt metadata & size
 		annotFile := filepath.Join(geminiDir, "annotations", uuid+".pbtxt")
+		if fi, err := os.Stat(annotFile); err == nil {
+			sizeBytes += fi.Size()
+		}
 		if data, err := os.ReadFile(annotFile); err == nil {
 			content := string(data)
 			if archivedRegex.MatchString(content) {
@@ -136,14 +149,19 @@ func GetFilteredConversations(profileName string, filter ConversationFilter) ([]
 			}
 		}
 
+		// 3. Brain directory size and artifact count
 		mdCount := 0
 		uBrainDir := filepath.Join(brainDir, uuid)
-		if bEntries, err := os.ReadDir(uBrainDir); err == nil {
-			for _, be := range bEntries {
-				if !be.IsDir() && strings.HasSuffix(be.Name(), ".md") {
-					mdCount++
+		if dirExists(uBrainDir) {
+			_ = filepath.Walk(uBrainDir, func(_ string, info os.FileInfo, err error) error {
+				if err == nil && info != nil && !info.IsDir() {
+					sizeBytes += info.Size()
+					if strings.HasSuffix(info.Name(), ".md") {
+						mdCount++
+					}
 				}
-			}
+				return nil
+			})
 		}
 
 		convs = append(convs, ConversationInfo{
@@ -153,6 +171,8 @@ func GetFilteredConversations(profileName string, filter ConversationFilter) ([]
 			Archived:      isArchived,
 			ArchivedAt:    archivedAt,
 			LastViewAt:    lastViewAt,
+			Size:          formatBytes(sizeBytes),
+			SizeBytes:     sizeBytes,
 		})
 	}
 
@@ -224,6 +244,19 @@ func extractTitleFromTranscript(transcriptPath string) string {
 	return ""
 }
 
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%dB", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%c", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
 // ListConversationsWriter prints a table of AI conversations to the provided writer
 func ListConversationsWriter(w io.Writer, profileName string) error {
 	return ListConversationsFilter(w, profileName, FilterAll)
@@ -250,7 +283,9 @@ func ListConversationsFilter(w io.Writer, profileName string, filter Conversatio
 
 	activeCount := 0
 	archivedCount := 0
+	var totalSizeBytes int64
 	for _, c := range convs {
+		totalSizeBytes += c.SizeBytes
 		if c.Archived {
 			archivedCount++
 		} else {
@@ -259,8 +294,8 @@ func ListConversationsFilter(w io.Writer, profileName string, filter Conversatio
 	}
 
 	fmt.Fprintf(w, "AI Conversations in profile '%s':\n", profileName)
-	fmt.Fprintf(w, "%-38s %-10s %-16s %-32s %s\n", "CONVERSATION ID", "STATUS", "LAST ACTIVITY", "TITLE / TOPIC", "ARTIFACTS")
-	fmt.Fprintf(w, "%-38s %-10s %-16s %-32s %s\n", "---------------", "------", "-------------", "-------------", "---------")
+	fmt.Fprintf(w, "%-38s %-10s %-8s %-16s %-32s %s\n", "CONVERSATION ID", "STATUS", "SIZE", "LAST ACTIVITY", "TITLE / TOPIC", "ARTIFACTS")
+	fmt.Fprintf(w, "%-38s %-10s %-8s %-16s %-32s %s\n", "---------------", "------", "----", "-------------", "-------------", "---------")
 
 	for _, c := range convs {
 		status := "active"
@@ -285,15 +320,16 @@ func ListConversationsFilter(w io.Writer, profileName string, filter Conversatio
 			artCount = fmt.Sprintf("%d file(s)", c.ArtifactCount)
 		}
 
-		fmt.Fprintf(w, "%-38s %-10s %-16s %-32s %s\n", c.ID, status, timeStr, dispTitle, artCount)
+		fmt.Fprintf(w, "%-38s %-10s %-8s %-16s %-32s %s\n", c.ID, status, c.Size, timeStr, dispTitle, artCount)
 	}
 
+	totalSizeStr := formatBytes(totalSizeBytes)
 	if filter == FilterActive {
-		fmt.Fprintf(w, "\nTotal active conversations: %d\n", activeCount)
+		fmt.Fprintf(w, "\nTotal active conversations: %d | Total size: %s\n", activeCount, totalSizeStr)
 	} else if filter == FilterArchived {
-		fmt.Fprintf(w, "\nTotal archived conversations: %d\n", archivedCount)
+		fmt.Fprintf(w, "\nTotal archived conversations: %d | Total size: %s\n", archivedCount, totalSizeStr)
 	} else {
-		fmt.Fprintf(w, "\nTotal conversations: %d (%d active, %d archived)\n", len(convs), activeCount, archivedCount)
+		fmt.Fprintf(w, "\nTotal conversations: %d (%d active, %d archived) | Total size: %s\n", len(convs), activeCount, archivedCount, totalSizeStr)
 	}
 	return nil
 }

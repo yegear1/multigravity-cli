@@ -180,4 +180,34 @@ func TestChatActiveAndArchivedFiltering(t *testing.T) {
 	if !strings.Contains(out, "active") || !strings.Contains(out, "archived") {
 		t.Errorf("expected active and archived in output, got:\n%s", out)
 	}
+	if !strings.Contains(out, "SIZE") || !strings.Contains(out, "Total size:") {
+		t.Errorf("expected SIZE and Total size in output, got:\n%s", out)
+	}
+
+	// 5. Check size calculation
+	if allConvs[0].SizeBytes <= 0 || allConvs[0].Size == "" {
+		t.Errorf("expected size > 0, got bytes=%d size=%s", allConvs[0].SizeBytes, allConvs[0].Size)
+	}
+}
+
+func TestChatFormatBytes(t *testing.T) {
+	tests := []struct {
+		bytes int64
+		want  string
+	}{
+		{0, "0B"},
+		{500, "500B"},
+		{1024, "1.0K"},
+		{1536, "1.5K"},
+		{1048576, "1.0M"},
+		{5242880, "5.0M"},
+		{1073741824, "1.0G"},
+	}
+
+	for _, tt := range tests {
+		got := formatBytes(tt.bytes)
+		if got != tt.want {
+			t.Errorf("formatBytes(%d) = %s, want %s", tt.bytes, got, tt.want)
+		}
+	}
 }

@@ -408,5 +408,18 @@
     - Flags `--json`: serialização dos novos campos `archived` (bool), `archived_at` (ISO timestamp) e `last_view_at` (ISO timestamp).
     - API REST HTTP: `GET /api/v1/profiles/{name}/conversations?filter=active|archived|all` suportando os mesmos filtros e formato.
 
+### 2026-09-24 [Task 05.3] Detecção e Exibição de Tamanho de Conversas (bytes/human-readable) em 'ai list'
+
+- **Contexto:** Necessidade de mensurar o impacto real em disco de cada chat individualmente e agregar o total por perfil/filtro.
+- **Descobertas e Decisões Técnicas:**
+  - **Composição de Tamanho do Chat:** O cálculo do espaço consumido por uma conversa é a soma exata de 3 partes:
+    1. Arquivo de banco SQLite: `~/.gemini/antigravity/conversations/<uuid>.db`.
+    2. Arquivo de anotações e metadados: `~/.gemini/antigravity/annotations/<uuid>.pbtxt`.
+    3. Diretório cerebral do agente: caminhamento recursivo em `~/.gemini/antigravity/brain/<uuid>/` somando todos os artefatos markdown e logs de transcrição (`transcript.jsonl`, `transcript_full.jsonl`).
+  - **Estrutura de Dados:** Adicionados os campos `size` (string human-readable como `5.9M`, `596.7K`, `201.7K`) e `size_bytes` (int64) na struct `chat.ConversationInfo`.
+  - **Apresentação em Terminal:** Inserida a coluna `SIZE` entre `STATUS` e `LAST ACTIVITY` em `multigravity ai list`, e adicionado o somatório `Total size: X.YM` na linha de sumário final.
+  - **Exposição na API REST e JSON:** O contrato JSON disponibiliza `size` e `size_bytes`, permitindo ordenação e gráficos em agregadores e UIs sem reprocessamento no frontend.
+
+
 
 
