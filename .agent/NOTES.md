@@ -322,5 +322,14 @@
     - `uninstall.ps1` atualizado para remover `multigravity.exe` além dos scripts e wrappers.
     - Adicionado target `install` no `Makefile`.
 
+### 2026-09-24 [Task 00.1] Diagnóstico e Auditoria de Integridade Pós-Release v2.0.0
+
+- **Contexto:** Auditoria de integridade pós-lançamento da v2.0.0 na branch principal `main`.
+- **Validação Executada:**
+  - `go test -v ./...`: 100% dos testes unitários passando em todos os pacotes (`internal/app`, `internal/chat`, `internal/cmd`, `internal/config`, `internal/doctor`, `internal/prime`, `internal/profile`, `internal/quota`, `internal/shortcut`, `internal/tui`).
+  - `bash -n multigravity install.sh uninstall.sh legacy/multigravity`: sintaxe validada sem erros ou warnings.
+  - Compilação do binário Go em `bin/multigravity` bem-sucedida.
+  - `./multigravity doctor` executado com sucesso validando runtime, executável do Antigravity, binário global e permissões de escrita em `$MULTIGRAVITY_HOME`.
+
 
 
