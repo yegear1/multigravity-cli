@@ -22,6 +22,7 @@ type Server struct {
 	httpServer *http.Server
 	mux        *http.ServeMux
 	listener   net.Listener
+	broker     *Broker
 }
 
 // NewServer creates a new HTTP server instance with configured routes
@@ -37,10 +38,12 @@ func NewServer(cfg Config) *Server {
 	}
 
 	s := &Server{
-		cfg: cfg,
-		mux: http.NewServeMux(),
+		cfg:    cfg,
+		mux:    http.NewServeMux(),
+		broker: NewBroker(),
 	}
 
+	s.broker.Start(2 * time.Second)
 	s.setupRoutes()
 	return s
 }
@@ -80,8 +83,16 @@ func (s *Server) Start() error {
 	return nil
 }
 
+// Broker returns the active SSE event broker
+func (s *Server) Broker() *Broker {
+	return s.broker
+}
+
 // Shutdown initiates graceful termination of the HTTP server
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.broker != nil {
+		s.broker.Stop()
+	}
 	if s.httpServer == nil {
 		return nil
 	}

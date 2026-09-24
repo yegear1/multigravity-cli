@@ -370,3 +370,21 @@
     - Adicionado Step 6 detalhando comandos `--json`, tabela de rotas da API HTTP local e exemplos de consumo com `curl` e `jq`.
     - Sincronização executada com sucesso via `scripts/install-agent-skills.sh --antigravity`.
 
+### 2026-09-24 [Task 04.1] Suporte a Streaming em Tempo Real via Server-Sent Events (SSE) no Servidor HTTP
+
+- **Contexto:** Aplicações clientes, UIs reativas (Tauri/Svelte/Wails) e agregadores precisavam consultar continuamente endpoints HTTP (`polling`) para detectar mudanças de estado nos perfis (running vs idle) e ações executadas, gerando sobrecarga de CPU e requisições repetitivas.
+- **Decisões:**
+  - **Broker de Eventos SSE (`internal/server/broker.go`):**
+    - Gerenciador thread-safe (`sync.RWMutex`) de canais de clientes (`chan SSEEvent`).
+    - Despacho não-bloqueante (`select { case ch <- ev: default: }`) evitando bloqueio head-of-line quando clientes consomem eventos lentamente.
+    - Loop em background gerenciando verificação periódica de alterações de perfis (`CheckProfilesChange`) com comparação de hash/estado, emitindo evento `profiles` apenas quando houver mudanças efetivas.
+    - Emissão de heartbeat periódico (`ping`) a cada 15 segundos para manter a conexão aberta e detectar conexões órfãs.
+  - **Endpoints de Streaming (`internal/server/routes.go`):**
+    - `GET /api/v1/events` e `GET /events`: configurados com `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive` e flush contínuo via `http.Flusher`.
+    - Envio de snapshot inicial imediato (`event: init`) contendo a lista atual de perfis e versão do servidor.
+    - Notificação instantânea de ações (`event: action`): endpoints `/stop` e `/clean` emitem evento push para todos os clientes conectados assim que a operação é concluída.
+    - Desconexão e limpeza automática de clientes monitorando `r.Context().Done()`.
+  - **Documentação e Testes:**
+    - Documentado na skill canônica (`skills/multigravity/SKILL.md`) e no `README.md`.
+    - Testes unitários herméticos em `internal/server/server_test.go` cobrindo handshake SSE, evento de inicialização, eventos customizados, notificação de ações e encerramento de conexões.
+

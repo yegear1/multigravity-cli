@@ -90,6 +90,10 @@ func (s *Server) setupRoutes() {
 	// Actions (stop, clean)
 	s.mux.HandleFunc("POST /api/v1/profiles/{name}/stop", s.handleStopProfile)
 	s.mux.HandleFunc("POST /api/v1/profiles/{name}/clean", s.handleCleanProfile)
+
+	// Real-time Streaming (SSE)
+	s.mux.HandleFunc("GET /events", s.handleEvents)
+	s.mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -263,6 +267,19 @@ func (s *Server) handleStopProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":  "stop",
+				"profile": name,
+				"status":  "stopped",
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+		s.broker.CheckProfilesChange()
+	}
+
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"profile": name,
 		"status":  "stopped",
@@ -283,10 +300,76 @@ func (s *Server) handleCleanProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":      "clean",
+				"profile":     name,
+				"status":      "cleaned",
+				"size_before": before,
+				"size_after":  after,
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+		s.broker.CheckProfilesChange()
+	}
+
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"profile":      name,
 		"status":       "cleaned",
 		"size_before":  before,
 		"size_after":   after,
 	})
+}
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	profiles, _ := profile.GetProfiles()
+	if profiles == nil {
+		profiles = []profile.ProfileInfo{}
+	}
+
+	initData := map[string]any{
+		"profiles":  profiles,
+		"version":   s.cfg.Version,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+	initBytes, err := json.Marshal(initData)
+	if err == nil {
+		fmt.Fprintf(w, "event: init\ndata: %s\n\n", string(initBytes))
+		flusher.Flush()
+	}
+
+	clientChan := make(chan SSEEvent, 32)
+	s.broker.Register(clientChan)
+	defer s.broker.Unregister(clientChan)
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-clientChan:
+			if !ok {
+				return
+			}
+			payload, err := json.Marshal(ev.Data)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Event, string(payload))
+			flusher.Flush()
+		}
+	}
 }

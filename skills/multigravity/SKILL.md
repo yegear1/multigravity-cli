@@ -175,11 +175,15 @@ The agent MUST NOT activate this skill when:
    | `GET` | `/api/v1/quota/{profile}` | Active quota metrics filtered by profile |
    | `POST` | `/api/v1/profiles/{name}/stop` | Gracefully stop profile processes (`{"force": false}`) |
    | `POST` | `/api/v1/profiles/{name}/clean` | Clean volatile caches for a profile |
+   | `GET` | `/events` / `/api/v1/events` | Real-time Server-Sent Events (SSE) stream (`init`, `profiles`, `action`, `ping`) |
 
 ## 5. Canonical Examples
 
-### Ingesting Profiles and Quota in Aggregators or Scripts
+### Real-Time Streaming and Ingesting in Aggregators or Scripts
 ```bash
+# Listen to real-time events push (SSE) without polling
+curl -N -s http://127.0.0.1:8989/api/v1/events
+
 # Fetch running profiles with PIDs
 curl -s http://127.0.0.1:8989/api/v1/profiles | jq '.data[] | select(.is_running == true)'
 

@@ -144,6 +144,7 @@ Each profile gets an automatic clickable desktop launcher:
 
 | Command | Description |
 |---------|-------------|
+| `multigravity serve [--port <p>] [--host <h>]` | Start local HTTP REST & SSE streaming server (`127.0.0.1:8989`) |
 | `multigravity stats` | Show disk usage per profile |
 | `multigravity doctor` | Diagnose environment setup, paths, and binary detection |
 | `multigravity update` | Update Multigravity to the latest version |
