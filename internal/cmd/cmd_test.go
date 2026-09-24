@@ -714,4 +714,67 @@ func TestJSONContractOutputs(t *testing.T) {
 	}
 }
 
+func TestCobraAICmdFlags(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", t.TempDir())
+
+	_ = profile.CreateProfile(profile.CreateOptions{Name: "ai-src"})
+	_ = profile.CreateProfile(profile.CreateOptions{Name: "ai-dest"})
+
+	geminiDir := filepath.Join(tempHome, "ai-src", ".gemini", "antigravity")
+	convDir := filepath.Join(geminiDir, "conversations")
+	_ = os.MkdirAll(convDir, 0755)
+	_ = os.MkdirAll(filepath.Join(geminiDir, "annotations"), 0755)
+	_ = os.MkdirAll(filepath.Join(geminiDir, "brain", "active-uuid"), 0755)
+
+	dbPath := filepath.Join(convDir, "active-uuid.db")
+	_ = os.WriteFile(dbPath, []byte("sqlite content"), 0644)
+	_ = os.WriteFile(filepath.Join(geminiDir, "annotations", "active-uuid.pbtxt"), []byte("title: \"CLI Test Chat\""), 0644)
+	_ = os.WriteFile(filepath.Join(geminiDir, "brain", "active-uuid", "doc.md"), []byte("# Note"), 0644)
+
+	// Keep active-uuid.db open by this process
+	f, err := os.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open active-uuid.db: %v", err)
+	}
+	defer f.Close()
+
+	// 1. ai list --in-use
+	out, err := executeCommand(rootCmd, "ai", "list", "ai-src", "--in-use")
+	if err != nil {
+		t.Fatalf("ai list --in-use failed: %v", err)
+	}
+	if !strings.Contains(out, "active-uuid") || !strings.Contains(out, "in use") {
+		t.Errorf("expected active-uuid with in use status, got:\n%s", out)
+	}
+
+	// 2. ai list --in-use --json
+	out, err = executeCommand(rootCmd, "ai", "list", "ai-src", "--in-use", "--json")
+	if err != nil {
+		t.Fatalf("ai list --in-use --json failed: %v", err)
+	}
+	var inUseConvs []chat.ConversationInfo
+	if err := json.Unmarshal([]byte(out), &inUseConvs); err != nil {
+		t.Fatalf("failed to parse ai list --in-use --json output: %v, raw output: %s", err, out)
+	}
+	if len(inUseConvs) != 1 || !inUseConvs[0].InUse || inUseConvs[0].ID != "active-uuid" {
+		t.Errorf("expected 1 in-use conversation in json, got: %+v", inUseConvs)
+	}
+
+	// 3. ai export --skip-in-use
+	exportTar := filepath.Join(tempHome, "ai-export.tar.gz")
+	out, err = executeCommand(rootCmd, "ai", "export", "ai-src", exportTar, "--skip-in-use")
+	if err != nil {
+		t.Fatalf("ai export --skip-in-use failed: %v, output: %s", err, out)
+	}
+
+	// 4. ai sync --skip-in-use
+	out, err = executeCommand(rootCmd, "ai", "sync", "ai-src", "ai-dest", "--skip-in-use")
+	if err != nil {
+		t.Fatalf("ai sync --skip-in-use failed: %v, output: %s", err, out)
+	}
+}
+
+
 

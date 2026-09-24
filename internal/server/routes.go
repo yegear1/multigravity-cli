@@ -205,9 +205,15 @@ func (s *Server) handleGetResourceSharing(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleGetConversations(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	filter := chat.ConversationFilter(r.URL.Query().Get("filter"))
-	if filter != chat.FilterActive && filter != chat.FilterArchived {
-		filter = chat.FilterAll
+	rawFilter := r.URL.Query().Get("filter")
+	filter := chat.FilterAll
+	switch rawFilter {
+	case "active":
+		filter = chat.FilterActive
+	case "archived":
+		filter = chat.FilterArchived
+	case "in_use", "open":
+		filter = chat.FilterInUse
 	}
 	convs, err := chat.GetFilteredConversations(name, filter)
 	if err != nil {

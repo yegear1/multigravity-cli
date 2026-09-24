@@ -211,3 +211,131 @@ func TestChatFormatBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestChatOpenInUseDetectionAndSkipInUse(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tmpDir)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", tmpDir)
+
+	_ = profile.CreateProfile(profile.CreateOptions{Name: "live-prof"})
+	_ = profile.CreateProfile(profile.CreateOptions{Name: "sync-target"})
+
+	profDir := filepath.Join(tmpDir, "live-prof")
+	geminiDir := filepath.Join(profDir, ".gemini", "antigravity")
+	convDir := filepath.Join(geminiDir, "conversations")
+	_ = os.MkdirAll(convDir, 0755)
+	_ = os.MkdirAll(filepath.Join(geminiDir, "annotations"), 0755)
+	_ = os.MkdirAll(filepath.Join(geminiDir, "brain", "open-uuid"), 0755)
+	_ = os.MkdirAll(filepath.Join(geminiDir, "brain", "idle-uuid"), 0755)
+
+	openDbPath := filepath.Join(convDir, "open-uuid.db")
+	idleDbPath := filepath.Join(convDir, "idle-uuid.db")
+	_ = os.WriteFile(openDbPath, []byte("sqlite open db"), 0644)
+	_ = os.WriteFile(idleDbPath, []byte("sqlite idle db"), 0644)
+	_ = os.WriteFile(filepath.Join(geminiDir, "annotations", "open-uuid.pbtxt"), []byte("title: \"Open Chat\""), 0644)
+	_ = os.WriteFile(filepath.Join(geminiDir, "annotations", "idle-uuid.pbtxt"), []byte("title: \"Idle Chat\""), 0644)
+	_ = os.WriteFile(filepath.Join(geminiDir, "brain", "open-uuid", "notes.md"), []byte("# Open Notes"), 0644)
+	_ = os.WriteFile(filepath.Join(geminiDir, "brain", "idle-uuid", "notes.md"), []byte("# Idle Notes"), 0644)
+
+	// Keep open-uuid.db opened by this process
+	f, err := os.Open(openDbPath)
+	if err != nil {
+		t.Fatalf("failed to open open-uuid.db: %v", err)
+	}
+	defer f.Close()
+
+	// 1. Test GetOpenConversations
+	openMap, err := GetOpenConversations("live-prof")
+	if err != nil {
+		t.Fatalf("GetOpenConversations failed: %v", err)
+	}
+	if !openMap["open-uuid"] {
+		t.Errorf("expected open-uuid to be detected as in-use, got: %+v", openMap)
+	}
+	if openMap["idle-uuid"] {
+		t.Errorf("expected idle-uuid NOT to be detected as in-use, got: %+v", openMap)
+	}
+
+	// 2. Test GetFilteredConversations with FilterInUse
+	inUseConvs, err := GetFilteredConversations("live-prof", FilterInUse)
+	if err != nil {
+		t.Fatalf("GetFilteredConversations(FilterInUse) failed: %v", err)
+	}
+	if len(inUseConvs) != 1 || inUseConvs[0].ID != "open-uuid" {
+		t.Errorf("expected 1 in-use conversation (open-uuid), got: %+v", inUseConvs)
+	}
+	if !inUseConvs[0].InUse {
+		t.Errorf("expected InUse=true on open-uuid")
+	}
+
+	// 3. Test ListConversationsFilter with in-use status display
+	var buf strings.Builder
+	if err := ListConversationsFilter(&buf, "live-prof", FilterAll); err != nil {
+		t.Fatalf("ListConversationsFilter failed: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "in use") {
+		t.Errorf("expected 'in use' status in output table, got:\n%s", out)
+	}
+	if !strings.Contains(out, "1 in use") {
+		t.Errorf("expected '1 in use' in summary line, got:\n%s", out)
+	}
+
+	// 4. Test ExportConversationsWithOptions with SkipInUse=true
+	exportTar := filepath.Join(tmpDir, "safe-export.tar.gz")
+	if err := ExportConversationsWithOptions("live-prof", exportTar, ExportOptions{SkipInUse: true}); err != nil {
+		t.Fatalf("ExportConversationsWithOptions failed: %v", err)
+	}
+
+	// Verify that open-uuid was excluded and idle-uuid was included
+	fTar, err := os.Open(exportTar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fTar.Close()
+	gr, err := gzip.NewReader(fTar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gr.Close()
+	tr := tar.NewReader(gr)
+
+	foundIdle := false
+	foundOpen := false
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(hdr.Name, "open-uuid") {
+			foundOpen = true
+		}
+		if strings.Contains(hdr.Name, "idle-uuid") {
+			foundIdle = true
+		}
+	}
+	if foundOpen {
+		t.Errorf("expected open-uuid to be skipped from export, but found in archive")
+	}
+	if !foundIdle {
+		t.Errorf("expected idle-uuid to be exported in archive")
+	}
+
+	// 5. Test SyncConversationsWithOptions with SkipInUse=true
+	if err := SyncConversationsWithOptions("live-prof", "sync-target", SyncOptions{SkipInUse: true}); err != nil {
+		t.Fatalf("SyncConversationsWithOptions failed: %v", err)
+	}
+
+	targetGemini := filepath.Join(tmpDir, "sync-target", ".gemini", "antigravity")
+	targetOpenDb := filepath.Join(targetGemini, "conversations", "open-uuid.db")
+	targetIdleDb := filepath.Join(targetGemini, "conversations", "idle-uuid.db")
+	if fileExists(targetOpenDb) {
+		t.Errorf("expected open-uuid.db NOT to be synced into target")
+	}
+	if !fileExists(targetIdleDb) {
+		t.Errorf("expected idle-uuid.db to be synced into target")
+	}
+}

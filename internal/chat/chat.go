@@ -35,6 +35,7 @@ const (
 	FilterAll      ConversationFilter = "all"
 	FilterActive   ConversationFilter = "active"
 	FilterArchived ConversationFilter = "archived"
+	FilterInUse    ConversationFilter = "in_use"
 )
 
 // ConversationInfo holds metadata about a single AI conversation
@@ -43,6 +44,7 @@ type ConversationInfo struct {
 	Title         string     `json:"title"`
 	ArtifactCount int        `json:"artifact_count"`
 	Archived      bool       `json:"archived"`
+	InUse         bool       `json:"in_use"`
 	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
 	LastViewAt    *time.Time `json:"last_view_at,omitempty"`
 	Size          string     `json:"size"`
@@ -85,6 +87,8 @@ func GetFilteredConversations(profileName string, filter ConversationFilter) ([]
 		return []ConversationInfo{}, nil
 	}
 
+	openMap, _ := GetOpenConversations(profileName)
+
 	var convs []ConversationInfo
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".db") {
@@ -94,6 +98,7 @@ func GetFilteredConversations(profileName string, filter ConversationFilter) ([]
 
 		title := ""
 		isArchived := false
+		isInUse := openMap != nil && openMap[uuid]
 		var archivedAt *time.Time
 		var lastViewAt *time.Time
 		var sizeBytes int64
@@ -132,6 +137,9 @@ func GetFilteredConversations(profileName string, filter ConversationFilter) ([]
 		}
 
 		// Apply filter
+		if filter == FilterInUse && !isInUse {
+			continue
+		}
 		if filter == FilterActive && isArchived {
 			continue
 		}
@@ -169,6 +177,7 @@ func GetFilteredConversations(profileName string, filter ConversationFilter) ([]
 			Title:         title,
 			ArtifactCount: mdCount,
 			Archived:      isArchived,
+			InUse:         isInUse,
 			ArchivedAt:    archivedAt,
 			LastViewAt:    lastViewAt,
 			Size:          formatBytes(sizeBytes),
@@ -176,8 +185,11 @@ func GetFilteredConversations(profileName string, filter ConversationFilter) ([]
 		})
 	}
 
-	// Sort: Active conversations first, then by last activity (most recent first)
+	// Sort: In-use conversations first, then active, then archived, ordered by last activity
 	sort.SliceStable(convs, func(i, j int) bool {
+		if convs[i].InUse != convs[j].InUse {
+			return convs[i].InUse
+		}
 		if convs[i].Archived != convs[j].Archived {
 			return !convs[i].Archived
 		}
@@ -271,6 +283,8 @@ func ListConversationsFilter(w io.Writer, profileName string, filter Conversatio
 
 	if len(convs) == 0 {
 		switch filter {
+		case FilterInUse:
+			fmt.Fprintf(w, "Profile '%s' has no AI chats currently in use.\n", profileName)
 		case FilterActive:
 			fmt.Fprintf(w, "Profile '%s' has no active AI chats.\n", profileName)
 		case FilterArchived:
@@ -281,11 +295,15 @@ func ListConversationsFilter(w io.Writer, profileName string, filter Conversatio
 		return nil
 	}
 
+	inUseCount := 0
 	activeCount := 0
 	archivedCount := 0
 	var totalSizeBytes int64
 	for _, c := range convs {
 		totalSizeBytes += c.SizeBytes
+		if c.InUse {
+			inUseCount++
+		}
 		if c.Archived {
 			archivedCount++
 		} else {
@@ -299,7 +317,9 @@ func ListConversationsFilter(w io.Writer, profileName string, filter Conversatio
 
 	for _, c := range convs {
 		status := "active"
-		if c.Archived {
+		if c.InUse {
+			status = "in use"
+		} else if c.Archived {
 			status = "archived"
 		}
 
@@ -324,12 +344,14 @@ func ListConversationsFilter(w io.Writer, profileName string, filter Conversatio
 	}
 
 	totalSizeStr := formatBytes(totalSizeBytes)
-	if filter == FilterActive {
-		fmt.Fprintf(w, "\nTotal active conversations: %d | Total size: %s\n", activeCount, totalSizeStr)
+	if filter == FilterInUse {
+		fmt.Fprintf(w, "\nTotal in-use conversations: %d | Total size: %s\n", inUseCount, totalSizeStr)
+	} else if filter == FilterActive {
+		fmt.Fprintf(w, "\nTotal active conversations: %d (%d in use) | Total size: %s\n", activeCount, inUseCount, totalSizeStr)
 	} else if filter == FilterArchived {
 		fmt.Fprintf(w, "\nTotal archived conversations: %d | Total size: %s\n", archivedCount, totalSizeStr)
 	} else {
-		fmt.Fprintf(w, "\nTotal conversations: %d (%d active, %d archived) | Total size: %s\n", len(convs), activeCount, archivedCount, totalSizeStr)
+		fmt.Fprintf(w, "\nTotal conversations: %d (%d in use, %d active, %d archived) | Total size: %s\n", len(convs), inUseCount, activeCount, archivedCount, totalSizeStr)
 	}
 	return nil
 }
@@ -343,8 +365,18 @@ func isCredentialFile(name string) bool {
 		strings.Contains(lower, "installation_id")
 }
 
-// ExportConversations exports AI chats to an archive, sanitized of credentials
+// ExportOptions configures AI chat export behavior
+type ExportOptions struct {
+	SkipInUse bool
+}
+
+// ExportConversations exports AI chats to an archive, sanitized of credentials (default strict blocking)
 func ExportConversations(profileName string, outPath string) error {
+	return ExportConversationsWithOptions(profileName, outPath, ExportOptions{SkipInUse: false})
+}
+
+// ExportConversationsWithOptions exports AI chats to an archive with customizable options
+func ExportConversationsWithOptions(profileName string, outPath string, opts ExportOptions) error {
 	if err := config.ValidateProfileName(profileName); err != nil {
 		return err
 	}
@@ -353,13 +385,23 @@ func ExportConversations(profileName string, outPath string) error {
 	}
 
 	if profile.IsProfileRunning(profileName) {
-		return fmt.Errorf("profile '%s' is currently running — stop it first to ensure SQLite database flush (multigravity stop %s)", profileName, profileName)
+		if !opts.SkipInUse {
+			return fmt.Errorf("profile '%s' is currently running — stop it first to ensure SQLite database flush (multigravity stop %s) or use --skip-in-use", profileName, profileName)
+		}
 	}
 
 	pDir := config.GetProfileDir(profileName)
 	geminiDir := filepath.Join(pDir, ".gemini", "antigravity")
 	if !dirExists(geminiDir) {
 		return fmt.Errorf("profile '%s' has no AI data (.gemini/antigravity does not exist)", profileName)
+	}
+
+	var openMap map[string]bool
+	if opts.SkipInUse {
+		openMap, _ = GetOpenConversations(profileName)
+		if len(openMap) > 0 {
+			fmt.Printf("⚠ Profile '%s' has %d open conversation(s) in use. Skipping in-use conversation(s) to guarantee integrity.\n", profileName, len(openMap))
+		}
 	}
 
 	if outPath == "" {
@@ -404,6 +446,35 @@ func ExportConversations(profileName string, outPath string) error {
 				return nil
 			}
 
+			// If skip-in-use is active, skip files corresponding to open conversations
+			if len(openMap) > 0 {
+				base := filepath.Base(path)
+				if item == "conversations" {
+					uuid := extractUUIDFromDBName(base)
+					if uuid != "" && openMap[uuid] {
+						return nil
+					}
+				} else if item == "annotations" {
+					if strings.HasSuffix(base, ".pbtxt") {
+						uuid := strings.TrimSuffix(base, ".pbtxt")
+						if openMap[uuid] {
+							return nil
+						}
+					}
+				} else if item == "brain" {
+					rel, err := filepath.Rel(filepath.Join(geminiDir, "brain"), path)
+					if err == nil && rel != "." {
+						parts := strings.Split(filepath.ToSlash(rel), "/")
+						if len(parts) > 0 && openMap[parts[0]] {
+							if info.IsDir() {
+								return filepath.SkipDir
+							}
+							return nil
+						}
+					}
+				}
+			}
+
 			rel, err := filepath.Rel(geminiDir, path)
 			if err != nil {
 				return nil
@@ -431,7 +502,7 @@ func ExportConversations(profileName string, outPath string) error {
 		})
 	}
 
-	convCount := countConversations(geminiDir)
+	convCount := countConversationsExcluding(geminiDir, openMap)
 	fmt.Printf("✓ Successfully exported %d conversation(s) to %s (credentials sanitized).\n", convCount, outPath)
 	return nil
 }
@@ -571,8 +642,18 @@ func unpackZip(f *os.File, dest string) error {
 	return nil
 }
 
-// SyncConversations synchronizes AI conversations from src to dest non-destructively
+// SyncOptions configures AI chat sync behavior
+type SyncOptions struct {
+	SkipInUse bool
+}
+
+// SyncConversations synchronizes AI conversations from src to dest non-destructively (default strict blocking)
 func SyncConversations(src string, dest string) error {
+	return SyncConversationsWithOptions(src, dest, SyncOptions{SkipInUse: false})
+}
+
+// SyncConversationsWithOptions synchronizes AI conversations with customizable options
+func SyncConversationsWithOptions(src string, dest string, opts SyncOptions) error {
 	if src == dest {
 		return fmt.Errorf("source and target profiles cannot be the same")
 	}
@@ -590,10 +671,26 @@ func SyncConversations(src string, dest string) error {
 	}
 
 	if profile.IsProfileRunning(src) {
-		return fmt.Errorf("profile '%s' is currently running — stop it first (multigravity stop %s)", src, src)
+		if !opts.SkipInUse {
+			return fmt.Errorf("profile '%s' is currently running — stop it first (multigravity stop %s) or use --skip-in-use", src, src)
+		}
 	}
 	if profile.IsProfileRunning(dest) {
-		return fmt.Errorf("profile '%s' is currently running — stop it first (multigravity stop %s)", dest, dest)
+		if !opts.SkipInUse {
+			return fmt.Errorf("profile '%s' is currently running — stop it first (multigravity stop %s) or use --skip-in-use", dest, dest)
+		}
+	}
+
+	var openSrc, openDest map[string]bool
+	if opts.SkipInUse {
+		openSrc, _ = GetOpenConversations(src)
+		if len(openSrc) > 0 {
+			fmt.Printf("⚠ Source profile '%s' has %d open conversation(s). Skipping in-use conversation(s).\n", src, len(openSrc))
+		}
+		openDest, _ = GetOpenConversations(dest)
+		if len(openDest) > 0 {
+			fmt.Printf("⚠ Target profile '%s' has %d open conversation(s). Skipping to protect target active chats.\n", dest, len(openDest))
+		}
 	}
 
 	srcGemini := filepath.Join(config.GetProfileDir(src), ".gemini", "antigravity")
@@ -616,6 +713,15 @@ func SyncConversations(src string, dest string) error {
 				continue
 			}
 			uuid := strings.TrimSuffix(e.Name(), ".db")
+			if opts.SkipInUse {
+				if openSrc != nil && openSrc[uuid] {
+					continue
+				}
+				if openDest != nil && openDest[uuid] {
+					continue
+				}
+			}
+
 			destDb := filepath.Join(destGemini, "conversations", e.Name())
 			if !fileExists(destDb) {
 				_ = copyFile(filepath.Join(srcConv, e.Name()), destDb)
@@ -644,6 +750,10 @@ func SyncConversations(src string, dest string) error {
 }
 
 func countConversations(geminiDir string) int {
+	return countConversationsExcluding(geminiDir, nil)
+}
+
+func countConversationsExcluding(geminiDir string, exclude map[string]bool) int {
 	convDir := filepath.Join(geminiDir, "conversations")
 	entries, err := os.ReadDir(convDir)
 	if err != nil {
@@ -652,6 +762,10 @@ func countConversations(geminiDir string) int {
 	count := 0
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".db") {
+			uuid := strings.TrimSuffix(e.Name(), ".db")
+			if exclude != nil && exclude[uuid] {
+				continue
+			}
 			count++
 		}
 	}

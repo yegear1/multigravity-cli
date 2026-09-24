@@ -20,10 +20,17 @@ var aiListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		active, _ := cmd.Flags().GetBool("active")
 		archived, _ := cmd.Flags().GetBool("archived")
+		inUse, _ := cmd.Flags().GetBool("in-use")
+		openFlag, _ := cmd.Flags().GetBool("open")
+		if openFlag {
+			inUse = true
+		}
 		jsonOut, _ := cmd.Flags().GetBool("json")
 
 		filter := chat.FilterAll
-		if active && !archived {
+		if inUse {
+			filter = chat.FilterInUse
+		} else if active && !archived {
 			filter = chat.FilterActive
 		} else if archived && !active {
 			filter = chat.FilterArchived
@@ -46,6 +53,8 @@ var aiListCmd = &cobra.Command{
 	PostRun: func(cmd *cobra.Command, args []string) {
 		_ = cmd.Flags().Set("active", "false")
 		_ = cmd.Flags().Set("archived", "false")
+		_ = cmd.Flags().Set("in-use", "false")
+		_ = cmd.Flags().Set("open", "false")
 		_ = cmd.Flags().Set("json", "false")
 	},
 }
@@ -60,7 +69,15 @@ var aiExportCmd = &cobra.Command{
 		if len(args) > 1 {
 			out = args[1]
 		}
-		return chat.ExportConversations(profile, out)
+		skipInUse, _ := cmd.Flags().GetBool("skip-in-use")
+		safeOnly, _ := cmd.Flags().GetBool("safe-only")
+		return chat.ExportConversationsWithOptions(profile, out, chat.ExportOptions{
+			SkipInUse: skipInUse || safeOnly,
+		})
+	},
+	PostRun: func(cmd *cobra.Command, args []string) {
+		_ = cmd.Flags().Set("skip-in-use", "false")
+		_ = cmd.Flags().Set("safe-only", "false")
 	},
 }
 
@@ -81,7 +98,15 @@ var aiSyncCmd = &cobra.Command{
 		if args[0] == args[1] {
 			return fmt.Errorf("source and target profiles cannot be the same")
 		}
-		return chat.SyncConversations(args[0], args[1])
+		skipInUse, _ := cmd.Flags().GetBool("skip-in-use")
+		safeOnly, _ := cmd.Flags().GetBool("safe-only")
+		return chat.SyncConversationsWithOptions(args[0], args[1], chat.SyncOptions{
+			SkipInUse: skipInUse || safeOnly,
+		})
+	},
+	PostRun: func(cmd *cobra.Command, args []string) {
+		_ = cmd.Flags().Set("skip-in-use", "false")
+		_ = cmd.Flags().Set("safe-only", "false")
 	},
 }
 
@@ -89,6 +114,14 @@ func init() {
 	aiListCmd.Flags().Bool("json", false, "Output conversations in JSON format")
 	aiListCmd.Flags().Bool("active", false, "Show only active conversations")
 	aiListCmd.Flags().Bool("archived", false, "Show only archived conversations")
+	aiListCmd.Flags().Bool("in-use", false, "Show only conversations currently open / in use")
+	aiListCmd.Flags().Bool("open", false, "Alias for --in-use")
+
+	aiExportCmd.Flags().Bool("skip-in-use", false, "Skip in-use conversations to allow safe export while profile is running")
+	aiExportCmd.Flags().Bool("safe-only", false, "Alias for --skip-in-use")
+
+	aiSyncCmd.Flags().Bool("skip-in-use", false, "Skip in-use conversations to allow safe sync while profile is running")
+	aiSyncCmd.Flags().Bool("safe-only", false, "Alias for --skip-in-use")
 
 	aiCmd.AddCommand(aiListCmd)
 	aiCmd.AddCommand(aiExportCmd)

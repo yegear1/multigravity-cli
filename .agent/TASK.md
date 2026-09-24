@@ -6,7 +6,7 @@
 
 ## Tarefa Ativa
 
-*(Nenhuma tarefa em execução)*
+*(Nenhuma tarefa ativa no momento)*
 
 ---
 
@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [06.1] | Detecção de Chats de IA em Uso/Abertos no SO e Suporte a Sync Granular Seguro | feat(ai): detect in-use chats via OS handles with safe granular sync | 2026-09-24 |
 | [05.3] | Detecção e Exibição de Tamanho de Conversas (bytes/human-readable) em 'ai list' | feat(ai): add size and size_bytes tracking for AI conversations | 2026-09-24 |
 | [05.2] | Detecção de Estado Arquivado/Ativo e Extração de Tópicos em 'ai list' | feat(ai): detect archived and active chats with transcript topic extraction | 2026-09-24 |
 | [05.1] | Validação Operacional no Ambiente Real e Correção de Detecção de Executável (FindApp) | fix(app): enforce error on invalid app override and fix install home resolution | 2026-09-24 |

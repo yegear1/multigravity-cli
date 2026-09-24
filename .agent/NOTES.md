@@ -418,7 +418,21 @@
     3. Diretório cerebral do agente: caminhamento recursivo em `~/.gemini/antigravity/brain/<uuid>/` somando todos os artefatos markdown e logs de transcrição (`transcript.jsonl`, `transcript_full.jsonl`).
   - **Estrutura de Dados:** Adicionados os campos `size` (string human-readable como `5.9M`, `596.7K`, `201.7K`) e `size_bytes` (int64) na struct `chat.ConversationInfo`.
   - **Apresentação em Terminal:** Inserida a coluna `SIZE` entre `STATUS` e `LAST ACTIVITY` em `multigravity ai list`, e adicionado o somatório `Total size: X.YM` na linha de sumário final.
-  - **Exposição na API REST e JSON:** O contrato JSON disponibiliza `size` e `size_bytes`, permitindo ordenação e gráficos em agregadores e UIs sem reprocessamento no frontend.
+### 2026-09-24 [Task 06.1] Detecção de Chats de IA em Uso/Abertos no SO e Suporte a Sync Granular Seguro
+
+- **Contexto:** `ai sync` e `ai export` abortavam preventivamente quando o perfil estava em execução (`IsProfileRunning`), impedindo o backup ou sincronização das demais conversas inativas e consistentes do perfil.
+- **Descobertas e Decisões Técnicas:**
+  - **Detecção de Handles no SO (`internal/chat/open_*.go`):**
+    - O Antigravity/Language Server abre conexões SQLite em modo WAL (`<uuid>.db`, `<uuid>.db-wal`, `<uuid>.db-shm`) estritamente para as conversas que estão abertas em abas no momento.
+    - No Linux/Unix (`open_unix.go`): inspeção direta de descritores de arquivos em `/proc/[pid]/fd/*` via `os.Readlink` identificando links para `conversations/<uuid>.db*` (< 10ms em Go puro), com fallback automático para `lsof -Fn +D <conversationsDir>`.
+    - No Windows (`open_windows.go`): verificação de arquivos `-wal`/`-shm` ativos com tamanho > 0 e teste atômico de abertura com captura de `ERROR_SHARING_VIOLATION` (32) / `ERROR_LOCK_VIOLATION` (33).
+  - **Enriquecimento de Metadados e Visualização:**
+    - Adicionado campo `InUse bool `json:"in_use"` em `chat.ConversationInfo`.
+    - Ordenação de listagem: conversas em uso aparecem priorizadas no topo da tabela com status `in use`.
+    - Filtro `--in-use` (alias `--open`) adicionado a `multigravity ai list`, contrato JSON e API REST (`GET /api/v1/profiles/{name}/conversations?filter=in_use`).
+  - **Sync e Export Granular Seguro (`--skip-in-use`, `--safe-only`):**
+    - Regra de Ouro #4 preservada por padrão: sem a flag, o comando continua abortando caso o perfil esteja em execução.
+    - Com `--skip-in-use`, detecta quais chats estão abertos pelo SO, emite aviso informativo (ex: `⚠ Profile 'yegear' has 2 open conversation(s) in use. Skipping in-use conversation(s)...`) e exporta/sincroniza com segurança todas as conversas inativas.
 
 
 
