@@ -10,9 +10,11 @@ import (
 
 func setupTestHome(t *testing.T) string {
 	t.Helper()
-	tempDir := t.TempDir()
-	t.Setenv("MULTIGRAVITY_HOME", tempDir)
-	return tempDir
+	tempHome := t.TempDir()
+	tempShortcuts := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", tempShortcuts)
+	return tempHome
 }
 
 func TestCreateProfile(t *testing.T) {

@@ -205,3 +205,21 @@
   - **Limpeza Cirúrgica (`internal/profile/clean.go`, `internal/cmd/clean.go`):** `CleanProfile` e `CleanSingleProfile` removem apenas caches voláteis (Chromium, Electron, GPUCache, Crashpad, Service Worker, crashes, npm cache), preservando intactos arquivos de preferências (`User/settings.json`), extensões e credenciais. Recria `.cache` vazio (e `AppData/Local/Temp` no Windows). Trava ativa impede limpar perfil em execução, e `--all` pula perfis abertos com warning.
   - **Cálculo de Tamanho de Diretório:** `GetDirSizeStr` utiliza `du -sh` no Unix com fallback para caminhamento puro em Go (`filepath.Walk`), garantindo independência de ferramentas externas no Windows.
 
+### 2026-09-24 [Task 90.4] Implementação de Lançamento de Perfis, Detecção de Executável e Atalhos de Desktop em Go
+
+- **Contexto:** Portar detecção do executável (`antigravity`/`agy`), inicialização e lançamento de perfis com passthrough de argumentos e geração/remoção de atalhos de desktop por plataforma (`feat/go-rewrite`).
+- **Decisões:**
+  - **Detecção de Executável (`internal/app/detector.go`):** Respeito prioritário a `MULTIGRAVITY_APP` e `AGY_APP`. Busca exaustiva em `$PATH` e diretórios canônicos por SO (Linux: `/opt`, `/usr/bin`, `~/.local/bin`, `~/apps`; macOS: `/Applications`, `~/Applications`; Windows: `%LOCALAPPDATA%`, `%PROGRAMFILES%`, Scoop). Implementado `FindLanguageServer` com localização de binário interno.
+  - **Atalhos de Desktop (`internal/shortcut/`):**
+    - Linux: cria script wrapper POSIX executável em `~/.local/share/multigravity/launchers/<name>.sh` e arquivo `.desktop` completo em `~/.local/share/applications/multigravity-<name>.desktop`.
+    - macOS: bundle `Multigravity <name>.app` com `Contents/MacOS/run` e `Info.plist`.
+    - Windows: cria atalho `.lnk` no Start Menu com PowerShell COM `WScript.Shell`.
+    - Ciclo de vida: integrado a `CreateProfile` (criação), `DeleteProfile` (remoção) e `RenameProfile` (remoção do antigo e criação do novo). Suporte a isolamento hermético em testes via `MULTIGRAVITY_TEST_SHORTCUTS_DIR`.
+  - **Lançamento e Isolamento de Ambiente (`internal/profile/launcher.go` e `layout.go`):**
+    - Layout e links automáticos antes do lançamento (`EnsureProfileLayout`).
+    - Preservação de ferramentas dev globais enriquecendo `PATH` com `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin` sem quebrar o isolamento de `HOME`.
+    - Injeção das flags Electron `--user-data-dir` e `--extensions-dir` com repasse de flags e caminhos do usuário.
+    - Detecção de `--wait` / `-w` para aguardar encerramento quando utilizado em modo editor/git.
+  - **Cobra CLI Routing (`internal/cmd/root.go`):**
+    - Configurado `rootCmd.FParseErrWhitelist.UnknownFlags = true` e `rootCmd.Flags().SetInterspersed(false)`, permitindo invocar diretamente `multigravity <profile> [args...]` sem conflito com flags do VS Code / Antigravity.
+

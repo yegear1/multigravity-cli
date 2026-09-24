@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -22,6 +24,7 @@ func executeCommand(root *cobra.Command, args ...string) (output string, err err
 func TestCobraNewDeleteRename(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", t.TempDir())
 
 	// Test new
 	_, err := executeCommand(rootCmd, "new", "cli-test-profile", "--shared", "--isolated-dotfiles")
@@ -62,6 +65,7 @@ func TestCobraNewDeleteRename(t *testing.T) {
 func TestCobraStopRestartClean(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", t.TempDir())
 
 	// Create profile for testing
 	_, err := executeCommand(rootCmd, "new", "svc-profile")
@@ -74,6 +78,7 @@ func TestCobraStopRestartClean(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected stop on idle profile to succeed, got: %v", err)
 	}
+	_ = out
 
 	// Test stop with --force
 	_, err = executeCommand(rootCmd, "stop", "svc-profile", "--force")
@@ -82,6 +87,13 @@ func TestCobraStopRestartClean(t *testing.T) {
 	}
 
 	// Test restart
+	fakeApp := filepath.Join(tempHome, "fake-antigravity")
+	if runtime.GOOS == "windows" {
+		fakeApp += ".exe"
+	}
+	_ = os.WriteFile(fakeApp, []byte("#!/bin/sh\necho ok"), 0755)
+	t.Setenv("MULTIGRAVITY_APP", fakeApp)
+
 	_, err = executeCommand(rootCmd, "restart", "svc-profile")
 	if err != nil {
 		t.Fatalf("expected restart to succeed, got: %v", err)
@@ -98,8 +110,48 @@ func TestCobraStopRestartClean(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected clean --all to succeed, got: %v", err)
 	}
+}
 
-	_ = out
+func TestCobraDirectProfileLaunch(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", t.TempDir())
+
+	fakeApp := filepath.Join(tempHome, "fake-antigravity")
+	if runtime.GOOS == "windows" {
+		fakeApp += ".exe"
+	}
+	if err := os.WriteFile(fakeApp, []byte("#!/bin/sh\necho running"), 0755); err != nil {
+		t.Fatalf("failed to write fake app: %v", err)
+	}
+	t.Setenv("MULTIGRAVITY_APP", fakeApp)
+
+	// Create profile
+	_, err := executeCommand(rootCmd, "new", "direct-target")
+	if err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	// Launch profile with arbitrary forward arguments
+	out, err := executeCommand(rootCmd, "direct-target", "--reuse-window", "/some/path/to/folder")
+	if err != nil {
+		t.Fatalf("expected direct profile launch to succeed, got: %v, out: %s", err, out)
+	}
+
+	// Launch non-existent profile
+	_, err = executeCommand(rootCmd, "nonexistent-profile")
+	if err == nil {
+		t.Fatalf("expected direct profile launch for nonexistent profile to fail")
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+
+	// Invalid command / profile name
+	_, err = executeCommand(rootCmd, "invalid name with spaces")
+	if err == nil {
+		t.Fatalf("expected error for invalid command/profile name")
+	}
 }
 
 func fileExists(path string) bool {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/ye-dev/multigravity-cli/internal/config"
+	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
 
 var rootCmd = &cobra.Command{
@@ -15,6 +16,9 @@ It preserves isolation of workspaces, settings, AI chats, and tokens, while allo
 granular sharing of MCP servers, skills, read-only permissions, and developer credentials.`,
 	Version: config.Version,
 	Args:    cobra.ArbitraryArgs,
+	FParseErrWhitelist: cobra.FParseErrWhitelist{
+		UnknownFlags: true,
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
@@ -23,8 +27,7 @@ granular sharing of MCP servers, skills, read-only permissions, and developer cr
 		firstArg := args[0]
 		// Invariant: If first argument is not an internal command, interpret as profile name
 		if err := config.ValidateProfileName(firstArg); err == nil {
-			fmt.Printf("Launching profile %q with args: %v\n", firstArg, args[1:])
-			return nil
+			return profile.LaunchProfile(firstArg, args[1:])
 		}
 
 		return fmt.Errorf("unknown command or invalid profile name: %s", firstArg)
@@ -46,4 +49,5 @@ func init() {
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(restartCmd)
 	rootCmd.AddCommand(cleanCmd)
+	rootCmd.Flags().SetInterspersed(false)
 }

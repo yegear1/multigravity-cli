@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
+	"github.com/ye-dev/multigravity-cli/internal/shortcut"
 )
 
 // CreateOptions defines options for creating a new profile
@@ -63,29 +63,11 @@ func CreateProfile(opts CreateOptions) error {
 		_ = touchFile(filepath.Join(profileDir, ".shared"))
 	}
 
-	// Extensions dir
-	if err := os.MkdirAll(filepath.Join(profileDir, "extensions"), 0755); err != nil {
-		return fmt.Errorf("failed to create extensions directory: %w", err)
+	if err := EnsureProfileLayout(profileDir); err != nil {
+		return fmt.Errorf("failed to configure profile layout: %w", err)
 	}
 
-	// OS-specific layout
-	switch runtime.GOOS {
-	case "darwin":
-		_ = os.MkdirAll(filepath.Join(profileDir, "Library", "Application Support"), 0755)
-		userHome, _ := os.UserHomeDir()
-		keychains := filepath.Join(userHome, "Library", "Keychains")
-		profileKeychains := filepath.Join(profileDir, "Library", "Keychains")
-		if _, err := os.Stat(keychains); err == nil {
-			if _, err := os.Lstat(profileKeychains); os.IsNotExist(err) {
-				_ = os.Symlink(keychains, profileKeychains)
-			}
-		}
-	case "linux":
-		_ = os.MkdirAll(filepath.Join(profileDir, ".config", "Antigravity"), 0755)
-		_ = os.MkdirAll(filepath.Join(profileDir, ".cache"), 0755)
-		_ = os.MkdirAll(filepath.Join(profileDir, ".local", "share"), 0755)
-		_ = os.MkdirAll(filepath.Join(profileDir, ".local", "state"), 0755)
-	}
+	_ = shortcut.CreateShortcut(opts.Name)
 
 	return nil
 }
@@ -112,6 +94,8 @@ func DeleteProfile(name string, force bool) error {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+
+	_ = shortcut.RemoveShortcut(name)
 
 	if err := os.RemoveAll(profileDir); err != nil {
 		return fmt.Errorf("failed to remove profile directory: %w", err)
@@ -143,9 +127,13 @@ func RenameProfile(oldName, newName string) error {
 		return fmt.Errorf("cannot rename profile %q because it is currently running. Stop it first with: multigravity stop %s", oldName, oldName)
 	}
 
+	_ = shortcut.RemoveShortcut(oldName)
+
 	if err := os.Rename(oldDir, newDir); err != nil {
 		return fmt.Errorf("failed to rename profile directory: %w", err)
 	}
+
+	_ = shortcut.CreateShortcut(newName)
 
 	return nil
 }
