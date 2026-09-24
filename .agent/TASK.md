@@ -6,7 +6,7 @@
 
 ## Tarefa Ativa
 
-- [ ] **[90.9] [PRONTO PARA PLANEJAMENTO] Validação de Paridade com Scripts Legados, Instalação e Troca do Ponto de Entrada Padrão**
+*(Nenhuma tarefa em execução. Reescrita em Go concluída; aguardando autorização para 99.1)*
 
 ---
 
@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [90.9] | Validação de Paridade com Scripts Legados, Instalação e Troca do Ponto de Entrada Padrão | f72b027 | 2026-09-24 |
 | [90.8] | Portar Menu Interativo TUI sem argumentos, Diagnóstico do Sistema (`doctor`) e Shell Completion | 8ac1bad | 2026-09-24 |
 | [90.7] | Portar Telemetria de Cotas de IA (`quota`), Automação de Priming (`prime`) e Gestão de Chats (`ai`) via Language Server | 7a62868 | 2026-09-24 |
 | [90.6] | Portar Backup, Restauração e Templates (`clone`, `export`, `import`, `template`, `stats`) | feat(go) | 2026-09-24 |
@@ -35,8 +36,7 @@
 
 ## Backlog (Próximas, em ordem)
 
-- [ ] **[90.9]** Validação de Paridade com Scripts Legados, Instalação e Troca do Ponto de Entrada Padrão
-
+*(Vazio — todas as tarefas da fase 90.x foram concluídas)*
 
 ---
 
