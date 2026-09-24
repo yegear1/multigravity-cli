@@ -24,6 +24,18 @@ var newCmd = &cobra.Command{
 	Short: "Create a new isolated Antigravity profile",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		defer func() {
+			newShared = false
+			newIsolatedDotfiles = false
+			newIsolatedMCP = false
+			newIsolatedSkills = false
+			newIsolatedConfig = false
+			newIsolatedGH = false
+			newColor = ""
+			newFrom = ""
+			newTemplate = ""
+		}()
+
 		name := args[0]
 
 		templateSource := newFrom

@@ -6,7 +6,7 @@
 
 ## Tarefa Ativa
 
-- [ ] **[90.7] [PRONTO PARA PLANEJAMENTO] Portar Telemetria de Cotas de IA (`quota`) e Automação de Priming (`prime`) via Language Server**
+- [ ] **[90.8] [PRONTO PARA PLANEJAMENTO] Portar Menu Interativo TUI sem argumentos, Diagnóstico do Sistema (`doctor`) e Shell Completion**
 
 ---
 
@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [90.7] | Portar Telemetria de Cotas de IA (`quota`), Automação de Priming (`prime`) e Gestão de Chats (`ai`) via Language Server | 7a62868 | 2026-09-24 |
 | [90.6] | Portar Backup, Restauração e Templates (`clone`, `export`, `import`, `template`, `stats`) | feat(go) | 2026-09-24 |
 | [90.5] | Portar Theming Visual (`color`) e Comandos de Compartilhamento/Isolamento Modular (`config`, `mcp`, `skills`, `gh`) | 37895ae | 2026-09-24 |
 | [90.4] | Implementação de Lançamento de Perfis, Detecção de Executável (antigravity/agy) e Atalhos de Desktop em Go | feat(go) | 2026-09-24 |
@@ -33,7 +34,6 @@
 
 ## Backlog (Próximas, em ordem)
 
-- [ ] **[90.8]** Portar Menu Interativo TUI sem argumentos, Diagnóstico do Sistema (`doctor`) e Shell Completion
 - [ ] **[90.9]** Validação de Paridade com Scripts Legados, Instalação e Troca do Ponto de Entrada Padrão
 
 

@@ -20,6 +20,13 @@ type ProfileInfo struct {
 	Color     string
 }
 
+// ProfileExists returns whether a profile exists
+func ProfileExists(name string) bool {
+	dir := config.GetProfileDir(name)
+	info, err := os.Stat(dir)
+	return err == nil && info.IsDir()
+}
+
 // ListProfiles returns a sorted list of profile names
 func ListProfiles() ([]string, error) {
 	base := config.GetMultigravityHome()

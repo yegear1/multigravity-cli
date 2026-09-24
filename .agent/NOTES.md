@@ -256,4 +256,27 @@
   - **Estatísticas de Armazenamento (`internal/profile/stats.go`, `internal/cmd/stats.go`):**
     - `stats`: renderiza tabela de uso de disco (`PROFILE`, `SIZE`, `EXTENSIONS`) com contagem de extensões em `.antigravity/extensions` e cálculo de uso total de `$BASE` com paridade 100% com o legado.
 
+### 2026-09-24 [Task 90.7] Implementação de Telemetria de Cotas (quota), Priming (prime) e Gestão de Chats (ai) em Go
+
+- **Contexto:** Portar telemetria de cotas de IA (`quota`), automação de priming via Language Server (`prime`) e comandos de gerenciamento de histórico e chats de IA (`ai export`, `ai import`, `ai sync`, `ai list`) para a CLI em Go (`feat/go-rewrite`), eliminando qualquer dependência do runtime `python3` externo.
+- **Decisões:**
+  - **Cliente HTTPS e RPCs do Language Server (`internal/quota/`):**
+    - Cliente HTTP TLS puro com `InsecureSkipVerify: true` para comunicação local com o serviço gRPC/HTTPS `/exa.language_server_pb.LanguageServerService/` via JSON (`RetrieveUserQuotaSummary`, `StartCascade`, `SendUserCascadeMessage`).
+    - Geração de UUID v4 puro em Go (`crypto/rand`) para o token CSRF (`X-Codeium-Csrf-Token`).
+    - Descoberta dinâmica de servidores ativos (`FindActiveServers`) via `ps`/sockets (`lsof`, `ss`) e processo pai para identificação automática do perfil dono.
+    - Execução efêmera headless (`StartHeadlessServer`) com parsing do `stderr` em `< 0.5s` e preservação estrita do isolamento de credenciais via `$HOME`/`%USERPROFILE%`.
+    - Renderização visual de barras de progresso ASCII e contagem regressiva em horas/minutos até o reset com paridade integral.
+  - **Automação de Priming Multi-Bucket (`internal/prime/`):**
+    - Suporte aos 4 buckets: `gemini` (semanal), `gemini_5h`, `3p` (semanal Claude/GPT), `3p_5h`.
+    - Catálogo auto-semeado `prompts.json` com 40 mensagens variadas em PT/EN e seleção aleatória sem repetição imediata.
+    - Persistência e migração transparente em `prime_state.json` com conversão automática de arquivos de estado legados de bucket único.
+    - Proteção ativa: trava que impede disparo no bucket de 5h se a cota semanal pai estiver esgotada ($\le 5\%$).
+    - Otimização de disparo: auto-link do ciclo de 5h sem segundo envio de mensagem quando o bucket pai semanal já foi disparado na mesma sessão.
+    - Checagem pré-prime de última milha: aborta disparo se detectar atividade manual do usuário nos segundos prévios ao despacho.
+    - Gestão de automações em background: suporte a crontab e systemd user timers no Linux/macOS, e Scheduled Tasks via `schtasks.exe` no Windows.
+  - **Gerenciamento de Histórico e Conversas (`internal/chat/`):**
+    - `ai list`: consulta `.db` SQLite, títulos em `annotations/*.pbtxt` e arquivos markdown em `brain/`.
+    - `ai export` e `ai import`: empacotamento com sanitização cirúrgica de qualquer token ou credencial (`*token*`, `*oauth*`, `*auth*`, `*credential*`, `installation_id`).
+    - `ai sync`: sincronização não-destrutiva entre perfis com trava ativa de concorrência.
+
 

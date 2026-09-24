@@ -358,3 +358,62 @@ func TestCobraCloneTemplateExportImportStats(t *testing.T) {
 	}
 }
 
+func TestCobraQuotaPrimeAI(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", tempHome)
+
+	_, _ = executeCommand(rootCmd, "new", "ai-test-prof")
+
+	// 1. Test quota on inactive profile
+	out, err := executeCommand(rootCmd, "quota", "ai-test-prof")
+	if err != nil {
+		t.Fatalf("expected quota command to handle inactive profile gracefully: %v", err)
+	}
+	if !strings.Contains(out, "is not running") {
+		t.Errorf("expected 'is not running' in quota output, got: %s", out)
+	}
+
+	// 2. Test ai quota subroute
+	out, err = executeCommand(rootCmd, "ai", "quota", "ai-test-prof")
+	if err != nil {
+		t.Fatalf("expected ai quota command to succeed: %v", err)
+	}
+	if !strings.Contains(out, "is not running") {
+		t.Errorf("expected 'is not running' in ai quota output, got: %s", out)
+	}
+
+	// 3. Test quota on nonexistent profile
+	_, err = executeCommand(rootCmd, "quota", "nonexistent-prof")
+	if err == nil {
+		t.Fatalf("expected error for nonexistent profile in quota")
+	}
+
+	// 4. Test ai list
+	out, err = executeCommand(rootCmd, "ai", "list", "ai-test-prof")
+	if err != nil {
+		t.Fatalf("ai list failed: %v", err)
+	}
+	if !strings.Contains(out, "has no saved AI chats") {
+		t.Errorf("expected empty chats message, got: %s", out)
+	}
+
+	// 5. Test prime flag verification
+	out, err = executeCommand(rootCmd, "prime", "--help")
+	if err != nil {
+		t.Fatalf("prime --help failed: %v", err)
+	}
+	if !strings.Contains(out, "--5h") || !strings.Contains(out, "--status") || !strings.Contains(out, "--no-jitter") {
+		t.Errorf("prime flags missing in help: %s", out)
+	}
+
+	// 6. Test ai help
+	out, err = executeCommand(rootCmd, "ai", "--help")
+	if err != nil {
+		t.Fatalf("ai --help failed: %v", err)
+	}
+	if !strings.Contains(out, "export") || !strings.Contains(out, "quota") || !strings.Contains(out, "prime") {
+		t.Errorf("ai subcommands missing in help: %s", out)
+	}
+}
+
