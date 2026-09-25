@@ -20,6 +20,7 @@ var (
 	primeUninstallSystemd bool
 	primeInstallTask      bool
 	primeUninstallTask    bool
+	primeJSON             bool
 )
 
 func newPrimeCmd() *cobra.Command {
@@ -28,6 +29,31 @@ func newPrimeCmd() *cobra.Command {
 		Short: "Prime weekly token quota and manage reset automations",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			defer func() {
+				prime5h = false
+				primeInclude5h = false
+				primeForce = false
+				primeCheck = false
+				primeStatus = false
+				primeNoJitter = false
+				primeMaxJitter = 60.0
+				primeQuiet = false
+				primeJSON = false
+				primeInstallCron = false
+				primeUninstallCron = false
+				primeInstallSystemd = false
+				primeUninstallSystemd = false
+				primeInstallTask = false
+				primeUninstallTask = false
+				_ = cmd.Flags().Set("json", "false")
+				_ = cmd.Flags().Set("status", "false")
+				_ = cmd.Flags().Set("check", "false")
+				_ = cmd.Flags().Set("force", "false")
+				_ = cmd.Flags().Set("no-jitter", "false")
+				_ = cmd.Flags().Set("5h", "false")
+				_ = cmd.Flags().Set("include-5h", "false")
+			}()
+
 			profile := ""
 			if len(args) > 0 {
 				profile = args[0]
@@ -42,6 +68,8 @@ func newPrimeCmd() *cobra.Command {
 				MaxJitter:        primeMaxJitter,
 				Include5h:        prime5h || primeInclude5h,
 				Quiet:            primeQuiet,
+				JSON:             primeJSON,
+				Out:              cmd.OutOrStdout(),
 				InstallCron:      primeInstallCron,
 				UninstallCron:    primeUninstallCron,
 				InstallSystemd:   primeInstallSystemd,
@@ -53,6 +81,8 @@ func newPrimeCmd() *cobra.Command {
 			return prime.RunPrime(opts)
 		},
 	}
+
+	c.Flags().BoolVar(&primeJSON, "json", false, "Output results in JSON format")
 
 	c.Flags().BoolVar(&prime5h, "5h", false, "Include 5-hour quota reset windows (gemini-5h and 3p-5h)")
 	c.Flags().BoolVar(&primeInclude5h, "include-5h", false, "Include 5-hour quota reset windows")

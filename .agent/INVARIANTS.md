@@ -94,3 +94,14 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
 | **Conversas, Chats e Brains** | `~/.gemini/antigravity/` (`conversations/*.db`, `brain/<uuid>/*`, `annotations/*.pbtxt`) | Histórico de chats, planos, logs de passos e memórias das sessões de agentes. | Manipulado via `multigravity ai export/sync/import` com sanitização automática de tokens. |
 | **Configurações UI da IDE** | `$MULTIGRAVITY_HOME/<perfil>/User/settings.json` | Tema, fontes, atalhos e preferências de editor do perfil. | Específico de cada perfil. |
 | **Dev Auth (Git & GitHub CLI)** | `~/.config/gh/` (ou `%APPDATA%\GitHub CLI`), `~/.git-credentials`, `~/.gitconfig`, `~/.ssh` | Identidade dev, chaves SSH, configs Git e sessão CLI do GitHub. | Compartilhado por symlink para usabilidade dev; opt-out granular via `.isolated_gh` ou `.isolated_dotfiles`. |
+
+---
+
+## 9. Proibição de Manipulação Global de Keyring / Credential Manager
+
+- **Muro de Chesterton:** Ferramentas comunitárias simplificadas (como `blugthek/Multigravity`) alternam contas sobrescrevendo dinamicamente a entrada global do Windows Credential Manager (`gemini:antigravity` via `advapi32.dll`) ou do Keychain antes de cada chamada e restaurando em seguida.
+- **Por que é Estritamente Proibido no Multigravity:**
+  1. **Inviabilidade Concorrente:** O keyring do SO é um recurso global compartilhado por usuário. Múltiplos agentes ou janelas rodando simultaneamente geram condições de corrida incontroláveis, corrompendo as credenciais ativas.
+  2. **Risco Crítico de Perda de Sessão:** Caso o processo sofra crash, interrupção forçada (`kill -9`, falta de energia) ou timeout antes do teardown, o perfil primário do usuário perde sua credencial original e fica deslogado ou apontando para uma conta secundária.
+  3. **Isolamento de Processo é Superior:** O `multigravity-cli` isola perfis via `--user-data-dir`, `--extensions-dir` e ambientes isolados de `$HOME` / `%USERPROFILE%`. Cada perfil mantém sua própria sessão independente, permitindo N instâncias da IDE ou agentes headless rodando simultaneamente sem qualquer sobreposição.
+

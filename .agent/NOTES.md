@@ -19,6 +19,146 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Benchmark & Roadmap] Arquitetura de Gateway Multi-Contas (Elysium) e Orquestrador de Agentes ADE (Orca / Alethe)
+
+- **Contexto:** Benchmark realizado comparando o `multigravity-cli` com `mbl9898/multigravity-elysium`, `Kc1t/alethe-agents` e `Orca (onorca.dev)` para estruturar os Épicos 14 (Fase 1: Gateway de IA & Cotas) e 15 (Fase 2: Orquestrador de Agentes ADE).
+- **Descobertas Técnicas (multigravity-elysium):**
+  - **Heurística de Classificação de Janelas de Cota:** Diferenciação matemática precisa entre limite rotativo de 5 horas e semanal: $\Delta t_{\text{5h}} \le 5\text{h} \approx 0.208\text{ dias}$. Ponto de corte ótimo é $12\text{ horas}$ (`MIN_WEEKLY_RESET_DAYS = 0.5`). Reset $> 12\text{h}$ é garantidamente Semanal.
+  - **Ping de Janela de 5 Horas:** O timer de 5h do CloudCode só dispara após o 1º token; disparar um ping de 1 token proativamente pela manhã antecipa a primeira janela de renovação.
+  - **Gateway CloudCode Streaming:** Endpoint upstream interno `POST https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse` com `Authorization: Bearer <token>` e payload `{model, request: {contents: [...]}}`. Invariante crítica: **NUNCA** enviar header `x-goog-user-project`. Auto-failover em HTTP 429/403 chaveia de conta sem quebrar o stream do cliente.
+- **Padrões de Orquestração ADE (Orca / Alethe-Agents):**
+  - **Worktree-First:** Execução paralela sem conflito através de `git worktree add` para branches efêmeras dedicadas a cada tarefa de agente.
+  - **PTY Multiplexing:** Terminais virtuais reais (`creack/pty` em Go) para CLI interativas (Claude Code, Aider, OpenCode) permitindo stdin/stdout streaming, perguntas de confirmação e captura de histórico.
+  - **Cota-Pooling:** O `multigravity` atuará como provedor unificado de inteligência e roteador de tokens para todos os agentes filhos despachados.
+
+### 2026-09-25 [Task 07.3] Priming e Aquecimento de Cotas via API com Emissão de Progresso
+
+- **Contexto:** Agregadores, ferramentas de telemetria externa e agentes de IA necessitam de endpoints REST para consultar o status de priming e agendamento de watchdog (`GET /api/v1/profiles/{name}/prime`, `GET /api/v1/prime`), bem como acionar o aquecimento proativo de cotas (`POST /api/v1/profiles/{name}/prime`, `POST /api/v1/prime`) com feedback de progresso em tempo real via Server-Sent Events (SSE). Além disso, a CLI precisava do suporte a `--json` em `multigravity prime` (Regras de Ouro #6 e #7 do `AGENTS.md`).
+- **Decisões Técnicas:**
+  - **Desacoplamento Modular do Motor de Priming (`internal/prime`):**
+    - `types.go`: structs estruturadas `ProfilePrimeStatus`, `BucketStatusReport`, `ProfilePrimeResult`, `BucketPrimeResult`, e evento de progresso `PrimeProgressEvent` (`stage`, `bucket`, `message`, `details`, `timestamp`).
+    - `status.go`: implementação pura de `GetProfilePrimeStatus` e `GetAllProfilesPrimeStatus`. Em caso de Language Server offline, retorna dados consolidados e estado salvo sem quebrar a API HTTP (com `ServerMode: "offline"`).
+    - `execute.go`: implementação pura de `ExecutePrime(opts PrimeOptions, cb ProgressCallback)` emitindo marcos em tempo real (`initializing`, `server_ready`, `checking`, `jitter_waiting`, `dispatching`, `primed`, `skipped`, `aborted`, `completed`).
+    - `engine.go`: preservação 100% retrocompatível do comando CLI `RunPrime`, delegando para o callback de terminal estilizado com suporte a `--json`.
+    - `SetTestHooks`: exportação de closures herméticas para simular servidores ativos, instâncias headless e `QuotaClient` sem dependência de processos reais do Antigravity.
+  - **Endpoints REST (`internal/server/routes.go`):**
+    - `GET /api/v1/profiles/{name}/prime` e `/api/profiles/{name}/prime`: status granular por perfil.
+    - `GET /api/v1/prime` e `/api/prime`: status consolidado de todos os perfis.
+    - `POST /api/v1/profiles/{name}/prime` e `/api/profiles/{name}/prime`: aciona priming com payload opcional (`force`, `check`, `include_5h`, `no_jitter`, `max_jitter`), transmitindo eventos SSE (`event: prime`) e finalizando com evento de ação (`event: action`, `action: prime`).
+    - `POST /api/v1/prime` e `/api/prime`: aciona priming em lote.
+  - **Flag `--json` na CLI (`internal/cmd/prime.go`):**
+    - Suporte a `multigravity prime [profile] --status --json` e `multigravity prime [profile] --check --json`.
+    - Adicionado reset determinístico de todas as variáveis de flag no `defer` para evitar vazamento de estado em chamadas sucessivas.
+  - **Higiene em `profile.ListProfiles` (`internal/profile/profile.go`):**
+    - Ignora deterministicamente quaisquer diretórios ocultos (prefixo `.`) ao listar perfis, evitando que pastas do sistema como `.local` ou `.cache` sejam computadas como perfis se `MULTIGRAVITY_HOME` coincidir com a home.
+
+### 2026-09-25 [Pesquisa Técnica] Mapeamento do Endpoint Interno CloudCode PA (Cotas Google Cloud)
+
+- **Fonte:** Engenharia reversa documentada no repositório público [`cryptogabovz/gestor-multigravity`](https://github.com/cryptogabovz/gestor-multigravity) (projeto derivado do *Antigravity Assistant*).
+- **Status:** **Incerto / Não-oficial (Sob Observação).** Não implementado no núcleo do Multigravity devido a restrições rígidas de custódia de credenciais.
+- **Contexto e Mecânica:**
+  - O Antigravity utiliza os serviços de backend do Google Cloud Code / Gemini Code Assist para obter os limites de cota da conta conectada.
+  - Endpoints identificados:
+    1. **Descoberta do Projeto do Usuário:**
+       - `POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist`
+       - Headers: `Authorization: Bearer <access_token>`, `User-Agent: antigravity/1.11.3 Darwin/arm64`
+       - Payload: `{"metadata": {"ideType": "ANTIGRAVITY"}}`
+       - Retorno: Campo `cloudaicompanionProject` com o ID interno do projeto (ex: `anthropic-xxxx`).
+    2. **Consulta Direta de Cotas e Modelos:**
+       - `POST https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels`
+       - Headers: `Authorization: Bearer <access_token>`, `User-Agent: antigravity/1.11.3 Darwin/arm64`
+       - Payload: `{"project": "<projectId>"}`
+       - Retorno: Estrutura JSON `models` contendo cada modelo (`gemini-2.5-pro`, `gemini-2.5-flash`, `claude-3-5-sonnet`, etc.) com `quotaInfo.remainingFraction` (0.0 a 1.0) e `quotaInfo.resetTime` (timestamp ISO-8601).
+- **Ressalvas, Incertezas e Invariantes:**
+  - **API Privada (`v1internal`):** Não é um contrato público da Google. Pode sofrer alterações de schema, bloqueio de User-Agent ou revogação de escopos OAuth sem aviso.
+  - **Custódia de Tokens (Regra de Ouro #5):** Essa chamada requer um `access_token` válido gerado por um `refresh_token` do Google OAuth. O `multigravity-cli` adota o princípio de **zero custódia de credenciais** (deixando as contas isoladas no armazenamento nativo do Antigravity/SO). Adotar este endpoint exigiria armazenar ou manipular segredos OAuth, o que contraria as diretrizes atuais.
+  - **Utilidade Futura:** Registrado como possível fallback leve para telemetria externa caso um dia o usuário opte expressamente por um modo de monitoramento remoto sem processo local do `language_server`.
+
+### 2026-09-25 [Pesquisa Técnica] Benchmark e Oportunidades Futuras: blugthek/Multigravity (OAuth2 PKCE, CLI Contratos & Subagents)
+
+- **Fonte:** Repositório público no GitHub: [`https://github.com/blugthek/Multigravity`](https://github.com/blugthek/Multigravity)
+  - **Autor:** BLUGTHEK
+  - **Commit de Referência:** `4fef9e406bf1d8aabc4238e13eed263e9d2eb78e` (Branch `main`, Setembro/2026)
+  - **Licença:** MIT
+  - **Descrição:** *"Multi-account agy subagent runner. Run prompts across multiple Google accounts with separate quota consumption."*
+- **Status:** **Mapeamento de Referência Técnica / Backlog de Oportunidades Futuras.**
+- **Contexto:** Análise aprofundada do código-fonte identificou 5 pontos e mecanismos técnicos com alto valor de aproveitamento para o `multigravity-cli`:
+
+#### 1. Parâmetros Canônicos do Fluxo Google OAuth2 PKCE para Antigravity
+- **Descoberta:** O arquivo `oauth.py` documenta os parâmetros de autorização e troca de tokens que o Antigravity utiliza para vincular contas Google:
+  - **OAuth Client ID:** `1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com`
+  - **Endpoints:**
+    - Auth: `https://accounts.google.com/o/oauth2/auth`
+    - Token: `https://oauth2.googleapis.com/token`
+    - UserInfo: `https://www.googleapis.com/oauth2/v2/userinfo`
+  - **Redirect URI:** `http://127.0.0.1:{port}/callback`
+  - **Escopos Canônicos:**
+    - `https://www.googleapis.com/auth/cloud-platform`
+    - `https://www.googleapis.com/auth/userinfo.email`
+    - `https://www.googleapis.com/auth/userinfo.profile`
+    - `https://www.googleapis.com/auth/cclog`
+    - `https://www.googleapis.com/auth/experimentsandconfigs`
+    - `https://www.googleapis.com/auth/aicode`
+    - `openid`
+  - **Estrutura do Payload de Credencial no Keyring:**
+    - Target: `gemini:antigravity`, Usuário: `antigravity`, `oauth_client_key: "antigravity_enterprise"`
+    - Blob UTF-8:
+      ```json
+      {
+        "token": {
+          "access_token": "<token>",
+          "token_type": "Bearer",
+          "refresh_token": "<refresh>",
+          "expiry": "2026-09-25T17:00:00+00:00"
+        },
+        "auth_method": "consumer"
+      }
+      ```
+- **Aplicabilidade Futura:**
+  - Viabiliza um comando `multigravity login <profile>` diretamente via CLI (iniciando listener HTTP efêmero local, abrindo o navegador com desafio PKCE S256 e gravando a credencial autenticada no ambiente isolado do perfil).
+  - Permite provisionar e autenticar perfis headless sem nunca precisar iniciar a interface gráfica do Electron/IDE apenas para fazer login.
+  - **Guarda de Segurança (Regra #5):** A credencial deve permanecer estritamente confinada ao vault/diretório do respectivo perfil, nunca centralizando refresh tokens em texto puro em arquivos compartilhados.
+
+#### 2. Despacho Concorrente de Tarefas / Subagentes em Lote (`multigravity exec --all`)
+- **Descoberta:** O `blugthek/Multigravity` propõe um comando `run-all "<prompt>"` para queimar cotas separadas entre contas ao despachar prompts sequenciais para a CLI `agy`.
+- **Limitação no Modelo Deles:** Como operam sobrescrevendo o keyring global do Windows, só conseguem rodar sequencialmente (com risco de corromper a conta primária se abortados).
+- **Vantagem e Oportunidade no Nosso Repositório:**
+  - O `multigravity-cli` possui isolamento real de processos e sistema de arquivos via `--user-data-dir`, `--extensions-dir` e `$HOME` / `%USERPROFILE%` dedicados por perfil.
+  - Isso possibilita criar uma evolução de primeira classe: `multigravity exec [perfil|--all] "<prompt>"`, capaz de despachar tarefas **em paralelo verdadeiro** através de múltiplos perfis (usando worker pool em Go), agregando as respostas estruturadas em JSON.
+  - Integra-se perfeitamente ao motor de priming (`internal/prime`) e à API HTTP (`multigravity serve`), permitindo que orquestradores externos distribuam cargas de trabalho por perfis com cotas saudáveis.
+
+#### 3. Contrato de Invocação e Schema Machine-Readable da CLI `agy`
+- **Descoberta:** O arquivo `runner.py` mapeia os argumentos exatos e o schema JSON de saída retornado pelo binário `agy`:
+  - **Flags de Execução Headless:**
+    - `-p <prompt>`: Prompt textual a ser executado pelo subagente.
+    - `--print-timeout <dur>`: Timeout de execução (ex: `120s`).
+    - `--output-format json`: Força a saída em JSON estruturado via stdout.
+    - `--dangerously-skip-permissions`: Suprime confirmações interativas de ferramentas e sandbox.
+  - **Contrato de Retorno JSON:**
+    ```json
+    {
+      "response": "Resposta do modelo...",
+      "usage": {
+        "total_tokens": 18505
+      },
+      "duration_seconds": 12.3
+    }
+    ```
+- **Aplicabilidade Futura:**
+  - Valida o contrato canônico para orquestração de subagentes via CLI `agy`, servindo de base para o parser de telemetria de tokens consumidos em tarefas headless do Multigravity.
+
+#### 4. Renovação Direta de Tokens OAuth (`grant_type=refresh_token`) e Verificação de Identidade
+- **Descoberta:** Os arquivos `oauth.py` e `accounts.py` implementam o ciclo de vida completo de tokens:
+  - **Refresh Flow:** `POST https://oauth2.googleapis.com/token` com dados `client_id`, `refresh_token` e `grant_type=refresh_token` renova o access token sem interação humana.
+  - **User Info API:** `GET https://www.googleapis.com/oauth2/v2/userinfo` com `Authorization: Bearer <access_token>` retorna imediatamente `{ "email": "...", "name": "..." }`.
+- **Aplicabilidade Futura:**
+  - Permite verificar a identidade ativa de um perfil e a validade de sua sessão diretamente via HTTP, sem precisar inicializar o pesado processo do `language_server` do Antigravity.
+
+#### 5. Mapeamento do Ecossistema Comunitário Legado (`cockpit-tools`)
+- **Descoberta:** O `accounts.py` implementa migração a partir de `~/.antigravity_cockpit/accounts/*.json` (ferramenta comunitária anterior em Rust).
+- **Aplicabilidade Futura:**
+  - Caso seja necessário oferecer retrocompatibilidade ou migração para usuários vindos do `cockpit-tools` ou de ferramentas antigas, o diretório e formato JSON dos dados já estão identificados.
+
 ### 2026-09-25 [Task 07.2] Mutação de Compartilhamento Dinâmico via API (Toggle de MCP, Skills, Config, Git/GitHub)
 
 - **Contexto:** Agregadores de telemetria externa, extensões e agentes autônomos necessitam de endpoints REST para consultar e mutar dinamicamente os vínculos de compartilhamento e isolamento de recursos (`mcp`, `skills`, `config`, `gh`/`github`, e `git`/`dotfiles`) por perfil, com emissão de eventos em tempo real via Server-Sent Events (SSE).

@@ -10,6 +10,7 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/chat"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/doctor"
+	"github.com/ye-dev/multigravity-cli/internal/prime"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
@@ -69,6 +70,27 @@ type SetSharingRequest struct {
 	Mode     string `json:"mode,omitempty"`
 	Shared   *bool  `json:"shared,omitempty"`
 	Resource string `json:"resource,omitempty"`
+}
+
+// PrimeRequest defines parameters for triggering prime on a single profile
+type PrimeRequest struct {
+	Force        bool    `json:"force"`
+	Check        bool    `json:"check"`
+	Include5h    bool    `json:"include_5h"`
+	Include5hAlt bool    `json:"5h,omitempty"`
+	NoJitter     bool    `json:"no_jitter"`
+	MaxJitter    float64 `json:"max_jitter"`
+}
+
+// BatchPrimeRequest defines parameters for triggering prime on multiple profiles
+type BatchPrimeRequest struct {
+	Profiles     []string `json:"profiles,omitempty"`
+	Force        bool     `json:"force"`
+	Check        bool     `json:"check"`
+	Include5h    bool     `json:"include_5h"`
+	Include5hAlt bool     `json:"5h,omitempty"`
+	NoJitter     bool     `json:"no_jitter"`
+	MaxJitter    float64  `json:"max_jitter"`
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, data any) {
@@ -163,11 +185,21 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /api/v1/profiles/{name}/conversations", s.handleGetConversations)
 	s.mux.HandleFunc("GET /api/profiles/{name}/conversations", s.handleGetConversations)
 
-	// Quota
+	// Quota & Priming
 	s.mux.HandleFunc("GET /api/v1/quota", s.handleQuota)
 	s.mux.HandleFunc("GET /api/quota", s.handleQuota)
 	s.mux.HandleFunc("GET /api/v1/quota/{profile}", s.handleQuotaProfile)
 	s.mux.HandleFunc("GET /api/quota/{profile}", s.handleQuotaProfile)
+
+	s.mux.HandleFunc("GET /api/v1/profiles/{name}/prime", s.handleGetProfilePrime)
+	s.mux.HandleFunc("GET /api/profiles/{name}/prime", s.handleGetProfilePrime)
+	s.mux.HandleFunc("GET /api/v1/prime", s.handleGetAllPrime)
+	s.mux.HandleFunc("GET /api/prime", s.handleGetAllPrime)
+
+	s.mux.HandleFunc("POST /api/v1/profiles/{name}/prime", s.handlePostProfilePrime)
+	s.mux.HandleFunc("POST /api/profiles/{name}/prime", s.handlePostProfilePrime)
+	s.mux.HandleFunc("POST /api/v1/prime", s.handlePostAllPrime)
+	s.mux.HandleFunc("POST /api/prime", s.handlePostAllPrime)
 
 	// Real-time Streaming (SSE)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
@@ -571,6 +603,185 @@ func (s *Server) handleQuotaProfile(w http.ResponseWriter, r *http.Request) {
 		servers = []quota.ActiveServer{}
 	}
 	s.writeJSON(w, http.StatusOK, servers)
+}
+
+func (s *Server) handleGetProfilePrime(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !profile.ProfileExists(name) {
+		s.writeError(w, http.StatusNotFound, fmt.Sprintf("profile %q does not exist", name))
+		return
+	}
+
+	st, err := prime.GetProfilePrimeStatus(name)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleGetAllPrime(w http.ResponseWriter, r *http.Request) {
+	statuses, err := prime.GetAllProfilesPrimeStatus()
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if statuses == nil {
+		statuses = []prime.ProfilePrimeStatus{}
+	}
+	s.writeJSON(w, http.StatusOK, statuses)
+}
+
+func (s *Server) handlePostProfilePrime(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !profile.ProfileExists(name) {
+		s.writeError(w, http.StatusNotFound, fmt.Sprintf("profile %q does not exist", name))
+		return
+	}
+
+	var req PrimeRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	q := r.URL.Query()
+	if q.Get("force") == "true" {
+		req.Force = true
+	}
+	if q.Get("check") == "true" {
+		req.Check = true
+	}
+	if q.Get("5h") == "true" || q.Get("include_5h") == "true" {
+		req.Include5h = true
+	}
+	if q.Get("no_jitter") == "true" {
+		req.NoJitter = true
+	}
+
+	opts := prime.PrimeOptions{
+		Profile:   name,
+		Force:     req.Force,
+		Check:     req.Check,
+		Include5h: req.Include5h || req.Include5hAlt,
+		NoJitter:  req.NoJitter,
+		MaxJitter: req.MaxJitter,
+		Quiet:     true,
+	}
+
+	progressCb := func(ev prime.PrimeProgressEvent) {
+		if s.broker != nil {
+			s.broker.Broadcast(SSEEvent{
+				Event: "prime",
+				Data:  ev,
+				Time:  time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+	}
+
+	res, err := prime.ExecutePrime(opts, progressCb)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":  "prime",
+				"profile": name,
+				"status":  "completed",
+				"results": res.Buckets,
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handlePostAllPrime(w http.ResponseWriter, r *http.Request) {
+	var req BatchPrimeRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	q := r.URL.Query()
+	if q.Get("force") == "true" {
+		req.Force = true
+	}
+	if q.Get("check") == "true" {
+		req.Check = true
+	}
+	if q.Get("5h") == "true" || q.Get("include_5h") == "true" {
+		req.Include5h = true
+	}
+	if q.Get("no_jitter") == "true" {
+		req.NoJitter = true
+	}
+
+	targetProfiles := req.Profiles
+	if len(targetProfiles) == 0 {
+		var err error
+		targetProfiles, err = profile.ListProfiles()
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	if len(targetProfiles) == 0 {
+		targetProfiles = []string{"default"}
+	}
+
+	results := make([]prime.ProfilePrimeResult, 0, len(targetProfiles))
+
+	progressCb := func(ev prime.PrimeProgressEvent) {
+		if s.broker != nil {
+			s.broker.Broadcast(SSEEvent{
+				Event: "prime",
+				Data:  ev,
+				Time:  time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+	}
+
+	for _, p := range targetProfiles {
+		opts := prime.PrimeOptions{
+			Profile:   p,
+			Force:     req.Force,
+			Check:     req.Check,
+			Include5h: req.Include5h || req.Include5hAlt,
+			NoJitter:  req.NoJitter,
+			MaxJitter: req.MaxJitter,
+			Quiet:     true,
+		}
+
+		res, err := prime.ExecutePrime(opts, progressCb)
+		if err != nil {
+			results = append(results, prime.ProfilePrimeResult{
+				Profile: p,
+				Error:   err.Error(),
+			})
+			continue
+		}
+		results = append(results, *res)
+	}
+
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action": "prime",
+				"status": "completed",
+				"batch":  true,
+				"count":  len(results),
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, results)
 }
 
 func (s *Server) handleStopProfile(w http.ResponseWriter, r *http.Request) {

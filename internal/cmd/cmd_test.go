@@ -4,16 +4,20 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/ye-dev/multigravity-cli/internal/chat"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/doctor"
+	"github.com/ye-dev/multigravity-cli/internal/prime"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
 
 func executeCommand(root *cobra.Command, args ...string) (output string, err error) {
@@ -22,8 +26,22 @@ func executeCommand(root *cobra.Command, args ...string) (output string, err err
 	root.SetErr(buf)
 	root.SetArgs(args)
 
+	resetHelp(root)
+
 	err = root.Execute()
 	return buf.String(), err
+}
+
+func resetHelp(c *cobra.Command) {
+	if f := c.Flags().Lookup("help"); f != nil {
+		_ = f.Value.Set("false")
+	}
+	if f := c.PersistentFlags().Lookup("help"); f != nil {
+		_ = f.Value.Set("false")
+	}
+	for _, sub := range c.Commands() {
+		resetHelp(sub)
+	}
 }
 
 func TestCobraNewDeleteRename(t *testing.T) {
@@ -954,6 +972,93 @@ func TestCobraStatusJSONAndArgs(t *testing.T) {
 		t.Errorf("expected error for nonexistent profile with --json")
 	}
 }
+
+type mockCmdPrimeClient struct{}
+
+func (m *mockCmdPrimeClient) RetrieveUserQuotaSummary(port int, csrf string) (*quota.QuotaSummaryResponse, error) {
+	return &quota.QuotaSummaryResponse{
+		Response: quota.QuotaResponse{
+			Groups: []quota.QuotaGroup{
+				{
+					Buckets: []quota.QuotaBucket{
+						{
+							BucketID:          "gemini-weekly",
+							DisplayName:       "Gemini",
+							RemainingFraction: 1.0,
+							ResetTime:         "2026-10-01T00:00:00Z",
+						},
+					},
+				},
+			},
+		},
+	}, nil
+}
+
+func (m *mockCmdPrimeClient) StartCascade(port int, csrf string) (string, error) {
+	return "casc-cmd-json", nil
+}
+
+func (m *mockCmdPrimeClient) SendUserCascadeMessage(port int, csrf string, cascadeID string, prompt string, model string) error {
+	return nil
+}
+
+func TestCobraPrimeJSON(t *testing.T) {
+	tempHome := t.TempDir()
+	profilesDir := filepath.Join(tempHome, "profiles")
+	t.Setenv("MULTIGRAVITY_HOME", profilesDir)
+	t.Setenv("REAL_HOME", tempHome)
+
+	profDir := filepath.Join(profilesDir, "test-prime-prof")
+	if err := os.MkdirAll(profDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanup := prime.SetTestHooks(
+		func(profile string) ([]quota.ActiveServer, error) {
+			if profile == "test-prime-prof" {
+				return []quota.ActiveServer{
+					{Profile: "test-prime-prof", PID: 1234, Port: 9876, CSRF: "csrf-cmd"},
+				}, nil
+			}
+			return nil, nil
+		},
+		func(profile string) (*quota.HeadlessInstance, error) {
+			return nil, fmt.Errorf("headless mock")
+		},
+		func(timeout time.Duration) prime.QuotaClient {
+			return &mockCmdPrimeClient{}
+		},
+		0,
+	)
+	defer cleanup()
+
+	// 1. Test prime <profile> --status --json
+	out, err := executeCommand(rootCmd, "prime", "test-prime-prof", "--status", "--json")
+	if err != nil {
+		t.Fatalf("prime --status --json failed: %v", err)
+	}
+	var st prime.ProfilePrimeStatus
+	if err := json.Unmarshal([]byte(out), &st); err != nil {
+		t.Fatalf("failed to parse prime status json: %v, out: %s", err, out)
+	}
+	if st.Profile != "test-prime-prof" || len(st.Buckets) == 0 {
+		t.Errorf("unexpected prime status: %+v", st)
+	}
+
+	// 2. Test prime <profile> --check --json
+	out, err = executeCommand(rootCmd, "prime", "test-prime-prof", "--check", "--json")
+	if err != nil {
+		t.Fatalf("prime --check --json failed: %v", err)
+	}
+	var res prime.ProfilePrimeResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("failed to parse prime result json: %v, out: %s", err, out)
+	}
+	if res.Profile != "test-prime-prof" || len(res.Buckets) == 0 || res.Buckets[0].Status != "ready" {
+		t.Errorf("unexpected prime dry-run result: %+v", res)
+	}
+}
+
 
 
 

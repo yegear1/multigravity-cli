@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [07.3] | Priming e Aquecimento de Cotas via API com Emissão de Progresso | feat(prime): add priming API endpoints, SSE progress, and CLI --json | 2026-09-25 |
 | [07.2] | Mutação de Compartilhamento Dinâmico via API (Toggle de MCP, Skills, Config, Git/GitHub) | feat(server): add sharing mutation endpoints and dynamic resource toggling | 2026-09-25 |
 | [07.1] | Gerenciamento Completo de Perfis via API (Criação com `--auth-only`, Exclusão, Renomeação e Launch/Stop/Restart de Instâncias) | feat(server): implement mutation endpoints for profile creation, deletion, and lifecycle | 2026-09-25 |
 | [11.5] | Landing Page Estática e Onboarding Visual Interativo para Iniciantes (GitHub Pages / Showcase) | feat(docs): create interactive landing page and onboarding showcase for github pages | 2026-09-25 |
@@ -39,7 +40,19 @@
 
 ## Backlog (Próximas, em ordem)
 
-- [ ] **[07.3]** Priming e Aquecimento de Cotas via API com Emissão de Progresso
+### Fase 1: Gateway de IA Multi-Contas & Refinamento de Cotas (Épico 14)
+- [ ] **[14.1]** Heurística de Janela de Cotas (5h vs Semanal) e Ping de Aquecimento Proativo (`quota`/`prime`)
+- [ ] **[14.2]** Gateway de Completions OpenAI-Compatible (`/v1/chat/completions`) no `multigravity serve` com SSE
+- [ ] **[14.3]** Roteador Multi-Contas com Algoritmos de Distribuição (Smart Priority, Round Robin) e Auto-Failover em HTTP 429/403 entre Perfis
+- [ ] **[14.4]** Gateway Anthropic-Compatible (`/v1/messages`) e Mapeamento de Modelos (Claude Sonnet/Opus ↔ Gemini 3.5/3.6)
+
+### Fase 2: Orquestrador de Agentes — Worktrees, PTYs & Task Dispatcher (Épico 15)
+- [ ] **[15.1]** Gerenciador de Git Worktrees Efêmeros por Agente/Tarefa (`internal/worktree`)
+- [ ] **[15.2]** Multiplexador de Terminais PTY e Execução Headless de Agentes CLI (Claude Code, Aider, OpenCode) com Isolamento de Identidade
+- [ ] **[15.3]** Motor de Despacho de Tarefas (`multigravity dispatch`) com Associação de Perfil, Worktree e Captura de Logs
+- [ ] **[15.4]** Visualizador e API de Diffs / Status de Execução de Tarefas no `multigravity serve` para futura GUI Desktop (Tauri/Wails)
+
+### Backlog Geral de Evolução do Core
 - [ ] **[08.1]** Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil
 - [ ] **[08.2]** Invocação e Gestão de Agentes Headless em Background com Isolamento de Identidade
 - [ ] **[08.3]** Sistema de Snapshots e Rollback Seguro de Perfis e Conversas
@@ -52,5 +65,13 @@
 
 ## Backlog Futuro / Ideias (não priorizadas)
 
+- [ ] **[12.1]** Extensão Companion In-Editor para Antigravity IDE: Monitor de Cotas na StatusBar e Painel Visual via Daemon Local (`multigravity serve`)
+  - *Diretriz de Execução:* **Desenvolver e testar obrigatoriamente em branch dedicada** (ex: `feat/in-editor-companion` ou `experiment/in-editor-companion`), mantendo a branch principal (`main`) livre de dependências de tooling TypeScript/VSIX até validação funcional completa.
+- [ ] **[13.1]** Autenticação Direta Headless via CLI (`multigravity login <profile>` com Google OAuth2 PKCE e callback HTTP efêmero)
+- [ ] **[13.2]** Despacho Concorrente de Tarefas e Subagentes (`multigravity exec [profile|--all] "<prompt>"`) com pooling paralelo de cotas
+- [ ] **[13.3]** Importador e Migração de Ferramentas Comunitárias Legadas (`cockpit-tools` em `~/.antigravity_cockpit/accounts/`)
 - [ ] **[99.1]** Preparar Release (Tag Git) e Sanitizar Contexto (Apenas executar com permissão explícita do usuário)
+
+
+
 

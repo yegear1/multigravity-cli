@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
@@ -46,7 +47,7 @@ func ListProfiles() ([]string, error) {
 			continue
 		}
 		name := entry.Name()
-		if name == ".templates" {
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
 		names = append(names, name)

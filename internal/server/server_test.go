@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ye-dev/multigravity-cli/internal/prime"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
 
 func setupTestServer(t *testing.T) (*Server, string) {
@@ -1060,4 +1063,205 @@ func TestSharingMutationSSE(t *testing.T) {
 		t.Fatalf("expected sharing data in SSE, got %q", line2)
 	}
 }
+
+type testPrimeClient struct{}
+
+func (m *testPrimeClient) RetrieveUserQuotaSummary(port int, csrf string) (*quota.QuotaSummaryResponse, error) {
+	return &quota.QuotaSummaryResponse{
+		Response: quota.QuotaResponse{
+			Groups: []quota.QuotaGroup{
+				{
+					Buckets: []quota.QuotaBucket{
+						{
+							BucketID:          "gemini-weekly",
+							DisplayName:       "Gemini Weekly",
+							RemainingFraction: 1.0,
+							ResetTime:         "2026-10-01T00:00:00Z",
+						},
+					},
+				},
+			},
+		},
+	}, nil
+}
+
+func (m *testPrimeClient) StartCascade(port int, csrf string) (string, error) {
+	return "casc-api-test", nil
+}
+
+func (m *testPrimeClient) SendUserCascadeMessage(port int, csrf string, cascadeID string, prompt string, model string) error {
+	return nil
+}
+
+func TestPrimeEndpoints(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	// Create test profile
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles", strings.NewReader(`{"name": "prime-api-prof"}`))
+	createRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", createRec.Code)
+	}
+
+	cleanup := prime.SetTestHooks(
+		func(profile string) ([]quota.ActiveServer, error) {
+			if profile == "prime-api-prof" {
+				return []quota.ActiveServer{
+					{Profile: "prime-api-prof", PID: 5566, Port: 7788, CSRF: "tok-api"},
+				}, nil
+			}
+			return nil, nil
+		},
+		func(profile string) (*quota.HeadlessInstance, error) {
+			return nil, fmt.Errorf("headless mock")
+		},
+		func(timeout time.Duration) prime.QuotaClient {
+			return &testPrimeClient{}
+		},
+		0,
+	)
+	defer cleanup()
+
+	// 1. GET /api/v1/profiles/nonexistent/prime -> 404
+	get404Req := httptest.NewRequest(http.MethodGet, "/api/v1/profiles/nonexistent/prime", nil)
+	get404Rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(get404Rec, get404Req)
+	if get404Rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent profile prime, got %d", get404Rec.Code)
+	}
+
+	// 2. GET /api/v1/profiles/prime-api-prof/prime -> 200
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/profiles/prime-api-prof/prime", nil)
+	getRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for prime status, got %d: %s", getRec.Code, getRec.Body.String())
+	}
+	var getResp APIResponse
+	if err := json.Unmarshal(getRec.Body.Bytes(), &getResp); err != nil {
+		t.Fatal(err)
+	}
+	if !getResp.Success {
+		t.Errorf("expected success: true")
+	}
+
+	// 3. GET /api/v1/prime -> 200 list
+	getAllReq := httptest.NewRequest(http.MethodGet, "/api/v1/prime", nil)
+	getAllRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(getAllRec, getAllReq)
+	if getAllRec.Code != http.StatusOK {
+		t.Errorf("expected 200 for get all prime, got %d", getAllRec.Code)
+	}
+
+	// 4. POST /api/v1/profiles/prime-api-prof/prime (check dry-run) -> 200
+	postCheckReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/prime-api-prof/prime", strings.NewReader(`{"check": true, "no_jitter": true}`))
+	postCheckRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(postCheckRec, postCheckReq)
+	if postCheckRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for check dry-run prime, got %d: %s", postCheckRec.Code, postCheckRec.Body.String())
+	}
+
+	// 5. POST /api/v1/profiles/prime-api-prof/prime (actual prime) -> 200
+	postPrimeReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/prime-api-prof/prime", strings.NewReader(`{"force": true, "no_jitter": true}`))
+	postPrimeRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(postPrimeRec, postPrimeReq)
+	if postPrimeRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for actual prime, got %d: %s", postPrimeRec.Code, postPrimeRec.Body.String())
+	}
+
+	// 6. POST /api/v1/prime (batch check) -> 200
+	postBatchReq := httptest.NewRequest(http.MethodPost, "/api/v1/prime", strings.NewReader(`{"profiles": ["prime-api-prof"], "check": true}`))
+	postBatchRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(postBatchRec, postBatchReq)
+	if postBatchRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for batch prime, got %d: %s", postBatchRec.Code, postBatchRec.Body.String())
+	}
+}
+
+func TestPrimeProgressSSE(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	// Create test profile
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles", strings.NewReader(`{"name": "prime-sse-prof"}`))
+	createRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", createRec.Code)
+	}
+
+	cleanup := prime.SetTestHooks(
+		func(profile string) ([]quota.ActiveServer, error) {
+			if profile == "prime-sse-prof" {
+				return []quota.ActiveServer{
+					{Profile: "prime-sse-prof", PID: 1234, Port: 8765, CSRF: "tok-sse"},
+				}, nil
+			}
+			return nil, nil
+		},
+		func(profile string) (*quota.HeadlessInstance, error) {
+			return nil, fmt.Errorf("headless mock")
+		},
+		func(timeout time.Duration) prime.QuotaClient {
+			return &testPrimeClient{}
+		},
+		0,
+	)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Connect SSE client
+	resp, err := http.Get(ts.URL + "/api/v1/events")
+	if err != nil {
+		t.Fatalf("failed to connect to SSE: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+
+	// Read initial init event
+	_, _ = reader.ReadString('\n') // event: init
+	_, _ = reader.ReadString('\n') // data: ...
+	_, _ = reader.ReadString('\n') // empty line
+
+	// Trigger prime
+	primeReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/profiles/prime-sse-prof/prime", strings.NewReader(`{"force": true, "no_jitter": true}`))
+	primeReq.Header.Set("Content-Type", "application/json")
+	primeResp, err := http.DefaultClient.Do(primeReq)
+	if err != nil {
+		t.Fatalf("failed to trigger prime: %v", err)
+	}
+	primeResp.Body.Close()
+	if primeResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", primeResp.StatusCode)
+	}
+
+	// Read events until we see event: prime
+	sawPrimeEvent := false
+	sawActionEvent := false
+	for i := 0; i < 20; i++ {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "event: prime" {
+			sawPrimeEvent = true
+		}
+		if trimmed == "event: action" {
+			sawActionEvent = true
+			break
+		}
+	}
+
+	if !sawPrimeEvent {
+		t.Errorf("did not observe 'event: prime' in SSE stream")
+	}
+	if !sawActionEvent {
+		t.Errorf("did not observe 'event: action' in SSE stream")
+	}
+}
+
 

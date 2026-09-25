@@ -179,12 +179,16 @@ The agent MUST NOT activate this skill when:
    | `GET` | `/api/v1/profiles/{name}/conversations` | AI conversation list and artifact counts |
    | `GET` | `/api/v1/quota` | Active Language Server quota metrics across all running profiles |
    | `GET` | `/api/v1/quota/{profile}` | Active quota metrics filtered by profile |
+   | `GET` | `/api/v1/profiles/{name}/prime` | Prime cycle status, watchdog schedules, and bucket telemetry |
+   | `GET` | `/api/v1/prime` | Prime cycle status across all profiles |
+   | `POST` | `/api/v1/profiles/{name}/prime` | Execute or check (`check: true`) quota priming with real-time SSE progress |
+   | `POST` | `/api/v1/prime` | Batch execute or check quota priming across multiple profiles |
    | `POST` | `/api/v1/profiles/{name}/launch` | Launch profile IDE instance (`{"args": [...]}`) |
    | `POST` | `/api/v1/profiles/{name}/stop` | Gracefully stop profile processes (`{"force": false}`) |
    | `POST` | `/api/v1/profiles/{name}/restart` | Gracefully restart profile (`{"args": [...]}`) |
    | `POST` | `/api/v1/profiles/{name}/clean` | Clean volatile caches for a profile |
    | `POST` | `/api/v1/profiles/{name}/rename` | Safely rename profile (`{"new_name": "target"}`) |
-   | `GET` | `/events` / `/api/v1/events` | Real-time Server-Sent Events (SSE) stream (`init`, `profiles`, `action`, `ping`) |
+   | `GET` | `/events` / `/api/v1/events` | Real-time Server-Sent Events (SSE) stream (`init`, `profiles`, `action`, `prime`, `ping`) |
 
 ## 5. Canonical Examples
 
@@ -219,6 +223,12 @@ multigravity quota
 
 # If reset occurred, verify if auto-prime is needed
 multigravity prime --check
+
+# Check prime status and trigger dry-run via REST API
+curl -s http://127.0.0.1:8989/api/v1/profiles/dev/prime | jq '.data.buckets'
+curl -s -X POST http://127.0.0.1:8989/api/v1/profiles/dev/prime \
+  -H "Content-Type: application/json" \
+  -d '{"check": true}'
 ```
 
 ### Creating an Isolated Client Profile
