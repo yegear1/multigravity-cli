@@ -93,8 +93,8 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity restart <nome>` | Reinicia um perfil em execução |
 | `multigravity color <nome> [cor]` | Define, exibe ou redefine a cor do tema da janela do perfil |
 | `multigravity clean <nome\|--all>` | Remove caches voláteis do Electron/Chromium para liberar disco |
-| `multigravity list` | Lista todos os perfis cadastrados |
-| `multigravity status` | Exibe status de execução, tipo, última utilização e tamanho de cada perfil |
+| `multigravity list [--json]` | Lista todos os perfis cadastrados (ou formato JSON) |
+| `multigravity status [nome] [--json]` | Exibe status de execução, tipo, última utilização e tamanho de cada perfil (ou formato JSON) |
 | `multigravity clone <origem> <destino>` | Clona um perfil existente |
 | `multigravity rename <antigo> <novo>` | Renomeia um perfil (bloqueado se estiver aberto) |
 | `multigravity delete <nome>` | Exclui um perfil e todos os seus dados (bloqueado se estiver aberto) |

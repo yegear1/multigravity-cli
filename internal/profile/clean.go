@@ -34,7 +34,20 @@ func GetDirSizeStr(dir string) string {
 	return formatBytes(totalSize)
 }
 
-func formatBytes(b int64) string {
+// GetDirSizeBytes returns the total size of files in a directory in bytes without following symlinks
+func GetDirSizeBytes(dir string) int64 {
+	var totalSize int64
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && !info.IsDir() {
+			totalSize += info.Size()
+		}
+		return nil
+	})
+	return totalSize
+}
+
+// FormatBytes formats a byte count into a human-readable string (e.g., 42B, 12.5K, 4.2M)
+func FormatBytes(b int64) string {
 	const unit = 1024
 	if b < unit {
 		return fmt.Sprintf("%dB", b)
@@ -45,6 +58,10 @@ func formatBytes(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f%c", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func formatBytes(b int64) string {
+	return FormatBytes(b)
 }
 
 // CleanSingleProfile cleans the caches of a single profile without touching user data or settings

@@ -652,6 +652,25 @@ func TestJSONContractOutputs(t *testing.T) {
 		t.Errorf("expected 1 profile named json-test-prof, got: %+v", profiles)
 	}
 
+	// 2.5 Test status --json
+	out, err = executeCommand(rootCmd, "status", "--json")
+	if err != nil {
+		t.Fatalf("status --json failed: %v", err)
+	}
+	var statusProfiles []profile.ProfileInfo
+	if err := json.Unmarshal([]byte(out), &statusProfiles); err != nil {
+		t.Fatalf("failed to parse status --json output: %v, raw output: %s", err, out)
+	}
+	if len(statusProfiles) != 1 || statusProfiles[0].Name != "json-test-prof" {
+		t.Errorf("expected 1 profile named json-test-prof in status --json, got: %+v", statusProfiles)
+	}
+	if statusProfiles[0].Type != "auth-only" {
+		t.Errorf("expected type auth-only, got %s", statusProfiles[0].Type)
+	}
+	if statusProfiles[0].SizeBytes < 0 {
+		t.Errorf("expected valid size_bytes, got %d", statusProfiles[0].SizeBytes)
+	}
+
 	// 3. Test stats --json
 	out, err = executeCommand(rootCmd, "stats", "--json")
 	if err != nil {
@@ -816,6 +835,126 @@ func TestCobraNewAuthOnly(t *testing.T) {
 		t.Errorf("expected status output to contain 'auth-only', got: %s", out)
 	}
 }
+
+func TestCobraStatusJSONAndArgs(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+
+	fakeHost := filepath.Join(tempHome, "_fake_host")
+	t.Setenv("HOME", fakeHost)
+	t.Setenv("USERPROFILE", fakeHost)
+
+	// 1. Status on empty home
+	out, err := executeCommand(rootCmd, "status")
+	if err != nil {
+		t.Fatalf("expected status on empty home to succeed: %v", err)
+	}
+	if !strings.Contains(out, "No profiles found") {
+		t.Errorf("expected 'No profiles found', got: %s", out)
+	}
+
+	// 2. Status --json on empty home
+	out, err = executeCommand(rootCmd, "status", "--json")
+	if err != nil {
+		t.Fatalf("expected status --json on empty home to succeed: %v", err)
+	}
+	var emptyProfiles []profile.ProfileInfo
+	if err := json.Unmarshal([]byte(out), &emptyProfiles); err != nil {
+		t.Fatalf("failed to parse empty status --json: %v", err)
+	}
+	if len(emptyProfiles) != 0 {
+		t.Errorf("expected 0 profiles, got %d", len(emptyProfiles))
+	}
+
+	// 3. Create regular profile
+	_, err = executeCommand(rootCmd, "new", "test-regular")
+	if err != nil {
+		t.Fatalf("failed to create regular profile: %v", err)
+	}
+
+	// 4. Create auth-only profile
+	_, err = executeCommand(rootCmd, "new", "test-auth", "--auth-only")
+	if err != nil {
+		t.Fatalf("failed to create auth-only profile: %v", err)
+	}
+
+	// 5. Test status --json with multiple profiles
+	out, err = executeCommand(rootCmd, "status", "--json")
+	if err != nil {
+		t.Fatalf("status --json failed: %v", err)
+	}
+	var list []profile.ProfileInfo
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		t.Fatalf("failed to parse status --json: %v, raw: %s", err, out)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(list))
+	}
+
+	profMap := make(map[string]profile.ProfileInfo)
+	for _, p := range list {
+		profMap[p.Name] = p
+	}
+
+	reg, ok := profMap["test-regular"]
+	if !ok {
+		t.Fatalf("test-regular profile not found in status --json")
+	}
+	if reg.Type != "full" {
+		t.Errorf("expected type full for test-regular, got %s", reg.Type)
+	}
+	if reg.SizeBytes < 0 {
+		t.Errorf("expected size_bytes >= 0, got %d", reg.SizeBytes)
+	}
+	if reg.IsRunning {
+		t.Errorf("expected is_running to be false")
+	}
+
+	auth, ok := profMap["test-auth"]
+	if !ok {
+		t.Fatalf("test-auth profile not found in status --json")
+	}
+	if auth.Type != "auth-only" {
+		t.Errorf("expected type auth-only for test-auth, got %s", auth.Type)
+	}
+	if auth.SizeBytes < 0 {
+		t.Errorf("expected size_bytes >= 0, got %d", auth.SizeBytes)
+	}
+
+	// 6. Test status <profile> --json (single profile)
+	out, err = executeCommand(rootCmd, "status", "test-auth", "--json")
+	if err != nil {
+		t.Fatalf("status test-auth --json failed: %v", err)
+	}
+	var singleAuth profile.ProfileInfo
+	if err := json.Unmarshal([]byte(out), &singleAuth); err != nil {
+		t.Fatalf("failed to parse single profile status --json: %v, raw: %s", err, out)
+	}
+	if singleAuth.Name != "test-auth" || singleAuth.Type != "auth-only" {
+		t.Errorf("unexpected single profile status: %+v", singleAuth)
+	}
+
+	// 7. Test status <profile> in text mode
+	out, err = executeCommand(rootCmd, "status", "test-regular")
+	if err != nil {
+		t.Fatalf("status test-regular failed: %v", err)
+	}
+	if !strings.Contains(out, "test-regular") || !strings.Contains(out, "full") {
+		t.Errorf("expected status text output to contain test-regular and full, got: %s", out)
+	}
+
+	// 8. Test status on nonexistent profile
+	_, err = executeCommand(rootCmd, "status", "nonexistent-prof")
+	if err == nil {
+		t.Errorf("expected error for nonexistent profile")
+	}
+
+	_, err = executeCommand(rootCmd, "status", "nonexistent-prof", "--json")
+	if err == nil {
+		t.Errorf("expected error for nonexistent profile with --json")
+	}
+}
+
 
 
 

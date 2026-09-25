@@ -93,8 +93,8 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity restart <name>` | Restart a running profile |
 | `multigravity color <name> [color]` | Set, view, or remove profile window color theme |
 | `multigravity clean <name\|--all>` | Delete volatile Electron/Chromium caches to free disk space |
-| `multigravity list` | List all profiles |
-| `multigravity status` | Show running state, type, last used, and size per profile |
+| `multigravity list [--json]` | List all profiles (or JSON format) |
+| `multigravity status [name] [--json]` | Show running state, type, last used, and size per profile (or JSON format) |
 | `multigravity clone <src> <dest>` | Copy an existing profile |
 | `multigravity rename <old> <new>` | Rename a profile (blocked if currently running) |
 | `multigravity delete <name>` | Delete a profile and all its data (blocked if currently running) |

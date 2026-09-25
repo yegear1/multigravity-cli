@@ -100,6 +100,7 @@ func init() {
 	cloneCmd.ValidArgsFunction = profileArgsCompletion
 	exportCmd.ValidArgsFunction = profileArgsCompletion
 	colorCmd.ValidArgsFunction = profileArgsCompletion
+	statusCmd.ValidArgsFunction = profileArgsCompletion
 	quotaCmd.ValidArgsFunction = profileArgsCompletion
 	primeCmd.ValidArgsFunction = profileArgsCompletion
 

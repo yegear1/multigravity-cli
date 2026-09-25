@@ -18,6 +18,7 @@ type ProfileInfo struct {
 	Type      string    `json:"type"` // "full" or "auth-only"
 	LastUsed  time.Time `json:"last_used"`
 	Size      string    `json:"size"`
+	SizeBytes int64     `json:"size_bytes"`
 	Color     string    `json:"color,omitempty"`
 }
 
@@ -81,6 +82,7 @@ func GetProfile(name string) (*ProfileInfo, error) {
 	}
 
 	size := GetDirSizeStr(dir)
+	sizeBytes := GetDirSizeBytes(dir)
 	pColor, _ := GetProfileColor(name)
 
 	return &ProfileInfo{
@@ -91,6 +93,7 @@ func GetProfile(name string) (*ProfileInfo, error) {
 		Type:      pType,
 		LastUsed:  lastUsed,
 		Size:      size,
+		SizeBytes: sizeBytes,
 		Color:     pColor,
 	}, nil
 }

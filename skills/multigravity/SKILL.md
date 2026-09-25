@@ -56,13 +56,13 @@ The agent MUST NOT activate this skill when:
 ### Step 1: Pre-Flight & Profile Identification
 1. Detect current profile and runtime environment:
    ```bash
-   multigravity doctor
-   multigravity status
+   multigravity doctor --json
+   multigravity status --json
    ```
 2. Verify active profile directory from `$HOME` or `$MULTIGRAVITY_HOME`:
    ```bash
    echo "Active Profile Directory: $HOME"
-   multigravity list
+   multigravity list --json
    ```
 
 ### Step 2: Telemetry & Quota Inspection

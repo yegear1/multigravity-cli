@@ -19,6 +19,21 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 11.2] Contrato Machine-Readable (--json) e Consulta Granular em multigravity status
+
+- **Contexto:** O comando `multigravity status` exibia apenas saída tabular estilizada em ANSI. UIs locais, agregadores de telemetria e agentes de IA necessitam de dados estruturados com tipagem precisa, incluindo tamanho em bytes, estado de execução, tipo do perfil e data de último uso (Regra de Ouro #7 do `AGENTS.md`).
+- **Decisões Técnicas:**
+  - **Cálculo de Tamanho em Bytes (`GetDirSizeBytes` e `SizeBytes`):** Implementada função pura `GetDirSizeBytes(dir string) int64` em `internal/profile/clean.go` utilizando `filepath.Walk`. Não segue links simbólicos para diretórios externos (evitando computar o diretório de extensões do host nos perfis `auth-only`), computando a soma exata de bytes de arquivos locais do perfil. Exportada também `FormatBytes(b int64) string`.
+  - **Enriquecimento de `ProfileInfo`:** Adicionado o campo `SizeBytes int64` (`json:"size_bytes"`) à struct `ProfileInfo` em `internal/profile/profile.go`, preenchido deterministicamente em `GetProfile`. Como consequência positiva, as rotas `/api/v1/profiles` e `/api/v1/profiles/{name}` do servidor HTTP passam a fornecer a contagem de bytes automaticamente sem quebras de contrato.
+  - **Flag `--json` e Consulta por Perfil em `statusCmd`:**
+    - Atualizado `statusCmd` em `internal/cmd/status.go` para aceitar argumento opcional `status [profile]` (`Args: cobra.MaximumNArgs(1)`).
+    - Quando chamado sem argumentos com `--json`: serializa o array `[]profile.ProfileInfo` com indentação.
+    - Quando chamado com `[profile]` e `--json`: serializa o objeto individual `profile.ProfileInfo`.
+    - Saída tabular de texto 100% preservada na ausência da flag `--json`, inclusive suportando filtro de perfil único.
+    - Implementado reset limpo de flags (`cmd.Flags().Set("json", "false")` e `statusJSON = false`) via `defer` no `RunE` para garantir hermeticidade de execução sucessiva em testes e sessões interativas.
+  - **Autocompletion Dinâmico:** Registrado `statusCmd.ValidArgsFunction = profileArgsCompletion` em `internal/cmd/root.go`.
+
+
 ### 2026-09-25 [Task 11.1] Suporte a Perfis Auth-Only Reais (--auth-only / --shared) com Symlinks de Host
 
 - **Contexto:** Perfis isolados alocavam pastas vazias em `~/.antigravity/extensions` e forçavam a reinstalação de centenas de megabytes de extensões para cada nova conta. Usuários necessitavam de alternância rápida de contas com consumo residual de disco (~2 MB).
