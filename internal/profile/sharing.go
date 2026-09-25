@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
 )
@@ -546,7 +547,7 @@ func GhStatus(profile string) (string, error) {
 	return st.Description, nil
 }
 
-// GetAllSharingStatus returns sharing status for all resources (mcp, skills, config, gh)
+// GetAllSharingStatus returns sharing status for all resources (mcp, skills, config, gh, git)
 func GetAllSharingStatus(profile string) ([]SharingStatus, error) {
 	mcpSt, err := GetMcpStatus(profile)
 	if err != nil {
@@ -564,8 +565,12 @@ func GetAllSharingStatus(profile string) ([]SharingStatus, error) {
 	if err != nil {
 		return nil, err
 	}
+	gitSt, err := GetGitStatus(profile)
+	if err != nil {
+		return nil, err
+	}
 
-	return []SharingStatus{*mcpSt, *skillsSt, *configSt, *ghSt}, nil
+	return []SharingStatus{*mcpSt, *skillsSt, *configSt, *ghSt, *gitSt}, nil
 }
 
 
@@ -624,4 +629,303 @@ func GhIsolate(profile string) ([]string, error) {
 
 	messages = append(messages, fmt.Sprintf("Profile %q is now isolated from host GitHub CLI credentials updates.", profile))
 	return messages, nil
+}
+
+// --- Git / Dev Dotfiles ---
+
+func GetDotfilesStatus(profile string) (*SharingStatus, error) {
+	if err := config.ValidateProfileName(profile); err != nil {
+		return nil, err
+	}
+	profileDir := config.GetProfileDir(profile)
+	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("profile %q does not exist", profile)
+	}
+
+	targetGitconfig := filepath.Join(profileDir, ".gitconfig")
+	targetSSH := filepath.Join(profileDir, ".ssh")
+
+	if hasSentinel(profileDir, config.SentinelIsolatedDotfiles) {
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "git",
+			Mode:        "isolated",
+			Description: fmt.Sprintf("Profile %q has isolated dev dotfiles (--isolated-dotfiles active).", profile),
+		}, nil
+	}
+
+	if isSymlink(targetGitconfig) || isSymlink(targetSSH) {
+		target := "(none)"
+		if isSymlink(targetGitconfig) {
+			target, _ = os.Readlink(targetGitconfig)
+		} else if isSymlink(targetSSH) {
+			target, _ = os.Readlink(targetSSH)
+		}
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "git",
+			Mode:        "shared",
+			Target:      target,
+			Description: fmt.Sprintf("Profile %q shares host dev dotfiles (.gitconfig, .ssh).", profile),
+		}, nil
+	}
+
+	if isRegularFile(targetGitconfig) || isDir(targetSSH) {
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "git",
+			Mode:        "standalone",
+			Description: fmt.Sprintf("Profile %q has standalone local dev dotfiles.", profile),
+		}, nil
+	}
+
+	return &SharingStatus{
+		Profile:     profile,
+		Resource:    "git",
+		Mode:        "none",
+		Description: fmt.Sprintf("Profile %q has no dev dotfiles configured.", profile),
+	}, nil
+}
+
+func GetGitStatus(profile string) (*SharingStatus, error) {
+	return GetDotfilesStatus(profile)
+}
+
+func DotfilesStatus(profile string) (string, error) {
+	st, err := GetDotfilesStatus(profile)
+	if err != nil {
+		return "", err
+	}
+	return st.Description, nil
+}
+
+func GitStatus(profile string) (string, error) {
+	return DotfilesStatus(profile)
+}
+
+func DotfilesShare(profile string) ([]string, error) {
+	if err := config.ValidateProfileName(profile); err != nil {
+		return nil, err
+	}
+	profileDir := config.GetProfileDir(profile)
+	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("profile %q does not exist", profile)
+	}
+
+	var messages []string
+	_ = os.Remove(filepath.Join(profileDir, config.SentinelIsolatedDotfiles))
+
+	targetGitconfig := filepath.Join(profileDir, ".gitconfig")
+	targetSSH := filepath.Join(profileDir, ".ssh")
+
+	if isSymlink(targetGitconfig) && isSymlink(targetSSH) {
+		messages = append(messages, fmt.Sprintf("Profile %q is already sharing host dev dotfiles.", profile))
+		return messages, nil
+	}
+
+	if isRegularFile(targetGitconfig) && !isSymlink(targetGitconfig) {
+		_ = os.Rename(targetGitconfig, targetGitconfig+".bak")
+		messages = append(messages, "Backed up existing .gitconfig to .gitconfig.bak")
+	}
+	if isDir(targetSSH) && !isSymlink(targetSSH) {
+		_ = os.Rename(targetSSH, targetSSH+".bak")
+		messages = append(messages, "Backed up existing .ssh to .ssh.bak")
+	}
+
+	LinkDevDotfiles(profileDir, getHostHome())
+	messages = append(messages, fmt.Sprintf("Profile %q is now sharing host dev dotfiles.", profile))
+	return messages, nil
+}
+
+func GitShare(profile string) ([]string, error) {
+	return DotfilesShare(profile)
+}
+
+func DotfilesIsolate(profile string) ([]string, error) {
+	if err := config.ValidateProfileName(profile); err != nil {
+		return nil, err
+	}
+	profileDir := config.GetProfileDir(profile)
+	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("profile %q does not exist", profile)
+	}
+
+	var messages []string
+	_ = touchFile(filepath.Join(profileDir, config.SentinelIsolatedDotfiles))
+
+	hostHome := getHostHome()
+	targetGitconfig := filepath.Join(profileDir, ".gitconfig")
+	hostGitconfig := filepath.Join(hostHome, ".gitconfig")
+	if isSymlink(targetGitconfig) {
+		_ = os.Remove(targetGitconfig)
+		if isRegularFile(hostGitconfig) {
+			_ = CopyFile(hostGitconfig, targetGitconfig)
+			messages = append(messages, fmt.Sprintf("Copied host .gitconfig to standalone file for %q.", profile))
+		}
+	}
+
+	targetSSH := filepath.Join(profileDir, ".ssh")
+	hostSSH := filepath.Join(hostHome, ".ssh")
+	if isSymlink(targetSSH) {
+		_ = os.Remove(targetSSH)
+		if isDir(hostSSH) {
+			_ = CopyDir(hostSSH, targetSSH)
+			messages = append(messages, fmt.Sprintf("Copied host .ssh to standalone directory for %q.", profile))
+		}
+	}
+
+	targetCreds := filepath.Join(profileDir, ".git-credentials")
+	hostCreds := filepath.Join(hostHome, ".git-credentials")
+	if isSymlink(targetCreds) {
+		_ = os.Remove(targetCreds)
+		if isRegularFile(hostCreds) {
+			_ = CopyFile(hostCreds, targetCreds)
+		}
+	}
+
+	targetGnupg := filepath.Join(profileDir, ".gnupg")
+	if isSymlink(targetGnupg) {
+		_ = os.Remove(targetGnupg)
+	}
+
+	messages = append(messages, fmt.Sprintf("Profile %q is now isolated from host dev dotfiles updates.", profile))
+	return messages, nil
+}
+
+func GitIsolate(profile string) ([]string, error) {
+	return DotfilesIsolate(profile)
+}
+
+// SetResourceSharing mutates or toggles the sharing mode of a specific resource.
+// Accepted resources: "mcp", "skills", "config", "gh", "github", "git", "dotfiles".
+// Accepted actions: "share", "shared", "isolate", "isolated", "toggle", "seed" (config only).
+func SetResourceSharing(profName, resource, action string) (*SharingStatus, []string, error) {
+	if err := config.ValidateProfileName(profName); err != nil {
+		return nil, nil, err
+	}
+	profileDir := config.GetProfileDir(profName)
+	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
+		return nil, nil, fmt.Errorf("profile %q does not exist", profName)
+	}
+
+	normalizedResource := strings.ToLower(strings.TrimSpace(resource))
+	switch normalizedResource {
+	case "github":
+		normalizedResource = "gh"
+	case "dotfiles":
+		normalizedResource = "git"
+	}
+
+	normalizedAction := strings.ToLower(strings.TrimSpace(action))
+	switch normalizedAction {
+	case "shared", "true", "enable", "on":
+		normalizedAction = "share"
+	case "isolated", "false", "disable", "off":
+		normalizedAction = "isolate"
+	}
+
+	if normalizedAction == "toggle" {
+		var curStatus *SharingStatus
+		var err error
+		switch normalizedResource {
+		case "mcp":
+			curStatus, err = GetMcpStatus(profName)
+		case "skills":
+			curStatus, err = GetSkillsStatus(profName)
+		case "config":
+			curStatus, err = GetConfigStatus(profName)
+		case "gh":
+			curStatus, err = GetGhStatus(profName)
+		case "git":
+			curStatus, err = GetGitStatus(profName)
+		default:
+			return nil, nil, fmt.Errorf("invalid resource %q: must be mcp, skills, config, gh, or git", resource)
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if curStatus.Mode == "shared" {
+			normalizedAction = "isolate"
+		} else {
+			normalizedAction = "share"
+		}
+	}
+
+	var messages []string
+	var err error
+
+	switch normalizedResource {
+	case "mcp":
+		switch normalizedAction {
+		case "share":
+			messages, err = McpShare(profName)
+		case "isolate":
+			messages, err = McpIsolate(profName)
+		default:
+			return nil, nil, fmt.Errorf("invalid action %q for mcp: must be share, isolate, or toggle", action)
+		}
+	case "skills":
+		switch normalizedAction {
+		case "share":
+			messages, err = SkillsShare(profName)
+		case "isolate":
+			messages, err = SkillsIsolate(profName)
+		default:
+			return nil, nil, fmt.Errorf("invalid action %q for skills: must be share, isolate, or toggle", action)
+		}
+	case "config":
+		switch normalizedAction {
+		case "share":
+			messages, err = ConfigShare(profName)
+		case "isolate":
+			messages, err = ConfigIsolate(profName)
+		case "seed":
+			messages, err = ConfigSeed(profName)
+		default:
+			return nil, nil, fmt.Errorf("invalid action %q for config: must be share, isolate, seed, or toggle", action)
+		}
+	case "gh":
+		switch normalizedAction {
+		case "share":
+			messages, err = GhShare(profName)
+		case "isolate":
+			messages, err = GhIsolate(profName)
+		default:
+			return nil, nil, fmt.Errorf("invalid action %q for gh: must be share, isolate, or toggle", action)
+		}
+	case "git":
+		switch normalizedAction {
+		case "share":
+			messages, err = GitShare(profName)
+		case "isolate":
+			messages, err = GitIsolate(profName)
+		default:
+			return nil, nil, fmt.Errorf("invalid action %q for git: must be share, isolate, or toggle", action)
+		}
+	default:
+		return nil, nil, fmt.Errorf("invalid resource %q: must be mcp, skills, config, gh, or git", resource)
+	}
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var newStatus *SharingStatus
+	switch normalizedResource {
+	case "mcp":
+		newStatus, err = GetMcpStatus(profName)
+	case "skills":
+		newStatus, err = GetSkillsStatus(profName)
+	case "config":
+		newStatus, err = GetConfigStatus(profName)
+	case "gh":
+		newStatus, err = GetGhStatus(profName)
+	case "git":
+		newStatus, err = GetGitStatus(profName)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return newStatus, messages, nil
 }

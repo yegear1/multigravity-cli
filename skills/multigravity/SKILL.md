@@ -171,8 +171,11 @@ The agent MUST NOT activate this skill when:
    | `GET` | `/api/v1/profiles/{name}` | Detailed information for a single profile |
    | `DELETE` | `/api/v1/profiles/{name}` | Delete profile and desktop shortcuts (`?force=true` if running) |
    | `GET` | `/api/v1/profiles/{name}/stats` | Storage size and extension count for a single profile |
-   | `GET` | `/api/v1/stats` | Aggregated storage usage across all profiles |
-   | `GET` | `/api/v1/profiles/{name}/sharing` | MCP, skills, config, and GitHub CLI sharing status |
+   | `GET` | `/api/v1/profiles/{name}/sharing` | MCP, skills, config, GitHub CLI, and Git/dotfiles sharing status |
+   | `GET` | `/api/v1/profiles/{name}/sharing/{resource}` | Single resource sharing status (`mcp`, `skills`, `config`, `gh`, `git`) |
+   | `POST` / `PUT` | `/api/v1/profiles/{name}/sharing/{resource}` | Toggle or set sharing mode (`{"action": "share"\|"isolate"\|"toggle"}`) |
+   | `POST` / `PUT` | `/api/v1/profiles/{name}/sharing` | Batch configure sharing modes for multiple resources |
+   | `POST` | `/api/v1/profiles/{name}/sharing/config/seed` | Seed default read-only permissions into config.json |
    | `GET` | `/api/v1/profiles/{name}/conversations` | AI conversation list and artifact counts |
    | `GET` | `/api/v1/quota` | Active Language Server quota metrics across all running profiles |
    | `GET` | `/api/v1/quota/{profile}` | Active quota metrics filtered by profile |

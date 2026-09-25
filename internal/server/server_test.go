@@ -237,6 +237,9 @@ func TestCORSHeaders(t *testing.T) {
 	if !strings.Contains(allowMethods, "DELETE") {
 		t.Errorf("expected CORS allow methods to include DELETE, got %q", allowMethods)
 	}
+	if !strings.Contains(allowMethods, "PUT") {
+		t.Errorf("expected CORS allow methods to include PUT, got %q", allowMethods)
+	}
 }
 
 func TestServerStartShutdown(t *testing.T) {
@@ -857,6 +860,204 @@ func TestSSEActionBroadcastMutations(t *testing.T) {
 	lineDel2, _ := reader.ReadString('\n')
 	if !strings.Contains(lineDel2, "delete") || !strings.Contains(lineDel2, "sse-create-prof") {
 		t.Fatalf("expected delete data in SSE, got %q", lineDel2)
+	}
+}
+
+func TestSharingMutationEndpoints(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	// Create a profile to test sharing mutations
+	createProfReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles", strings.NewReader(`{"name": "share-prof"}`))
+	createProfRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(createProfRec, createProfReq)
+	if createProfRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for profile creation, got %d: %s", createProfRec.Code, createProfRec.Body.String())
+	}
+
+	// 1. GET all sharing should return 5 resources
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/profiles/share-prof/sharing", nil)
+	getRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for get sharing, got %d", getRec.Code)
+	}
+	var allResp APIResponse
+	if err := json.Unmarshal(getRec.Body.Bytes(), &allResp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	statuses, ok := allResp.Data.([]any)
+	if !ok || len(statuses) != 5 {
+		t.Fatalf("expected 5 sharing resources, got %v", allResp.Data)
+	}
+
+	// 2. GET individual resource git and alias github
+	gitReq := httptest.NewRequest(http.MethodGet, "/api/v1/profiles/share-prof/sharing/git", nil)
+	gitRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(gitRec, gitReq)
+	if gitRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for get git sharing, got %d", gitRec.Code)
+	}
+
+	ghReq := httptest.NewRequest(http.MethodGet, "/api/profiles/share-prof/sharing/github", nil)
+	ghRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(ghRec, ghReq)
+	if ghRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for get github sharing, got %d", ghRec.Code)
+	}
+
+	// 3. POST isolate mcp
+	postIsoReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/share-prof/sharing/mcp", strings.NewReader(`{"action": "isolate"}`))
+	postIsoRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(postIsoRec, postIsoReq)
+	if postIsoRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for isolate mcp, got %d: %s", postIsoRec.Code, postIsoRec.Body.String())
+	}
+	var isoResp APIResponse
+	_ = json.Unmarshal(postIsoRec.Body.Bytes(), &isoResp)
+	isoMap, _ := isoResp.Data.(map[string]any)
+	if isoMap["mode"] != "isolated" {
+		t.Errorf("expected mode isolated for mcp, got %v", isoMap["mode"])
+	}
+
+	// 4. PUT share mcp
+	putShareReq := httptest.NewRequest(http.MethodPut, "/api/profiles/share-prof/sharing/mcp", strings.NewReader(`{"mode": "shared"}`))
+	putShareRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(putShareRec, putShareReq)
+	if putShareRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for share mcp, got %d: %s", putShareRec.Code, putShareRec.Body.String())
+	}
+	var shareResp APIResponse
+	_ = json.Unmarshal(putShareRec.Body.Bytes(), &shareResp)
+	shareMap, _ := shareResp.Data.(map[string]any)
+	if shareMap["mode"] != "shared" {
+		t.Errorf("expected mode shared for mcp, got %v", shareMap["mode"])
+	}
+
+	// 5. POST toggle skills
+	toggleReq1 := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/share-prof/sharing/skills", strings.NewReader(`{"action": "toggle"}`))
+	toggleRec1 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(toggleRec1, toggleReq1)
+	if toggleRec1.Code != http.StatusOK {
+		t.Fatalf("expected 200 for toggle skills, got %d: %s", toggleRec1.Code, toggleRec1.Body.String())
+	}
+	var togResp1 APIResponse
+	_ = json.Unmarshal(toggleRec1.Body.Bytes(), &togResp1)
+	togMap1, _ := togResp1.Data.(map[string]any)
+	if togMap1["mode"] != "isolated" {
+		t.Errorf("expected mode isolated after toggle from shared, got %v", togMap1["mode"])
+	}
+
+	toggleReq2 := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/share-prof/sharing/skills", strings.NewReader(`{"action": "toggle"}`))
+	toggleRec2 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(toggleRec2, toggleReq2)
+	if toggleRec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for second toggle skills, got %d: %s", toggleRec2.Code, toggleRec2.Body.String())
+	}
+	var togResp2 APIResponse
+	_ = json.Unmarshal(toggleRec2.Body.Bytes(), &togResp2)
+	togMap2, _ := togResp2.Data.(map[string]any)
+	if togMap2["mode"] != "shared" {
+		t.Errorf("expected mode shared after second toggle, got %v", togMap2["mode"])
+	}
+
+	// 6. Config seed route
+	seedReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/share-prof/sharing/config/seed", nil)
+	seedRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(seedRec, seedReq)
+	if seedRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for config seed route, got %d: %s", seedRec.Code, seedRec.Body.String())
+	}
+
+	// 7. Batch sharing (map format)
+	batchReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/share-prof/sharing", strings.NewReader(`{"mcp": "isolated", "git": "isolated"}`))
+	batchRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(batchRec, batchReq)
+	if batchRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for batch sharing, got %d: %s", batchRec.Code, batchRec.Body.String())
+	}
+
+	// 8. Batch sharing (array format)
+	batchArrReq := httptest.NewRequest(http.MethodPut, "/api/profiles/share-prof/sharing", strings.NewReader(`[{"resource": "mcp", "action": "share"}, {"resource": "git", "action": "share"}]`))
+	batchArrRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(batchArrRec, batchArrReq)
+	if batchArrRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for batch array sharing, got %d: %s", batchArrRec.Code, batchArrRec.Body.String())
+	}
+
+	// 9. Error cases
+	// Profile not found
+	errReq1 := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/nonexistent/sharing/mcp", strings.NewReader(`{"action": "share"}`))
+	errRec1 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(errRec1, errReq1)
+	if errRec1.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent profile, got %d", errRec1.Code)
+	}
+
+	// Invalid resource
+	errReq2 := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/share-prof/sharing/invalid-res", strings.NewReader(`{"action": "share"}`))
+	errRec2 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(errRec2, errReq2)
+	if errRec2.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid resource, got %d", errRec2.Code)
+	}
+
+	// Missing action/mode
+	errReq3 := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/share-prof/sharing/mcp", strings.NewReader(`{}`))
+	errRec3 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(errRec3, errReq3)
+	if errRec3.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing action, got %d", errRec3.Code)
+	}
+}
+
+func TestSharingMutationSSE(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	// Create profile
+	createProfReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles", strings.NewReader(`{"name": "sse-share-prof"}`))
+	createProfRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(createProfRec, createProfReq)
+	if createProfRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for profile creation, got %d", createProfRec.Code)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Connect SSE client
+	resp, err := http.Get(ts.URL + "/api/v1/events")
+	if err != nil {
+		t.Fatalf("failed to connect to SSE: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+
+	// Read initial init event
+	_, _ = reader.ReadString('\n') // event: init
+	_, _ = reader.ReadString('\n') // data: ...
+	_, _ = reader.ReadString('\n') // empty line
+
+	// Trigger sharing mutation
+	shareReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/profiles/sse-share-prof/sharing/mcp", strings.NewReader(`{"action": "isolate"}`))
+	shareReq.Header.Set("Content-Type", "application/json")
+	shareResp, err := http.DefaultClient.Do(shareReq)
+	if err != nil {
+		t.Fatalf("failed to trigger sharing mutation: %v", err)
+	}
+	shareResp.Body.Close()
+	if shareResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", shareResp.StatusCode)
+	}
+
+	// Verify SSE broadcast
+	line1, _ := reader.ReadString('\n')
+	if strings.TrimSpace(line1) != "event: action" {
+		t.Fatalf("expected 'event: action' for sharing mutation, got %q", line1)
+	}
+	line2, _ := reader.ReadString('\n')
+	if !strings.Contains(line2, "sharing") || !strings.Contains(line2, "sse-share-prof") {
+		t.Fatalf("expected sharing data in SSE, got %q", line2)
 	}
 }
 

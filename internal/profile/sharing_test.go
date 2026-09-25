@@ -64,6 +64,19 @@ func setupTestSharingEnvironment(t *testing.T) (baseDir, hostHome string) {
 		t.Fatalf("failed to write host gh: %v", err)
 	}
 
+	hostGitconfig := filepath.Join(hostHome, ".gitconfig")
+	if err := os.WriteFile(hostGitconfig, []byte("[user]\n\tname = Test\n"), 0644); err != nil {
+		t.Fatalf("failed to write host gitconfig: %v", err)
+	}
+
+	hostSSH := filepath.Join(hostHome, ".ssh")
+	if err := os.MkdirAll(hostSSH, 0700); err != nil {
+		t.Fatalf("failed to create host ssh dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hostSSH, "config"), []byte("Host test\n"), 0600); err != nil {
+		t.Fatalf("failed to write host ssh config: %v", err)
+	}
+
 	return baseDir, hostHome
 }
 
@@ -383,5 +396,170 @@ func TestGHStatusShareIsolate(t *testing.T) {
 	}
 	if !isDir(targetGH + ".bak") {
 		t.Errorf("expected %s to exist", targetGH+".bak")
+	}
+}
+
+func TestGitStatusShareIsolate(t *testing.T) {
+	_, hostHome := setupTestSharingEnvironment(t)
+	profileName := "test-git-profile"
+	err := CreateProfile(CreateOptions{Name: profileName})
+	if err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	profileDir := config.GetProfileDir(profileName)
+	targetGitconfig := filepath.Join(profileDir, ".gitconfig")
+	targetSSH := filepath.Join(profileDir, ".ssh")
+
+	// Status initially shared
+	status, err := GitStatus(profileName)
+	if err != nil {
+		t.Fatalf("failed to get git status: %v", err)
+	}
+	if !strings.Contains(status, "shares host dev dotfiles") {
+		t.Errorf("expected shares host dev dotfiles, got: %s", status)
+	}
+	if !isSymlink(targetGitconfig) {
+		t.Errorf("expected targetGitconfig to be symlink")
+	}
+
+	// Isolate
+	msgs, err := GitIsolate(profileName)
+	if err != nil {
+		t.Fatalf("failed to isolate git: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Errorf("expected messages from isolate")
+	}
+	if !hasSentinel(profileDir, config.SentinelIsolatedDotfiles) {
+		t.Errorf("sentinel %s missing", config.SentinelIsolatedDotfiles)
+	}
+	if isSymlink(targetGitconfig) {
+		t.Errorf("targetGitconfig should not be symlink after isolate")
+	}
+	if !isRegularFile(targetGitconfig) {
+		t.Errorf("targetGitconfig should be regular file after isolate")
+	}
+	if isSymlink(targetSSH) {
+		t.Errorf("targetSSH should not be symlink after isolate")
+	}
+
+	status, err = GitStatus(profileName)
+	if err != nil {
+		t.Fatalf("failed to get git status: %v", err)
+	}
+	if !strings.Contains(status, "has isolated dev dotfiles") {
+		t.Errorf("expected isolated status, got: %s", status)
+	}
+
+	// Share again (should backup standalone file to .bak)
+	msgs, err = GitShare(profileName)
+	if err != nil {
+		t.Fatalf("failed to share git: %v", err)
+	}
+	if hasSentinel(profileDir, config.SentinelIsolatedDotfiles) {
+		t.Errorf("sentinel %s should be removed", config.SentinelIsolatedDotfiles)
+	}
+	if !isSymlink(targetGitconfig) {
+		t.Errorf("targetGitconfig should be symlink after share")
+	}
+	if !isRegularFile(targetGitconfig + ".bak") {
+		t.Errorf("expected %s to exist", targetGitconfig+".bak")
+	}
+
+	target, err := os.Readlink(targetGitconfig)
+	if err != nil {
+		t.Fatalf("failed to readlink targetGitconfig: %v", err)
+	}
+	expectedTarget := filepath.Join(hostHome, ".gitconfig")
+	if target != expectedTarget {
+		t.Errorf("expected target %s, got %s", expectedTarget, target)
+	}
+
+	// GetAllSharingStatus should now contain 5 resources
+	allStatuses, err := GetAllSharingStatus(profileName)
+	if err != nil {
+		t.Fatalf("failed to get all sharing status: %v", err)
+	}
+	if len(allStatuses) != 5 {
+		t.Errorf("expected 5 sharing statuses, got %d", len(allStatuses))
+	}
+}
+
+func TestSetResourceSharing(t *testing.T) {
+	setupTestSharingEnvironment(t)
+	profileName := "test-dyn-share-profile"
+	err := CreateProfile(CreateOptions{Name: profileName})
+	if err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	// Test isolate via action "isolate"
+	st, msgs, err := SetResourceSharing(profileName, "mcp", "isolate")
+	if err != nil {
+		t.Fatalf("SetResourceSharing mcp isolate failed: %v", err)
+	}
+	if st.Mode != "isolated" {
+		t.Errorf("expected mode isolated, got %s", st.Mode)
+	}
+	if len(msgs) == 0 {
+		t.Errorf("expected messages")
+	}
+
+	// Test toggle (currently isolated -> should become shared)
+	st, _, err = SetResourceSharing(profileName, "mcp", "toggle")
+	if err != nil {
+		t.Fatalf("SetResourceSharing mcp toggle failed: %v", err)
+	}
+	if st.Mode != "shared" {
+		t.Errorf("expected mode shared after toggle, got %s", st.Mode)
+	}
+
+	// Test toggle again (currently shared -> should become isolated)
+	st, _, err = SetResourceSharing(profileName, "mcp", "toggle")
+	if err != nil {
+		t.Fatalf("SetResourceSharing mcp toggle failed: %v", err)
+	}
+	if st.Mode != "isolated" {
+		t.Errorf("expected mode isolated after second toggle, got %s", st.Mode)
+	}
+
+	// Test share with alias "github" and mode "shared"
+	st, _, err = SetResourceSharing(profileName, "github", "shared")
+	if err != nil {
+		t.Fatalf("SetResourceSharing github shared failed: %v", err)
+	}
+	if st.Mode != "shared" {
+		t.Errorf("expected mode shared for github, got %s", st.Mode)
+	}
+
+	// Test dotfiles with alias "git"
+	st, _, err = SetResourceSharing(profileName, "git", "isolated")
+	if err != nil {
+		t.Fatalf("SetResourceSharing git isolated failed: %v", err)
+	}
+	if st.Mode != "isolated" {
+		t.Errorf("expected mode isolated for git, got %s", st.Mode)
+	}
+
+	// Test config seed action
+	st, msgs, err = SetResourceSharing(profileName, "config", "seed")
+	if err != nil {
+		t.Fatalf("SetResourceSharing config seed failed: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Errorf("expected messages for config seed")
+	}
+
+	// Test invalid resource
+	_, _, err = SetResourceSharing(profileName, "invalid-resource", "share")
+	if err == nil {
+		t.Errorf("expected error for invalid resource, got nil")
+	}
+
+	// Test invalid action
+	_, _, err = SetResourceSharing(profileName, "mcp", "invalid-action")
+	if err == nil {
+		t.Errorf("expected error for invalid action, got nil")
 	}
 }

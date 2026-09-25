@@ -19,6 +19,28 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 07.2] Mutação de Compartilhamento Dinâmico via API (Toggle de MCP, Skills, Config, Git/GitHub)
+
+- **Contexto:** Agregadores de telemetria externa, extensões e agentes autônomos necessitam de endpoints REST para consultar e mutar dinamicamente os vínculos de compartilhamento e isolamento de recursos (`mcp`, `skills`, `config`, `gh`/`github`, e `git`/`dotfiles`) por perfil, com emissão de eventos em tempo real via Server-Sent Events (SSE).
+- **Decisões Técnicas:**
+  - **Suporte Canônico a Git / Dev Dotfiles:**
+    - Formalizadas no pacote `profile` as funções `GetDotfilesStatus` (`GetGitStatus`), `DotfilesShare` (`GitShare`) e `DotfilesIsolate` (`GitIsolate`).
+    - Integração de `git` em `GetAllSharingStatus`, expandindo a listagem para 5 recursos canônicos (`mcp`, `skills`, `config`, `gh`, `git`).
+  - **Despachante Unificado de Compartilhamento (`profile.SetResourceSharing`):**
+    - Suporta recursos `mcp`, `skills`, `config`, `gh` (e alias `github`), `git` (e alias `dotfiles`).
+    - Suporta ações `share` (aliases `shared`, `true`, `enable`, `on`), `isolate` (aliases `isolated`, `false`, `disable`, `off`), `toggle` (alterna automaticamente o modo com base no estado atual) e `seed` (exclusivo para `config`).
+  - **Endpoints REST (`routes.go`):**
+    - `POST` / `PUT` `/api/v1/profiles/{name}/sharing/{resource}` e `/api/profiles/{name}/sharing/{resource}`: mutação granular de recurso com payload flexível (`action`, `mode`, `shared`).
+    - `POST` / `PUT` `/api/v1/profiles/{name}/sharing` e `/api/profiles/{name}/sharing`: mutação em lote (batch) aceitando mapa de recursos (`{"mcp": "share", "git": "isolate"}`) ou lista de objetos (`[{"resource": "mcp", "action": "share"}]`).
+    - `POST` `/api/v1/profiles/{name}/sharing/config/seed`: conveniência para semeadura imediata de permissões padrão read-only no `config.json`.
+    - Atualizado CORS para incluir o método HTTP `PUT` em `Access-Control-Allow-Methods`.
+  - **Emissão de Eventos SSE (`handleEvents`):**
+    - Mutação individual emite evento `action` com `action: "sharing"`, `profile: name`, `resource: resource`, `mode: mode`, `status: "updated"`.
+    - Mutação em lote emite evento `action` com `action: "sharing"`, `profile: name`, `status: "updated"`, `batch: true`.
+  - **Documentação e Testes:**
+    - `skills/multigravity/SKILL.md` atualizado com o catálogo dos novos endpoints.
+    - Testes unitários completos adicionados em `internal/profile/sharing_test.go` (`TestGitStatusShareIsolate`, `TestSetResourceSharing`) e `internal/server/server_test.go` (`TestSharingMutationEndpoints`, `TestSharingMutationSSE`, e validação de `PUT` em `TestCORSHeaders`).
+
 ### 2026-09-25 [Task 07.1] Implementação de Endpoints de Mutação no Servidor HTTP (multigravity serve)
 
 - **Contexto:** Agregadores, ferramentas de telemetria externa e agentes de IA necessitam de endpoints REST para controlar o ciclo de vida completo de instâncias e perfis (`new` com `--auth-only`, `delete`, `launch`, `stop`, `restart`, `rename`) sem recorrer a comandos de shell locais ou correr riscos de concorrência com instâncias ativas da IDE.

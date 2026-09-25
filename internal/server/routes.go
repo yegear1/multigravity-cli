@@ -63,6 +63,14 @@ type RenameProfileRequest struct {
 	NewName string `json:"new_name"`
 }
 
+// SetSharingRequest defines the payload for setting or toggling sharing for a resource
+type SetSharingRequest struct {
+	Action   string `json:"action,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+	Shared   *bool  `json:"shared,omitempty"`
+	Resource string `json:"resource,omitempty"`
+}
+
 func (s *Server) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -84,7 +92,7 @@ func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS, HEAD")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -132,11 +140,24 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("POST /api/v1/profiles/{name}/rename", s.handleRenameProfile)
 	s.mux.HandleFunc("POST /api/profiles/{name}/rename", s.handleRenameProfile)
 
-	// Sharing
+	// Sharing (Query & Mutation)
 	s.mux.HandleFunc("GET /api/v1/profiles/{name}/sharing", s.handleGetAllSharing)
 	s.mux.HandleFunc("GET /api/profiles/{name}/sharing", s.handleGetAllSharing)
 	s.mux.HandleFunc("GET /api/v1/profiles/{name}/sharing/{resource}", s.handleGetResourceSharing)
 	s.mux.HandleFunc("GET /api/profiles/{name}/sharing/{resource}", s.handleGetResourceSharing)
+
+	s.mux.HandleFunc("POST /api/v1/profiles/{name}/sharing/{resource}", s.handleSetResourceSharing)
+	s.mux.HandleFunc("POST /api/profiles/{name}/sharing/{resource}", s.handleSetResourceSharing)
+	s.mux.HandleFunc("PUT /api/v1/profiles/{name}/sharing/{resource}", s.handleSetResourceSharing)
+	s.mux.HandleFunc("PUT /api/profiles/{name}/sharing/{resource}", s.handleSetResourceSharing)
+
+	s.mux.HandleFunc("POST /api/v1/profiles/{name}/sharing", s.handleBatchSharing)
+	s.mux.HandleFunc("POST /api/profiles/{name}/sharing", s.handleBatchSharing)
+	s.mux.HandleFunc("PUT /api/v1/profiles/{name}/sharing", s.handleBatchSharing)
+	s.mux.HandleFunc("PUT /api/profiles/{name}/sharing", s.handleBatchSharing)
+
+	s.mux.HandleFunc("POST /api/v1/profiles/{name}/sharing/config/seed", s.handleSeedConfig)
+	s.mux.HandleFunc("POST /api/profiles/{name}/sharing/config/seed", s.handleSeedConfig)
 
 	// AI Conversations
 	s.mux.HandleFunc("GET /api/v1/profiles/{name}/conversations", s.handleGetConversations)
@@ -239,17 +260,19 @@ func (s *Server) handleGetResourceSharing(w http.ResponseWriter, r *http.Request
 	var status *profile.SharingStatus
 	var err error
 
-	switch resource {
+	switch strings.ToLower(resource) {
 	case "mcp":
 		status, err = profile.GetMcpStatus(name)
 	case "skills":
 		status, err = profile.GetSkillsStatus(name)
 	case "config":
 		status, err = profile.GetConfigStatus(name)
-	case "gh":
+	case "gh", "github":
 		status, err = profile.GetGhStatus(name)
+	case "git", "dotfiles":
+		status, err = profile.GetGitStatus(name)
 	default:
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid resource %q: must be mcp, skills, config, or gh", resource))
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid resource %q: must be mcp, skills, config, gh, or git", resource))
 		return
 	}
 
@@ -258,6 +281,248 @@ func (s *Server) handleGetResourceSharing(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) handleSetResourceSharing(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	resource := r.PathValue("resource")
+
+	if !profile.ProfileExists(name) {
+		s.writeError(w, http.StatusNotFound, fmt.Sprintf("profile %q does not exist", name))
+		return
+	}
+
+	var req SetSharingRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+			return
+		}
+	}
+
+	action := req.Action
+	if action == "" && req.Mode != "" {
+		action = req.Mode
+	}
+	if action == "" && req.Shared != nil {
+		if *req.Shared {
+			action = "share"
+		} else {
+			action = "isolate"
+		}
+	}
+	if action == "" {
+		s.writeError(w, http.StatusBadRequest, "action, mode, or shared boolean is required (e.g. {\"action\": \"share\"|\"isolate\"|\"toggle\"})")
+		return
+	}
+
+	newStatus, messages, err := profile.SetResourceSharing(name, resource, action)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid resource") || strings.Contains(err.Error(), "invalid action") {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "does not exist") {
+			s.writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":   "sharing",
+				"profile":  name,
+				"resource": newStatus.Resource,
+				"mode":     newStatus.Mode,
+				"status":   "updated",
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"profile":  name,
+		"resource": newStatus.Resource,
+		"mode":     newStatus.Mode,
+		"status":   newStatus,
+		"messages": messages,
+	})
+}
+
+func (s *Server) handleBatchSharing(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !profile.ProfileExists(name) {
+		s.writeError(w, http.StatusNotFound, fmt.Sprintf("profile %q does not exist", name))
+		return
+	}
+
+	var raw json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+		return
+	}
+
+	// Try decoding as array of SetSharingRequest
+	var items []SetSharingRequest
+	if err := json.Unmarshal(raw, &items); err == nil && len(items) > 0 {
+		var results []map[string]any
+		for _, item := range items {
+			if item.Resource == "" {
+				s.writeError(w, http.StatusBadRequest, "each item in list must specify 'resource'")
+				return
+			}
+			act := item.Action
+			if act == "" && item.Mode != "" {
+				act = item.Mode
+			}
+			if act == "" && item.Shared != nil {
+				if *item.Shared {
+					act = "share"
+				} else {
+					act = "isolate"
+				}
+			}
+			if act == "" {
+				s.writeError(w, http.StatusBadRequest, fmt.Sprintf("resource %q missing action/mode/shared", item.Resource))
+				return
+			}
+			st, msgs, err := profile.SetResourceSharing(name, item.Resource, act)
+			if err != nil {
+				s.writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			results = append(results, map[string]any{
+				"resource": st.Resource,
+				"mode":     st.Mode,
+				"status":   st,
+				"messages": msgs,
+			})
+		}
+		if s.broker != nil {
+			s.broker.Broadcast(SSEEvent{
+				Event: "action",
+				Data: map[string]any{
+					"action":  "sharing",
+					"profile": name,
+					"status":  "updated",
+					"batch":   true,
+				},
+				Time: time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+		s.writeJSON(w, http.StatusOK, results)
+		return
+	}
+
+	// Try decoding as map[string]any
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		targetMap := obj
+		if resMap, ok := obj["resources"].(map[string]any); ok {
+			targetMap = resMap
+		}
+		var results []map[string]any
+		for k, v := range targetMap {
+			if k == "resources" {
+				continue
+			}
+			var act string
+			switch val := v.(type) {
+			case string:
+				act = val
+			case bool:
+				if val {
+					act = "share"
+				} else {
+					act = "isolate"
+				}
+			case map[string]any:
+				if a, ok := val["action"].(string); ok {
+					act = a
+				} else if m, ok := val["mode"].(string); ok {
+					act = m
+				} else if sh, ok := val["shared"].(bool); ok {
+					if sh {
+						act = "share"
+					} else {
+						act = "isolate"
+					}
+				}
+			default:
+				s.writeError(w, http.StatusBadRequest, fmt.Sprintf("unsupported value type for resource %q", k))
+				return
+			}
+
+			st, msgs, err := profile.SetResourceSharing(name, k, act)
+			if err != nil {
+				s.writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			results = append(results, map[string]any{
+				"resource": st.Resource,
+				"mode":     st.Mode,
+				"status":   st,
+				"messages": msgs,
+			})
+		}
+		if s.broker != nil {
+			s.broker.Broadcast(SSEEvent{
+				Event: "action",
+				Data: map[string]any{
+					"action":  "sharing",
+					"profile": name,
+					"status":  "updated",
+					"batch":   true,
+				},
+				Time: time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+		s.writeJSON(w, http.StatusOK, results)
+		return
+	}
+
+	s.writeError(w, http.StatusBadRequest, "invalid batch sharing payload: must be object or array")
+}
+
+func (s *Server) handleSeedConfig(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !profile.ProfileExists(name) {
+		s.writeError(w, http.StatusNotFound, fmt.Sprintf("profile %q does not exist", name))
+		return
+	}
+
+	msgs, err := profile.ConfigSeed(name)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	status, _ := profile.GetConfigStatus(name)
+
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":    "sharing",
+				"profile":   name,
+				"resource":  "config",
+				"subaction": "seed",
+				"status":    "seeded",
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"profile":  name,
+		"resource": "config",
+		"status":   status,
+		"messages": msgs,
+	})
 }
 
 func (s *Server) handleGetConversations(w http.ResponseWriter, r *http.Request) {
