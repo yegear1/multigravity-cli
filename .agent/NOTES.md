@@ -19,6 +19,25 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 15.2] Multiplexador de Terminais PTY e Execução Headless de Agentes CLI (Claude Code, Aider, OpenCode) com Isolamento de Identidade
+
+- **Contexto:** Ferramentas modernas de agentes autônomos de desenvolvimento (Claude Code CLI, Aider, OpenCode, Agy) requerem um terminal interativo real (PTY / TTY) para exibir interfaces ricas em ANSI, processar prompts interativos de confirmação (`[y/n]`, concessão de ferramentas) e capturar fielmente logs de execução. O sistema necessitava de um multiplexador concorrente com isolamento estrito de perfil (`$HOME` / `%USERPROFILE%`) e roteamento transparente para os gateways OpenAI e Anthropic locais.
+- **Decisões Técnicas:**
+  - **Módulo `internal/agent`:**
+    - `types.go`: contratos estruturados `Session`, `SessionStatus`, `CreateSessionOptions`, `SessionFilter`, `OutputChunk`, `ResizeOptions` e `SendInputRequest`.
+    - `env.go`: construção de ambiente isolado (`BuildAgentEnv`), redirecionando `HOME` / `USERPROFILE` para `$MULTIGRAVITY_HOME/<profile>`, preservando caminhos binários de host do usuário e injetando variáveis de Gateway (`ANTHROPIC_BASE_URL` para Claude Code; `OPENAI_BASE_URL` e `OPENAI_API_BASE` para Aider e OpenCode).
+    - `pty_unix.go`: abstração PTY para POSIX (Linux/macOS) via `github.com/creack/pty` com suporte a redimensionamento dinâmico (`pty.Setsize`).
+    - `pty_windows.go`: fallback gracioso para Windows com pipes assíncronos (`io.Pipe`) assegurando paridade multiplataforma (Regra de Ouro #3 do `AGENTS.md`).
+    - `session.go`: controlador de instância com buffer circular/deslizante (`maxBufferSize = 512 KB`) e pub/sub não-bloqueante para múltiplos assinantes simultâneos (CLI e SSE).
+    - `manager.go`: gerenciador central de ciclo de vida (`StartSession`, `GetSession`, `ListSessions`, `StopSession`, `KillSession`, `WriteSessionInput`, `ResizeSession`, `GetSessionOutput`, `SubscribeSession`, `PruneSessions`).
+  - **CLI `multigravity agent` (alias `ag`):**
+    - Subcomandos: `run <profile> [--] <cmd>`, `list` (alias `ls`), `status <id>`, `logs <id>`, `stop <id>`, `kill <id>`, `attach <id>`.
+    - Suporte a modo interativo em raw mode (`golang.org/x/term`) com captura de `SIGWINCH` e modo desacoplado (`--detach` / `-d`).
+    - Contratos estruturados em JSON via `--json` em todos os comandos de consulta e ciclo de vida.
+  - **API REST & SSE (`internal/server`):**
+    - Endpoints registrados: `GET|POST /api/v1/agent/sessions`, `GET|DELETE /api/v1/agent/sessions/{id}`, `GET /api/v1/agent/sessions/{id}/output`, `GET /api/v1/agent/sessions/{id}/stream` (SSE chunk feed), `POST /api/v1/agent/sessions/{id}/input`, `POST /api/v1/agent/sessions/{id}/resize`, `POST /api/v1/agent/sessions/prune`.
+    - Eventos SSE emitidos em tempo real (`action: "agent_session"`) no barramento global de telemetria.
+
 ### 2026-09-25 [Task 15.1] Gerenciador de Git Worktrees Efêmeros por Agente/Tarefa (`internal/worktree`)
 
 - **Contexto:** Para suportar orquestração de múltiplos agentes de IA (Claude Code, Aider, OpenCode) e execuções paralelas sobre o mesmo repositório, o sistema necessita de isolamento em nível de sistema de arquivos através de Git Worktrees efêmeros, sem poluir o `git status` do repositório hospedeiro nem sobrescrever branches principais.

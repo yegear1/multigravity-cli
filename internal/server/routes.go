@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ye-dev/multigravity-cli/internal/agent"
 	"github.com/ye-dev/multigravity-cli/internal/chat"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/doctor"
@@ -266,6 +268,27 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /api/worktrees/{id}/status", s.handleGetWorktreeStatus)
 	s.mux.HandleFunc("GET /api/v1/worktrees/{id}/diff", s.handleGetWorktreeDiff)
 	s.mux.HandleFunc("GET /api/worktrees/{id}/diff", s.handleGetWorktreeDiff)
+
+	// Agent PTY & Headless Runner (ADE Orchestrator)
+	s.mux.HandleFunc("GET /api/v1/agent/sessions", s.handleListAgentSessions)
+	s.mux.HandleFunc("GET /api/agent/sessions", s.handleListAgentSessions)
+	s.mux.HandleFunc("POST /api/v1/agent/sessions", s.handleCreateAgentSession)
+	s.mux.HandleFunc("POST /api/agent/sessions", s.handleCreateAgentSession)
+	s.mux.HandleFunc("POST /api/v1/agent/sessions/prune", s.handlePruneAgentSessions)
+	s.mux.HandleFunc("POST /api/agent/sessions/prune", s.handlePruneAgentSessions)
+
+	s.mux.HandleFunc("GET /api/v1/agent/sessions/{id}", s.handleGetAgentSession)
+	s.mux.HandleFunc("GET /api/agent/sessions/{id}", s.handleGetAgentSession)
+	s.mux.HandleFunc("DELETE /api/v1/agent/sessions/{id}", s.handleDeleteAgentSession)
+	s.mux.HandleFunc("DELETE /api/agent/sessions/{id}", s.handleDeleteAgentSession)
+	s.mux.HandleFunc("GET /api/v1/agent/sessions/{id}/output", s.handleGetAgentSessionOutput)
+	s.mux.HandleFunc("GET /api/agent/sessions/{id}/output", s.handleGetAgentSessionOutput)
+	s.mux.HandleFunc("GET /api/v1/agent/sessions/{id}/stream", s.handleStreamAgentSessionOutput)
+	s.mux.HandleFunc("GET /api/agent/sessions/{id}/stream", s.handleStreamAgentSessionOutput)
+	s.mux.HandleFunc("POST /api/v1/agent/sessions/{id}/input", s.handleSendAgentSessionInput)
+	s.mux.HandleFunc("POST /api/agent/sessions/{id}/input", s.handleSendAgentSessionInput)
+	s.mux.HandleFunc("POST /api/v1/agent/sessions/{id}/resize", s.handleResizeAgentSession)
+	s.mux.HandleFunc("POST /api/agent/sessions/{id}/resize", s.handleResizeAgentSession)
 }
 
 func (s *Server) handleGatewayChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -1482,3 +1505,225 @@ func (s *Server) handlePruneWorktrees(w http.ResponseWriter, r *http.Request) {
 		"pruned": true,
 	})
 }
+
+// --- Agent PTY & Headless Runner Handlers ---
+
+func (s *Server) handleListAgentSessions(w http.ResponseWriter, r *http.Request) {
+	filter := agent.SessionFilter{
+		Profile:   r.URL.Query().Get("profile"),
+		Status:    agent.SessionStatus(r.URL.Query().Get("status")),
+		AgentType: r.URL.Query().Get("agent_type"),
+	}
+	if filter.AgentType == "" {
+		filter.AgentType = r.URL.Query().Get("type")
+	}
+
+	sessions := agent.GetDefaultManager().ListSessions(filter)
+	if sessions == nil {
+		sessions = []agent.Session{}
+	}
+	s.writeJSON(w, http.StatusOK, sessions)
+}
+
+func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request) {
+	var opts agent.CreateSessionOptions
+	if err := json.NewDecoder(r.Body).Decode(&opts); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid request payload: %v", err))
+		return
+	}
+
+	if opts.GatewayURL == "" {
+		opts.GatewayURL = fmt.Sprintf("http://%s/v1", r.Host)
+	}
+
+	inst, err := agent.GetDefaultManager().StartSession(opts)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	info := inst.GetInfo()
+
+	s.broker.Broadcast(SSEEvent{
+		Event: "action",
+		Data: map[string]any{
+			"action":     "agent_session",
+			"type":       "create",
+			"id":         info.ID,
+			"profile":    info.Profile,
+			"agent_type": info.AgentType,
+			"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+
+	s.writeJSON(w, http.StatusCreated, info)
+}
+
+func (s *Server) handlePruneAgentSessions(w http.ResponseWriter, r *http.Request) {
+	maxAge := 1 * time.Hour
+	if q := r.URL.Query().Get("max_age"); q != "" {
+		if d, err := time.ParseDuration(q); err == nil {
+			maxAge = d
+		}
+	}
+
+	pruned := agent.GetDefaultManager().PruneSessions(maxAge)
+
+	s.broker.Broadcast(SSEEvent{
+		Event: "action",
+		Data: map[string]any{
+			"action":    "agent_session",
+			"type":      "prune",
+			"pruned":    pruned,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"pruned": pruned,
+	})
+}
+
+func (s *Server) handleGetAgentSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	inst, err := agent.GetDefaultManager().GetSession(id)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, inst.GetInfo())
+}
+
+func (s *Server) handleDeleteAgentSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	force := r.URL.Query().Get("force") == "true"
+
+	var err error
+	if force {
+		err = agent.GetDefaultManager().KillSession(id)
+	} else {
+		err = agent.GetDefaultManager().StopSession(id)
+	}
+
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.broker.Broadcast(SSEEvent{
+		Event: "action",
+		Data: map[string]any{
+			"action":    "agent_session",
+			"type":      "delete",
+			"id":        id,
+			"force":     force,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":      id,
+		"stopped": true,
+	})
+}
+
+func (s *Server) handleGetAgentSessionOutput(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	tail := 0
+	if q := r.URL.Query().Get("tail"); q != "" {
+		if n, err := strconv.Atoi(q); err == nil && n > 0 {
+			tail = n * 128
+		}
+	}
+
+	out, err := agent.GetDefaultManager().GetSessionOutput(id, tail)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":     id,
+		"output": string(out),
+	})
+}
+
+func (s *Server) handleStreamAgentSessionOutput(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	ch, unsub, err := agent.GetDefaultManager().SubscribeSession(id)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer unsub()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case chunk, ok := <-ch:
+			if !ok {
+				fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+				flusher.Flush()
+				return
+			}
+			chunkBytes, _ := json.Marshal(chunk)
+			fmt.Fprintf(w, "event: output\ndata: %s\n\n", chunkBytes)
+			flusher.Flush()
+		}
+	}
+}
+
+func (s *Server) handleSendAgentSessionInput(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req agent.SendInputRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid input payload: %v", err))
+		return
+	}
+
+	if err := agent.GetDefaultManager().WriteSessionInput(id, []byte(req.Data)); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":            id,
+		"bytes_written": len(req.Data),
+	})
+}
+
+func (s *Server) handleResizeAgentSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req agent.ResizeOptions
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid resize payload: %v", err))
+		return
+	}
+
+	if err := agent.GetDefaultManager().ResizeSession(id, req.Rows, req.Cols); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":   id,
+		"rows": req.Rows,
+		"cols": req.Cols,
+	})
+}
+

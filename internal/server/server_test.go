@@ -1691,6 +1691,125 @@ func TestWorktreeServerEndpoints(t *testing.T) {
 	}
 }
 
+func TestAgentServerEndpoints(t *testing.T) {
+	srv, tempHome := setupTestServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Create test profile dir
+	profDir := filepath.Join(tempHome, "srv-agent-prof")
+	_ = os.MkdirAll(profDir, 0755)
+
+	// 1. GET /api/v1/agent/sessions
+	resp, err := http.Get(ts.URL + "/api/v1/agent/sessions")
+	if err != nil {
+		t.Fatalf("failed to GET /api/v1/agent/sessions: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// 2. POST /api/v1/agent/sessions (create session)
+	createReq := strings.NewReader(`{
+		"profile": "srv-agent-prof",
+		"command": "sh",
+		"args": ["-c", "echo 'agent srv ok'; sleep 2"],
+		"gateway_url": "http://127.0.0.1:8989"
+	}`)
+	createResp, err := http.Post(ts.URL+"/api/v1/agent/sessions", "application/json", createReq)
+	if err != nil {
+		t.Fatalf("failed to POST /api/v1/agent/sessions: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d", createResp.StatusCode)
+	}
+
+	var createAPIResp APIResponse
+	if err := json.NewDecoder(createResp.Body).Decode(&createAPIResp); err != nil {
+		t.Fatalf("failed to decode create response: %v", err)
+	}
+	dataMap, ok := createAPIResp.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("expected data map, got: %T", createAPIResp.Data)
+	}
+	sessionID, _ := dataMap["id"].(string)
+	if sessionID == "" {
+		t.Fatalf("expected non-empty session ID")
+	}
+
+	// 3. GET /api/v1/agent/sessions/{id}
+	getResp, err := http.Get(fmt.Sprintf("%s/api/v1/agent/sessions/%s", ts.URL, sessionID))
+	if err != nil {
+		t.Fatalf("failed to GET session: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", getResp.StatusCode)
+	}
+
+	// 4. POST /api/v1/agent/sessions/{id}/resize
+	resizeReq := strings.NewReader(`{"rows": 32, "cols": 120}`)
+	resizeResp, err := http.Post(fmt.Sprintf("%s/api/v1/agent/sessions/%s/resize", ts.URL, sessionID), "application/json", resizeReq)
+	if err != nil {
+		t.Fatalf("failed to POST resize: %v", err)
+	}
+	defer resizeResp.Body.Close()
+	if resizeResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resizeResp.StatusCode)
+	}
+
+	// 5. POST /api/v1/agent/sessions/{id}/input
+	inputReq := strings.NewReader(`{"data": "hello from server test\n"}`)
+	inputResp, err := http.Post(fmt.Sprintf("%s/api/v1/agent/sessions/%s/input", ts.URL, sessionID), "application/json", inputReq)
+	if err != nil {
+		t.Fatalf("failed to POST input: %v", err)
+	}
+	defer inputResp.Body.Close()
+	if inputResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", inputResp.StatusCode)
+	}
+
+	// Wait a moment for echo
+	time.Sleep(100 * time.Millisecond)
+
+	// 6. GET /api/v1/agent/sessions/{id}/output
+	outResp, err := http.Get(fmt.Sprintf("%s/api/v1/agent/sessions/%s/output", ts.URL, sessionID))
+	if err != nil {
+		t.Fatalf("failed to GET output: %v", err)
+	}
+	defer outResp.Body.Close()
+	if outResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", outResp.StatusCode)
+	}
+
+	// 7. DELETE /api/v1/agent/sessions/{id}
+	delReq, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/agent/sessions/%s?force=true", ts.URL, sessionID), nil)
+	if err != nil {
+		t.Fatalf("failed to create delete request: %v", err)
+	}
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatalf("failed to execute DELETE: %v", err)
+	}
+	defer delResp.Body.Close()
+	if delResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", delResp.StatusCode)
+	}
+
+	// 8. POST /api/v1/agent/sessions/prune
+	pruneResp, err := http.Post(fmt.Sprintf("%s/api/v1/agent/sessions/prune?max_age=1ns", ts.URL), "application/json", nil)
+	if err != nil {
+		t.Fatalf("failed to POST prune: %v", err)
+	}
+	defer pruneResp.Body.Close()
+	if pruneResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", pruneResp.StatusCode)
+	}
+}
+
+
 
 
 
