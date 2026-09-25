@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [07.1] | Gerenciamento Completo de Perfis via API (Criação com `--auth-only`, Exclusão, Renomeação e Launch/Stop/Restart de Instâncias) | feat(server): implement mutation endpoints for profile creation, deletion, and lifecycle | 2026-09-25 |
 | [11.5] | Landing Page Estática e Onboarding Visual Interativo para Iniciantes (GitHub Pages / Showcase) | feat(docs): create interactive landing page and onboarding showcase for github pages | 2026-09-25 |
 | [11.4] | Matriz Comparativa Full vs Auth-Only e Atualização de Documentação no README.md | docs(readme): add full vs auth-only comparison matrix and decision guide | 2026-09-25 |
 | [11.3] | Ícone Embutido (`//go:embed`) e Associação Automática em Atalhos Desktop | feat(shortcut): embed default icons via go:embed and associate across desktop shortcuts | 2026-09-25 |
@@ -37,7 +38,6 @@
 
 ## Backlog (Próximas, em ordem)
 
-- [ ] **[07.1]** Gerenciamento Completo de Perfis via API (Criação, Exclusão, Renomeação e Launch de Instâncias)
 - [ ] **[07.2]** Mutação de Compartilhamento Dinâmico via API (Toggle de MCP, Skills, Config, Git/GitHub)
 - [ ] **[07.3]** Priming e Aquecimento de Cotas via API com Emissão de Progresso
 - [ ] **[08.1]** Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil

@@ -161,21 +161,26 @@ The agent MUST NOT activate this skill when:
    # Custom port or interface
    multigravity serve --port 9090 --host 127.0.0.1
    ```
-3. Available Local API Endpoints:
+3. Available Local API Endpoints (accessible via `/api/` or `/api/v1/`):
    | Method | Endpoint | Description |
    | :--- | :--- | :--- |
    | `GET` | `/health` / `/api/v1/health` | Health check, version, and server uptime |
    | `GET` | `/api/v1/doctor` | Comprehensive system diagnostic report |
    | `GET` | `/api/v1/profiles` | List of all profiles with running state, color, and PIDs |
+   | `POST` | `/api/v1/profiles` | Create new profile (`auth_only`, `color`, `from_template`, isolation flags) |
    | `GET` | `/api/v1/profiles/{name}` | Detailed information for a single profile |
+   | `DELETE` | `/api/v1/profiles/{name}` | Delete profile and desktop shortcuts (`?force=true` if running) |
    | `GET` | `/api/v1/profiles/{name}/stats` | Storage size and extension count for a single profile |
    | `GET` | `/api/v1/stats` | Aggregated storage usage across all profiles |
    | `GET` | `/api/v1/profiles/{name}/sharing` | MCP, skills, config, and GitHub CLI sharing status |
    | `GET` | `/api/v1/profiles/{name}/conversations` | AI conversation list and artifact counts |
    | `GET` | `/api/v1/quota` | Active Language Server quota metrics across all running profiles |
    | `GET` | `/api/v1/quota/{profile}` | Active quota metrics filtered by profile |
+   | `POST` | `/api/v1/profiles/{name}/launch` | Launch profile IDE instance (`{"args": [...]}`) |
    | `POST` | `/api/v1/profiles/{name}/stop` | Gracefully stop profile processes (`{"force": false}`) |
+   | `POST` | `/api/v1/profiles/{name}/restart` | Gracefully restart profile (`{"args": [...]}`) |
    | `POST` | `/api/v1/profiles/{name}/clean` | Clean volatile caches for a profile |
+   | `POST` | `/api/v1/profiles/{name}/rename` | Safely rename profile (`{"new_name": "target"}`) |
    | `GET` | `/events` / `/api/v1/events` | Real-time Server-Sent Events (SSE) stream (`init`, `profiles`, `action`, `ping`) |
 
 ## 5. Canonical Examples
@@ -184,6 +189,18 @@ The agent MUST NOT activate this skill when:
 ```bash
 # Listen to real-time events push (SSE) without polling
 curl -N -s http://127.0.0.1:8989/api/v1/events
+
+# Create an auth-only profile with visual accent color via REST API
+curl -s -X POST http://127.0.0.1:8989/api/profiles \
+  -H "Content-Type: application/json" \
+  -d '{"name": "agent-worker", "auth_only": true, "color": "emerald"}'
+
+# Launch profile instance via REST API
+curl -s -X POST http://127.0.0.1:8989/api/profiles/agent-worker/launch
+
+# Gracefully stop or delete profile
+curl -s -X POST http://127.0.0.1:8989/api/profiles/agent-worker/stop
+curl -s -X DELETE http://127.0.0.1:8989/api/profiles/agent-worker
 
 # Fetch running profiles with PIDs
 curl -s http://127.0.0.1:8989/api/v1/profiles | jq '.data[] | select(.is_running == true)'

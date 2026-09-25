@@ -113,3 +113,21 @@ func defaultLaunchProfile(name string, forwardArgs []string) error {
 func LaunchProfile(name string, forwardArgs []string) error {
 	return launchProfileFn(name, forwardArgs)
 }
+
+// SetLaunchProfileFn sets the launcher function and returns a restore closure (used for testing)
+func SetLaunchProfileFn(fn func(name string, forwardArgs []string) error) func() {
+	prev := launchProfileFn
+	launchProfileFn = fn
+	return func() {
+		launchProfileFn = prev
+	}
+}
+
+// SetGetProfilePIDsFn sets the process querying function and returns a restore closure (used for testing)
+func SetGetProfilePIDsFn(fn func(name string) ([]int, error)) func() {
+	prev := getProfilePIDsFn
+	getProfilePIDsFn = fn
+	return func() {
+		getProfilePIDsFn = prev
+	}
+}

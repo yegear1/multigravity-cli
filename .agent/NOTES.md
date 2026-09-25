@@ -19,6 +19,29 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 07.1] Implementação de Endpoints de Mutação no Servidor HTTP (multigravity serve)
+
+- **Contexto:** Agregadores, ferramentas de telemetria externa e agentes de IA necessitam de endpoints REST para controlar o ciclo de vida completo de instâncias e perfis (`new` com `--auth-only`, `delete`, `launch`, `stop`, `restart`, `rename`) sem recorrer a comandos de shell locais ou correr riscos de concorrência com instâncias ativas da IDE.
+- **Decisões Técnicas:**
+  - **Rotas com Prefixo Duplo (`/api/` e `/api/v1/`):**
+    - Todos os novos endpoints e aliases preexistentes foram registrados simultaneamente sob `/api/profiles...` e `/api/v1/profiles...`, garantindo flexibilidade total para diferentes bibliotecas de frontend e clientes HTTP.
+  - **CORS Estendido para Mutações:**
+    - Atualizado o header `Access-Control-Allow-Methods` para `"GET, POST, DELETE, OPTIONS, HEAD"`, permitindo preflights bem-sucedidos em browsers.
+  - **Criação de Perfis (`POST /api/profiles`):**
+    - Payload flexível em `CreateProfileRequest`: aceita `auth_only`, `auth-only` (kebab-case) e `shared`, mapeando para o layout leve de ~2 MB introduzido na Task [11.1].
+    - Suporta flags de isolamento granular (`isolated_dotfiles`, `isolated_mcp`, `isolated_skills`, `isolated_config`, `isolated_gh`), theming (`color`) e modelo inicial (`from_template`).
+    - Retorna `201 Created` com o payload estruturado de `profile.ProfileInfo`. Emite evento SSE `create` e notifica observadores via `broker.CheckProfilesChange()`.
+    - Respostas de erro padronizadas: `400 Bad Request` (nome inválido/ausente, cor ou template inexistente) e `409 Conflict` (perfil já existente).
+  - **Exclusão Segura com Proteção contra Concorrência (`DELETE /api/profiles/:name`):**
+    - Checagem ativa de execução (`IsProfileRunning`). Se o perfil estiver aberto e `force` não for passado (via query `?force=true` ou JSON `{"force": true}`), aborta com `409 Conflict` para prevenir corrupção de bancos SQLite (Regra de Ouro #4 do `AGENTS.md`).
+    - Retorna `404 Not Found` para perfis inexistentes e `200 OK` ao deletar. Emite evento SSE `delete` e dispara `broker.CheckProfilesChange()`.
+  - **Ações de Ciclo de Vida (`launch`, `restart`, `rename`):**
+    - `POST /api/profiles/:name/launch`: recebe `{"args": [...]}` opcional e aciona `LaunchProfile`. Emite evento SSE `launch`.
+    - `POST /api/profiles/:name/restart`: fecha graciosamente o perfil e o relança com os argumentos fornecidos. Emite evento SSE `restart`.
+    - `POST /api/profiles/:name/rename`: recebe `{"new_name": "..."}`, valida sintaxe, verifica se está em execução (retornando `409 Conflict` se ativo) e renomeia diretório e atalhos de desktop. Emite evento SSE `rename`.
+  - **Testabilidade Limpa em Go:**
+    - Exportadas funções `profile.SetLaunchProfileFn` e `profile.SetGetProfilePIDsFn` retornando closures de restauração (RAII idiomático em testes), viabilizando simulações herméticas de execução e inicialização sem disparar janelas Electron reais.
+
 ### 2026-09-25 [Task 11.5] Landing Page Estática e Onboarding Visual Interativo para Iniciantes (GitHub Pages / Showcase)
 
 - **Contexto:** Iniciantes e novos usuários necessitavam de uma vitrine interativa na web para conhecer o Multigravity, testar comandos visualmente, compreender a economia de disco de perfis Auth-Only (~2 MB) e obter instruções de instalação guiadas por sistema operacional sem barreiras.
