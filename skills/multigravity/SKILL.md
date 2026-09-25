@@ -195,6 +195,15 @@ The agent MUST NOT activate this skill when:
    | `POST` | `/v1/messages` / `/api/v1/messages` | Anthropic-compatible messages gateway with SSE streaming and auto-failover |
    | `GET` | `/v1/models` / `/api/v1/models` | OpenAI-compatible model catalog listing supported models |
    | `GET` | `/events` / `/api/v1/events` | Real-time Server-Sent Events (SSE) stream (`init`, `profiles`, `action`, `prime`, `ping`) |
+   | `GET` | `/api/v1/dispatch/tasks` | List all dispatched tasks with filters (`profile`, `status`, `agent`, `worktree`) |
+   | `POST` | `/api/v1/dispatch/tasks` | Dispatch an agent task with isolated credentials and optional worktree |
+   | `GET` | `/api/v1/dispatch/tasks/{id}` | Task metadata, status, duration, and worktree info |
+   | `DELETE` | `/api/v1/dispatch/tasks/{id}` | Delete task record (`?worktree=true` to delete worktree too) |
+   | `POST` | `/api/v1/dispatch/tasks/{id}/cancel` | Cancel active task (`?force=true`) |
+   | `GET` | `/api/v1/dispatch/tasks/{id}/logs` | Retrieve buffered execution logs (`?tail=100`) |
+   | `GET` | `/api/v1/dispatch/tasks/{id}/stream` | Real-time SSE stream of task terminal output |
+   | `GET` | `/api/v1/dispatch/tasks/{id}/diff` | Git diff produced by the task in its worktree (`?stat=true`) |
+   | `POST` | `/api/v1/dispatch/tasks/prune` | Prune finished tasks older than max_age (`?max_age=24h`) |
 
 ## 5. Canonical Examples
 
@@ -257,6 +266,20 @@ multigravity status
 
 # Clean caches for a specific profile
 multigravity clean old-experiment
+```
+
+### Dispatching an Agent Task with an Ephemeral Worktree
+```bash
+# Dispatch Claude Code with dedicated profile and git worktree
+multigravity dispatch run dev --new-worktree --prompt "implement feature X" --detach
+
+# Inspect task status and real-time execution logs
+multigravity dispatch list
+multigravity dispatch status <task-id>
+multigravity dispatch logs <task-id> -f
+
+# Review git diff inside the isolated worktree
+multigravity dispatch diff <task-id>
 ```
 
 ## 6. Contrast Pairs

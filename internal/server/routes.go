@@ -11,6 +11,7 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/agent"
 	"github.com/ye-dev/multigravity-cli/internal/chat"
 	"github.com/ye-dev/multigravity-cli/internal/config"
+	"github.com/ye-dev/multigravity-cli/internal/dispatch"
 	"github.com/ye-dev/multigravity-cli/internal/doctor"
 	"github.com/ye-dev/multigravity-cli/internal/prime"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
@@ -289,6 +290,27 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("POST /api/agent/sessions/{id}/input", s.handleSendAgentSessionInput)
 	s.mux.HandleFunc("POST /api/v1/agent/sessions/{id}/resize", s.handleResizeAgentSession)
 	s.mux.HandleFunc("POST /api/agent/sessions/{id}/resize", s.handleResizeAgentSession)
+
+	// Task Dispatcher (Orchestrator)
+	s.mux.HandleFunc("GET /api/v1/dispatch/tasks", s.handleListDispatchedTasks)
+	s.mux.HandleFunc("GET /api/dispatch/tasks", s.handleListDispatchedTasks)
+	s.mux.HandleFunc("POST /api/v1/dispatch/tasks", s.handleCreateDispatchedTask)
+	s.mux.HandleFunc("POST /api/dispatch/tasks", s.handleCreateDispatchedTask)
+	s.mux.HandleFunc("POST /api/v1/dispatch/tasks/prune", s.handlePruneDispatchedTasks)
+	s.mux.HandleFunc("POST /api/dispatch/tasks/prune", s.handlePruneDispatchedTasks)
+
+	s.mux.HandleFunc("GET /api/v1/dispatch/tasks/{id}", s.handleGetDispatchedTask)
+	s.mux.HandleFunc("GET /api/dispatch/tasks/{id}", s.handleGetDispatchedTask)
+	s.mux.HandleFunc("DELETE /api/v1/dispatch/tasks/{id}", s.handleDeleteDispatchedTask)
+	s.mux.HandleFunc("DELETE /api/dispatch/tasks/{id}", s.handleDeleteDispatchedTask)
+	s.mux.HandleFunc("POST /api/v1/dispatch/tasks/{id}/cancel", s.handleCancelDispatchedTask)
+	s.mux.HandleFunc("POST /api/dispatch/tasks/{id}/cancel", s.handleCancelDispatchedTask)
+	s.mux.HandleFunc("GET /api/v1/dispatch/tasks/{id}/logs", s.handleGetDispatchedTaskLogs)
+	s.mux.HandleFunc("GET /api/dispatch/tasks/{id}/logs", s.handleGetDispatchedTaskLogs)
+	s.mux.HandleFunc("GET /api/v1/dispatch/tasks/{id}/stream", s.handleStreamDispatchedTaskLogs)
+	s.mux.HandleFunc("GET /api/dispatch/tasks/{id}/stream", s.handleStreamDispatchedTaskLogs)
+	s.mux.HandleFunc("GET /api/v1/dispatch/tasks/{id}/diff", s.handleGetDispatchedTaskDiff)
+	s.mux.HandleFunc("GET /api/dispatch/tasks/{id}/diff", s.handleGetDispatchedTaskDiff)
 }
 
 func (s *Server) handleGatewayChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -1724,6 +1746,261 @@ func (s *Server) handleResizeAgentSession(w http.ResponseWriter, r *http.Request
 		"id":   id,
 		"rows": req.Rows,
 		"cols": req.Cols,
+	})
+}
+
+// --- Task Dispatcher Handlers ---
+
+func (s *Server) handleListDispatchedTasks(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	repoPath := q.Get("repo")
+	filter := dispatch.TaskFilter{
+		Profile:    q.Get("profile"),
+		Status:     dispatch.TaskStatus(q.Get("status")),
+		AgentType:  q.Get("agent"),
+		WorktreeID: q.Get("worktree"),
+	}
+
+	tasks, err := dispatch.GetDefaultTaskManager().ListTasks(repoPath, filter)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, tasks)
+}
+
+func (s *Server) handleCreateDispatchedTask(w http.ResponseWriter, r *http.Request) {
+	var opts dispatch.DispatchOptions
+	if err := json.NewDecoder(r.Body).Decode(&opts); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid task payload: %v", err))
+		return
+	}
+
+	if opts.Profile == "" {
+		s.writeError(w, http.StatusBadRequest, "profile is required")
+		return
+	}
+
+	task, err := dispatch.GetDefaultTaskManager().Dispatch(opts)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.broker.Broadcast(SSEEvent{
+		Event: "action",
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		Data: map[string]any{
+			"action":  "dispatch",
+			"status":  "dispatched",
+			"task_id": task.ID,
+			"profile": task.Profile,
+		},
+	})
+
+	s.writeJSON(w, http.StatusCreated, task)
+}
+
+func (s *Server) handleGetDispatchedTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repoPath := r.URL.Query().Get("repo")
+
+	task, err := dispatch.GetDefaultTaskManager().GetTask(repoPath, id)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, task)
+}
+
+func (s *Server) handleDeleteDispatchedTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	q := r.URL.Query()
+	repoPath := q.Get("repo")
+	removeWT := q.Get("worktree") == "true"
+
+	if err := dispatch.GetDefaultTaskManager().DeleteTask(repoPath, id, removeWT); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.broker.Broadcast(SSEEvent{
+		Event: "action",
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		Data: map[string]any{
+			"action":  "dispatch",
+			"status":  "deleted",
+			"task_id": id,
+		},
+	})
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":      id,
+		"deleted": true,
+	})
+}
+
+func (s *Server) handleCancelDispatchedTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	q := r.URL.Query()
+	repoPath := q.Get("repo")
+	force := q.Get("force") == "true"
+
+	if err := dispatch.GetDefaultTaskManager().CancelTask(repoPath, id, force); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.broker.Broadcast(SSEEvent{
+		Event: "action",
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		Data: map[string]any{
+			"action":  "dispatch",
+			"status":  "cancelled",
+			"task_id": id,
+		},
+	})
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":     id,
+		"status": "cancelled",
+	})
+}
+
+func (s *Server) handleGetDispatchedTaskLogs(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	q := r.URL.Query()
+	repoPath := q.Get("repo")
+	tailBytes := 0
+	if tailStr := q.Get("tail"); tailStr != "" {
+		if n, err := strconv.Atoi(tailStr); err == nil && n > 0 {
+			tailBytes = n
+		}
+	}
+
+	data, err := dispatch.GetDefaultTaskManager().GetTaskLogs(repoPath, id, tailBytes)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":   id,
+		"logs": string(data),
+	})
+}
+
+func (s *Server) handleStreamDispatchedTaskLogs(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repoPath := r.URL.Query().Get("repo")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	task, err := dispatch.GetDefaultTaskManager().GetTask(repoPath, id)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	ctx := r.Context()
+
+	// If session is active, subscribe to live chunks
+	if task.Status == dispatch.StatusRunning && task.SessionID != "" {
+		ch, unsub, err := agent.GetDefaultManager().SubscribeSession(task.SessionID)
+		if err == nil {
+			defer unsub()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case chunk, ok := <-ch:
+					if !ok {
+						fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+						flusher.Flush()
+						return
+					}
+					chunkBytes, _ := json.Marshal(chunk)
+					fmt.Fprintf(w, "event: output\ndata: %s\n\n", chunkBytes)
+					flusher.Flush()
+				}
+			}
+		}
+	}
+
+	// Completed or archived task: stream existing log buffer
+	if logData, err := dispatch.GetDefaultTaskManager().GetTaskLogs(repoPath, id, 0); err == nil && len(logData) > 0 {
+		chunk := agent.OutputChunk{
+			SessionID: task.SessionID,
+			Data:      string(logData),
+			Offset:    0,
+			Timestamp: time.Now(),
+		}
+		chunkBytes, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "event: output\ndata: %s\n\n", chunkBytes)
+		flusher.Flush()
+	}
+
+	fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+	flusher.Flush()
+}
+
+func (s *Server) handleGetDispatchedTaskDiff(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	q := r.URL.Query()
+	repoPath := q.Get("repo")
+	statOnly := q.Get("stat") == "true"
+
+	task, err := dispatch.GetDefaultTaskManager().GetTask(repoPath, id)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	diff, err := dispatch.GetDefaultTaskManager().GetTaskDiff(repoPath, id, statOnly)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":          id,
+		"worktree_id": task.WorktreeID,
+		"branch":      task.Branch,
+		"base_commit": task.BaseCommit,
+		"diff":        diff,
+	})
+}
+
+func (s *Server) handlePruneDispatchedTasks(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	repoPath := q.Get("repo")
+	maxAge := 24 * time.Hour
+	if maxAgeStr := q.Get("max_age"); maxAgeStr != "" {
+		if dur, err := time.ParseDuration(maxAgeStr); err == nil {
+			maxAge = dur
+		}
+	}
+
+	pruned, err := dispatch.GetDefaultTaskManager().PruneTasks(repoPath, maxAge)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"pruned": pruned,
 	})
 }
 

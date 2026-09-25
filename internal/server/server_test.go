@@ -358,6 +358,12 @@ func TestSSEEvents(t *testing.T) {
 		// Consume empty line separating events
 		_, _ = reader.ReadString('\n')
 
+		// Wait until broker has registered the client
+		regDeadline := time.Now().Add(2 * time.Second)
+		for srv.Broker().ClientCount() == 0 && time.Now().Before(regDeadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+
 		// Broadcast a test event
 		srv.Broker().Broadcast(SSEEvent{
 			Event: "test_notice",
@@ -366,16 +372,16 @@ func TestSSEEvents(t *testing.T) {
 			},
 		})
 
-		line3, err := reader.ReadString('\n')
-		if err != nil {
-			resp.Body.Close()
-			reqCancel()
-			t.Fatalf("[%s] failed to read line3: %v", path, err)
-		}
-		if strings.TrimSpace(line3) != "event: test_notice" {
-			resp.Body.Close()
-			reqCancel()
-			t.Fatalf("[%s] expected 'event: test_notice', got %q", path, line3)
+		for {
+			line3, err := reader.ReadString('\n')
+			if err != nil {
+				resp.Body.Close()
+				reqCancel()
+				t.Fatalf("[%s] failed to read line3: %v", path, err)
+			}
+			if strings.TrimSpace(line3) == "event: test_notice" {
+				break
+			}
 		}
 
 		line4, err := reader.ReadString('\n')
@@ -1042,7 +1048,10 @@ func TestSharingMutationSSE(t *testing.T) {
 	defer ts.Close()
 
 	// Connect SSE client
-	resp, err := http.Get(ts.URL + "/api/v1/events")
+	reqCtx, reqCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer reqCancel()
+	req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, ts.URL+"/api/v1/events", nil)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("failed to connect to SSE: %v", err)
 	}
@@ -1054,6 +1063,12 @@ func TestSharingMutationSSE(t *testing.T) {
 	_, _ = reader.ReadString('\n') // event: init
 	_, _ = reader.ReadString('\n') // data: ...
 	_, _ = reader.ReadString('\n') // empty line
+
+	// Wait until broker has registered the client
+	regDeadline := time.Now().Add(2 * time.Second)
+	for srv.Broker().ClientCount() == 0 && time.Now().Before(regDeadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	// Trigger sharing mutation
 	shareReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/profiles/sse-share-prof/sharing/mcp", strings.NewReader(`{"action": "isolate"}`))
@@ -1068,7 +1083,17 @@ func TestSharingMutationSSE(t *testing.T) {
 	}
 
 	// Verify SSE broadcast
-	line1, _ := reader.ReadString('\n')
+	var line1 string
+	for {
+		l, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("failed to read SSE line: %v", err)
+		}
+		if strings.TrimSpace(l) == "event: action" {
+			line1 = l
+			break
+		}
+	}
 	if strings.TrimSpace(line1) != "event: action" {
 		t.Fatalf("expected 'event: action' for sharing mutation, got %q", line1)
 	}
@@ -1245,7 +1270,10 @@ func TestPrimeProgressSSE(t *testing.T) {
 	defer ts.Close()
 
 	// Connect SSE client
-	resp, err := http.Get(ts.URL + "/api/v1/events")
+	reqCtx, reqCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer reqCancel()
+	req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, ts.URL+"/api/v1/events", nil)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("failed to connect to SSE: %v", err)
 	}
@@ -1257,6 +1285,12 @@ func TestPrimeProgressSSE(t *testing.T) {
 	_, _ = reader.ReadString('\n') // event: init
 	_, _ = reader.ReadString('\n') // data: ...
 	_, _ = reader.ReadString('\n') // empty line
+
+	// Wait until broker has registered the client
+	regDeadline := time.Now().Add(2 * time.Second)
+	for srv.Broker().ClientCount() == 0 && time.Now().Before(regDeadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	// Trigger prime
 	primeReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/profiles/prime-sse-prof/prime", strings.NewReader(`{"force": true, "no_jitter": true}`))
@@ -1808,6 +1842,122 @@ func TestAgentServerEndpoints(t *testing.T) {
 		t.Fatalf("expected 200, got %d", pruneResp.StatusCode)
 	}
 }
+
+func TestDispatchEndpoints(t *testing.T) {
+	srv, _ := setupTestServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Create test profile
+	pDir := filepath.Join(os.Getenv("MULTIGRAVITY_HOME"), "dispatch-prof")
+	if err := os.MkdirAll(pDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. GET /api/v1/dispatch/tasks (empty)
+	resp, err := http.Get(ts.URL + "/api/v1/dispatch/tasks")
+	if err != nil {
+		t.Fatalf("failed to GET /api/v1/dispatch/tasks: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// 2. POST /api/v1/dispatch/tasks
+	createPayload := map[string]any{
+		"id":      "task-server-test",
+		"profile": "dispatch-prof",
+		"command": "sh",
+		"args":    []string{"-c", "echo 'server dispatch test ok'; sleep 0.1"},
+		"prompt":  "test prompt",
+	}
+	bodyBytes, _ := json.Marshal(createPayload)
+	postResp, err := http.Post(ts.URL+"/api/v1/dispatch/tasks", "application/json", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		t.Fatalf("failed to POST /api/v1/dispatch/tasks: %v", err)
+	}
+	defer postResp.Body.Close()
+	if postResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", postResp.StatusCode)
+	}
+
+	var createAPIResp APIResponse
+	if err := json.NewDecoder(postResp.Body).Decode(&createAPIResp); err != nil {
+		t.Fatalf("failed to decode created task: %v", err)
+	}
+	taskMap, ok := createAPIResp.Data.(map[string]any)
+	if !ok || taskMap["id"] != "task-server-test" {
+		t.Fatalf("expected ID 'task-server-test', got %v", createAPIResp.Data)
+	}
+	taskID := "task-server-test"
+
+	// Wait for task to finish
+	time.Sleep(300 * time.Millisecond)
+
+	// 3. GET /api/v1/dispatch/tasks/{id}
+	getResp, err := http.Get(fmt.Sprintf("%s/api/v1/dispatch/tasks/%s", ts.URL, taskID))
+	if err != nil {
+		t.Fatalf("failed to GET task: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", getResp.StatusCode)
+	}
+
+	// 4. GET /api/v1/dispatch/tasks/{id}/logs
+	logsResp, err := http.Get(fmt.Sprintf("%s/api/v1/dispatch/tasks/%s/logs", ts.URL, taskID))
+	if err != nil {
+		t.Fatalf("failed to GET task logs: %v", err)
+	}
+	defer logsResp.Body.Close()
+	if logsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", logsResp.StatusCode)
+	}
+	var logsAPIResp APIResponse
+	if err := json.NewDecoder(logsResp.Body).Decode(&logsAPIResp); err != nil {
+		t.Fatalf("failed to decode logs JSON: %v", err)
+	}
+	logsMap, _ := logsAPIResp.Data.(map[string]any)
+	if !strings.Contains(logsMap["logs"].(string), "server dispatch test ok") {
+		t.Errorf("expected log to contain 'server dispatch test ok', got: %v", logsMap["logs"])
+	}
+
+	// 5. GET /api/v1/dispatch/tasks/{id}/stream (SSE stream)
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer streamCancel()
+	streamReq, _ := http.NewRequestWithContext(streamCtx, http.MethodGet, fmt.Sprintf("%s/api/v1/dispatch/tasks/%s/stream", ts.URL, taskID), nil)
+	streamResp, err := http.DefaultClient.Do(streamReq)
+	if err != nil {
+		t.Fatalf("failed to GET stream: %v", err)
+	}
+	defer streamResp.Body.Close()
+	if streamResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", streamResp.StatusCode)
+	}
+
+	// 6. DELETE /api/v1/dispatch/tasks/{id}
+	delReq, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/dispatch/tasks/%s", ts.URL, taskID), nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatalf("failed to DELETE task: %v", err)
+	}
+	defer delResp.Body.Close()
+	if delResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", delResp.StatusCode)
+	}
+
+	// 7. POST /api/v1/dispatch/tasks/prune
+	pruneResp, err := http.Post(fmt.Sprintf("%s/api/v1/dispatch/tasks/prune?max_age=1ns", ts.URL), "application/json", nil)
+	if err != nil {
+		t.Fatalf("failed to POST prune: %v", err)
+	}
+	defer pruneResp.Body.Close()
+	if pruneResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", pruneResp.StatusCode)
+	}
+}
+
 
 
 

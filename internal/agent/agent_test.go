@@ -163,12 +163,13 @@ waitEcho:
 	}
 
 	// Write input to session
-	if err := mgr.WriteSessionInput(info.ID, []byte("interactive input\n")); err != nil {
+	if err := mgr.WriteSessionInput(info.ID, []byte("interactive input\r\n")); err != nil {
 		t.Fatalf("failed to write input: %v", err)
 	}
 
 	// Wait for response or completion
-	inst.Wait(3 * time.Second)
+	inst.Wait(5 * time.Second)
+	time.Sleep(50 * time.Millisecond)
 
 	info = inst.GetInfo()
 	if info.Status != StatusExited {

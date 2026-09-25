@@ -65,37 +65,44 @@ func (s *SessionInstance) waitLoop() {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			s.info.ExitCode = exitErr.ExitCode()
-			s.info.Status = StatusExited
 		} else {
 			s.info.ExitCode = -1
-			s.info.Status = StatusFailed
+		}
+		if s.info.Status != StatusStopped {
+			if errors.As(err, &exitErr) {
+				s.info.Status = StatusExited
+			} else {
+				s.info.Status = StatusFailed
+			}
 		}
 	} else {
 		s.info.ExitCode = 0
-		s.info.Status = StatusExited
+		if s.info.Status != StatusStopped {
+			s.info.Status = StatusExited
+		}
 	}
 
 	if s.ptyDev != nil {
 		_ = s.ptyDev.Close()
 	}
 
-	// Notify exit
+	// Notify exit and close subscribers safely under lock
 	close(s.exitChan)
-	subscribers := make([]chan OutputChunk, 0, len(s.subscribers))
+	s.closed = true
 	for ch := range s.subscribers {
-		subscribers = append(subscribers, ch)
-	}
-	s.mu.Unlock()
-
-	// Close subscriber channels
-	for _, ch := range subscribers {
 		close(ch)
 	}
+	s.subscribers = make(map[chan OutputChunk]struct{})
+	s.mu.Unlock()
 }
 
 func (s *SessionInstance) broadcast(data []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.closed {
+		return
+	}
 
 	// Append to sliding buffer
 	s.outputBuf = append(s.outputBuf, data...)
@@ -188,7 +195,7 @@ func (s *SessionInstance) Subscribe() (<-chan OutputChunk, func()) {
 	ch := make(chan OutputChunk, 100)
 
 	// If already terminated, return closed channel
-	if s.info.Status != StatusRunning {
+	if s.closed || s.info.Status != StatusRunning {
 		close(ch)
 		return ch, func() {}
 	}

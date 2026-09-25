@@ -19,6 +19,35 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 15.3] Motor de Despacho de Tarefas (multigravity dispatch) com Associação de Perfil, Worktree e Captura de Logs
+
+- **Contexto:** Orquestração de agentes autônomos de desenvolvimento e tarefas isoladas requer um motor central (`internal/dispatch`) capaz de coordenar o provisionamento de Git Worktrees efêmeros (`internal/worktree`), isolamento de perfil e identidade com variáveis de ambiente dedicadas (`internal/profile`), e execução em terminais interativos virtuais PTY (`internal/agent`), persistindo logs de execução (`run.log`) e metadados (`task.json`).
+- **Decisões Técnicas:**
+  - **Módulo `internal/dispatch`:**
+    - `types.go`: contratos estruturados `Task`, `TaskStatus` (`pending`, `running`, `completed`, `failed`, `cancelled`), `DispatchOptions`, `TaskFilter`, `TaskManifest` e `TaskDiff`.
+    - `manager.go`: ciclo de vida completo (`Dispatch`, `GetTask`, `ListTasks`, `CancelTask`, `DeleteTask`, `PruneTasks`, `GetTaskLogs`, `GetTaskDiff`).
+    - **Gravação Síncrona e Stream de Logs (`streamLogsToFile`):** O arquivo de log `run.log` e o manifesto `task.json` são criados de forma síncrona na chamada `Dispatch()`. Na inicialização do streaming, o chunk inicial já emitido pela sessão PTY (`inst.GetOutput(0)`) é gravado imediatamente no disco antes de aguardar o canal pub/sub, prevenindo perda de logs para comandos rápidos (< 10ms).
+    - **Fallback de Logs em Memória:** `GetTaskLogs()` lê o arquivo `run.log` do disco; caso o arquivo esteja vazio (ex: comando em buffer antes do flush de saída), consulta dinamicamente o buffer circular da sessão PTY (`inst.GetSessionOutput()`), garantindo que consultas à API ou CLI nunca retornem saída vazia indevidamente.
+    - **Gerenciamento Seguro de Concorrência e Cleanup:** Cancelamento de tarefas invoca `inst.StopSession(sessionID, 3*time.Second)` e atualiza o estado para `cancelled`. Exclusão (`DeleteTask`) e poda (`PruneTasks`) verificam ativamente se a sessão está em execução (abortando sem `--force` ou matando o processo com `force: true`) e limpam opcionalmente a worktree correspondente via `wtMgr.RemoveWorktree(..., force)`.
+  - **CLI `multigravity dispatch` (aliases `dp`, `task`):**
+    - Subcomandos: `run <cmd>`, `list` (alias `ls`), `status <task-id>`, `logs <task-id>`, `diff <task-id>`, `cancel <task-id>`, `delete <task-id>` (alias `rm`), `prune`.
+    - Suporte a `--profile`, `--repo`, `--branch`, `--worktree` (criação automática ou reuso), `--env`, `--background` (modo desacoplado vs streaming em tempo real), `--tail` e `--follow` (`-f`) para logs.
+    - Contratos estruturados em JSON via `--json` em todos os subcomandos de consulta e ciclo de vida.
+    - Autocompletion dinâmico para perfis e task IDs.
+  - **API REST & SSE (`internal/server`):**
+    - Endpoints registrados sob prefixos duplos `/api/v1/dispatch/...` e `/api/dispatch/...`:
+      - `POST /tasks`: cria e despacha nova tarefa.
+      - `GET /tasks`: lista tarefas com suporte a filtros de query (`status`, `profile`, `repo`).
+      - `GET /tasks/{id}`: consulta detalhes da tarefa.
+      - `GET /tasks/{id}/logs`: obtém logs com suporte a `?tail=N` e `?follow=true` via SSE chunk streaming.
+      - `GET /tasks/{id}/diff`: obtém diff de Git e estatísticas de arquivos alterados no worktree.
+      - `POST /tasks/{id}/cancel`: cancela execução.
+      - `DELETE /tasks/{id}`: remove tarefa e metadados.
+      - `POST /tasks/prune`: limpa tarefas concluídas/falhas com `retention_hours`.
+    - Eventos SSE emitidos em tempo real no feed global (`event: "action"`, `action: "task_dispatch"`).
+  - **Fix de Concorrência em `internal/agent/session.go`:**
+    - Corrigido race condition onde `waitLoop` fechava os canais de assinantes fora do mutex `s.mu`, enquanto `readLoop` chamava `broadcast()` concorrentemente, causando pânico de `send on closed channel`. A finalização de canais foi encapsulada com guarda atômica `s.closed` sob o mesmo mutex de escrita.
+
 ### 2026-09-25 [Task 15.2] Multiplexador de Terminais PTY e Execução Headless de Agentes CLI (Claude Code, Aider, OpenCode) com Isolamento de Identidade
 
 - **Contexto:** Ferramentas modernas de agentes autônomos de desenvolvimento (Claude Code CLI, Aider, OpenCode, Agy) requerem um terminal interativo real (PTY / TTY) para exibir interfaces ricas em ANSI, processar prompts interativos de confirmação (`[y/n]`, concessão de ferramentas) e capturar fielmente logs de execução. O sistema necessitava de um multiplexador concorrente com isolamento estrito de perfil (`$HOME` / `%USERPROFILE%`) e roteamento transparente para os gateways OpenAI e Anthropic locais.
