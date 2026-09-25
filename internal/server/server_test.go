@@ -1177,6 +1177,24 @@ func TestPrimeEndpoints(t *testing.T) {
 	if postBatchRec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for batch prime, got %d: %s", postBatchRec.Code, postBatchRec.Body.String())
 	}
+
+	// 7. POST /api/v1/profiles/prime-api-prof/prime (warm_5h check) -> 200
+	postWarmReq := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/prime-api-prof/prime", strings.NewReader(`{"warm_5h": true, "check": true, "no_jitter": true}`))
+	postWarmRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(postWarmRec, postWarmReq)
+	if postWarmRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for warm_5h check prime, got %d: %s", postWarmRec.Code, postWarmRec.Body.String())
+	}
+	var apiResp struct {
+		Success bool                     `json:"success"`
+		Data    prime.ProfilePrimeResult `json:"data"`
+	}
+	if err := json.Unmarshal(postWarmRec.Body.Bytes(), &apiResp); err != nil {
+		t.Fatalf("failed to decode warm_5h response: %v", err)
+	}
+	if apiResp.Data.Profile != "prime-api-prof" {
+		t.Errorf("expected profile prime-api-prof in warm_5h response, got %s", apiResp.Data.Profile)
+	}
 }
 
 func TestPrimeProgressSSE(t *testing.T) {

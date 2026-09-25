@@ -6,6 +6,7 @@ type QuotaBucket struct {
 	Description       string  `json:"description"`
 	RemainingFraction float64 `json:"remainingFraction"`
 	ResetTime         string  `json:"resetTime"`
+	WindowType        string  `json:"windowType,omitempty"`
 }
 
 type QuotaGroup struct {

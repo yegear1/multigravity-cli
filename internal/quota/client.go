@@ -67,6 +67,15 @@ func (c *Client) RetrieveUserQuotaSummary(port int, csrf string) (*QuotaSummaryR
 		return nil, fmt.Errorf("failed to parse quota summary: %w", err)
 	}
 
+	now := time.Now().UTC()
+	for i := range quotaResp.Response.Groups {
+		for j := range quotaResp.Response.Groups[i].Buckets {
+			if quotaResp.Response.Groups[i].Buckets[j].WindowType == "" {
+				quotaResp.Response.Groups[i].Buckets[j].WindowType = ClassifyWindow(quotaResp.Response.Groups[i].Buckets[j], now)
+			}
+		}
+	}
+
 	return &quotaResp, nil
 }
 

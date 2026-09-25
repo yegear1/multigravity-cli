@@ -18,6 +18,7 @@ type PrimeOptions struct {
 	NoJitter         bool
 	MaxJitter        float64
 	Include5h        bool
+	Warm5h           bool
 	Quiet            bool
 	JSON             bool
 	Out              io.Writer

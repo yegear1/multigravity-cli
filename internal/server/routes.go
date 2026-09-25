@@ -78,6 +78,8 @@ type PrimeRequest struct {
 	Check        bool    `json:"check"`
 	Include5h    bool    `json:"include_5h"`
 	Include5hAlt bool    `json:"5h,omitempty"`
+	Warm5h       bool    `json:"warm_5h"`
+	Warm5hAlt    bool    `json:"warm-5h,omitempty"`
 	NoJitter     bool    `json:"no_jitter"`
 	MaxJitter    float64 `json:"max_jitter"`
 }
@@ -89,6 +91,8 @@ type BatchPrimeRequest struct {
 	Check        bool     `json:"check"`
 	Include5h    bool     `json:"include_5h"`
 	Include5hAlt bool     `json:"5h,omitempty"`
+	Warm5h       bool     `json:"warm_5h"`
+	Warm5hAlt    bool     `json:"warm-5h,omitempty"`
 	NoJitter     bool     `json:"no_jitter"`
 	MaxJitter    float64  `json:"max_jitter"`
 }
@@ -654,6 +658,9 @@ func (s *Server) handlePostProfilePrime(w http.ResponseWriter, r *http.Request) 
 	if q.Get("5h") == "true" || q.Get("include_5h") == "true" {
 		req.Include5h = true
 	}
+	if q.Get("warm_5h") == "true" || q.Get("warm-5h") == "true" {
+		req.Warm5h = true
+	}
 	if q.Get("no_jitter") == "true" {
 		req.NoJitter = true
 	}
@@ -663,6 +670,7 @@ func (s *Server) handlePostProfilePrime(w http.ResponseWriter, r *http.Request) 
 		Force:     req.Force,
 		Check:     req.Check,
 		Include5h: req.Include5h || req.Include5hAlt,
+		Warm5h:    req.Warm5h || req.Warm5hAlt,
 		NoJitter:  req.NoJitter,
 		MaxJitter: req.MaxJitter,
 		Quiet:     true,
@@ -716,6 +724,9 @@ func (s *Server) handlePostAllPrime(w http.ResponseWriter, r *http.Request) {
 	if q.Get("5h") == "true" || q.Get("include_5h") == "true" {
 		req.Include5h = true
 	}
+	if q.Get("warm_5h") == "true" || q.Get("warm-5h") == "true" {
+		req.Warm5h = true
+	}
 	if q.Get("no_jitter") == "true" {
 		req.NoJitter = true
 	}
@@ -752,6 +763,7 @@ func (s *Server) handlePostAllPrime(w http.ResponseWriter, r *http.Request) {
 			Force:     req.Force,
 			Check:     req.Check,
 			Include5h: req.Include5h || req.Include5hAlt,
+			Warm5h:    req.Warm5h || req.Warm5hAlt,
 			NoJitter:  req.NoJitter,
 			MaxJitter: req.MaxJitter,
 			Quiet:     true,

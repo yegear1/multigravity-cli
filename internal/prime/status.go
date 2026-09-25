@@ -110,6 +110,24 @@ func GetProfilePrimeStatus(profileName string) (*ProfilePrimeStatus, error) {
 		b, hasBucket := buckets[cfg.BucketID]
 		bState := profState[cfg.Key]
 
+		var parentB *quota.QuotaBucket
+		if cfg.ParentKey != "" {
+			if pb, ok := buckets[cfg.ParentKey+"-weekly"]; ok {
+				parentB = &pb
+			}
+		}
+
+		wType := quota.ClassifyWindow(quota.QuotaBucket{
+			BucketID:    cfg.BucketID,
+			DisplayName: cfg.Name,
+			ResetTime:   b.ResetTime,
+		}, now)
+
+		canWarm := false
+		if hasBucket {
+			canWarm = quota.CanWarm5hWindow(b, parentB, now)
+		}
+
 		rep := BucketStatusReport{
 			Key:             cfg.Key,
 			BucketID:        cfg.BucketID,
@@ -118,6 +136,8 @@ func GetProfilePrimeStatus(profileName string) (*ProfilePrimeStatus, error) {
 			Model:           cfg.Model,
 			ModelLabel:      cfg.ModelLabel,
 			Available:       hasBucket,
+			WindowType:      wType,
+			CanWarm:         canWarm,
 			LastPrimedAt:    bState.LastPrimedAt,
 			LastModel:       bState.LastModel,
 			LastPrompt:      bState.LastPrompt,
@@ -147,6 +167,8 @@ func GetProfilePrimeStatus(profileName string) (*ProfilePrimeStatus, error) {
 			} else if isRef {
 				if bState.TargetPrimeTime != "" {
 					rep.CycleStatus = fmt.Sprintf("Pending Prime with Jitter (Scheduled at: %s)", bState.TargetPrimeTime)
+				} else if canWarm {
+					rep.CycleStatus = "Ready to Warm (Refreshed / Proactive 5h warm-up available)"
 				} else {
 					rep.CycleStatus = "Ready to Prime (Reset occurred / New cycle waiting to start)"
 				}
@@ -216,6 +238,9 @@ func RenderStatusText(st *ProfilePrimeStatus) {
 		fmt.Printf("    Reset Target:     %s\n", b.ResetTime)
 		fmt.Printf("    Last Primed:      %s (model: %s%s)\n", lastP, lastM, promptInfo)
 		fmt.Printf("    Cycle Status:     %s\n", b.CycleStatus)
+		if b.CanWarm {
+			fmt.Printf("    Proactive 5h:     Available (multigravity prime %s --warm-5h)\n", st.Profile)
+		}
 	}
 
 	fmt.Printf("\n  Scheduled Watchdog:\n")

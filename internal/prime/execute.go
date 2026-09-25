@@ -135,7 +135,11 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 	}
 
 	for _, cfg := range BucketConfigs {
-		if cfg.Period == "5h" && !opts.Include5h && !opts.Force {
+		if cfg.Period == "5h" && !opts.Include5h && !opts.Warm5h && !opts.Force {
+			continue
+		}
+		if opts.Warm5h && cfg.Period != "5h" {
+			// If warm-5h was explicitly requested, target only 5-hour rolling windows
 			continue
 		}
 
@@ -144,13 +148,24 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 			continue
 		}
 
+		wType := quota.ClassifyWindow(quota.QuotaBucket{
+			BucketID:    cfg.BucketID,
+			DisplayName: cfg.Name,
+			ResetTime:   b.ResetTime,
+		}, now)
+
+		warmType := "cycle_reset"
+		if opts.Warm5h || cfg.Period == "5h" {
+			warmType = "proactive_5h"
+		}
+
 		// Protection: if 5h bucket, check if parent weekly quota has remaining quota (> 5%)
 		if cfg.ParentKey != "" {
 			parentB, hasParent := buckets[cfg.ParentKey+"-weekly"]
 			if hasParent {
 				if parentB.RemainingFraction <= 0.05 && !opts.Force {
 					msg := fmt.Sprintf("Skipping 5h prime for %s: weekly quota is exhausted (%.1f%% remaining).", cfg.Name, parentB.RemainingFraction*100)
-					emit("skipped", cfg.Key, cfg.BucketID, msg, map[string]any{"reason": "weekly_exhausted"})
+					emit("skipped", cfg.Key, cfg.BucketID, msg, map[string]any{"reason": "weekly_exhausted", "window_type": wType})
 					result.Buckets = append(result.Buckets, BucketPrimeResult{
 						Key:        cfg.Key,
 						BucketID:   cfg.BucketID,
@@ -159,6 +174,8 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 						ModelLabel: cfg.ModelLabel,
 						Status:     "skipped",
 						Reason:     "weekly quota is exhausted",
+						WindowType: wType,
+						WarmType:   warmType,
 					})
 					continue
 				}
@@ -181,9 +198,11 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 			if alrPrimed {
 				msg := fmt.Sprintf("Quota for '%s' [%s] is already primed and active for this cycle.", profKey, cfg.Name)
 				emit("skipped", cfg.Key, cfg.BucketID, msg, map[string]any{
-					"reason":     "already_primed",
-					"resets_in":  tLeft,
-					"reset_time": rstStr,
+					"reason":      "already_primed",
+					"resets_in":   tLeft,
+					"reset_time":  rstStr,
+					"window_type": wType,
+					"warm_type":   warmType,
 				})
 				result.Buckets = append(result.Buckets, BucketPrimeResult{
 					Key:        cfg.Key,
@@ -194,6 +213,8 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 					Status:     "skipped",
 					Reason:     "already primed and active for this cycle",
 					ResetTime:  rstStr,
+					WindowType: wType,
+					WarmType:   warmType,
 				})
 				continue
 			}
@@ -201,9 +222,11 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 			if !isRef {
 				msg := fmt.Sprintf("Quota for '%s' [%s] has not reset yet (%.1f%% remaining, resets in %s).", profKey, cfg.Name, remFrac*100, tLeft)
 				emit("skipped", cfg.Key, cfg.BucketID, msg, map[string]any{
-					"reason":    "not_reset",
-					"remaining": remFrac,
-					"resets_in": tLeft,
+					"reason":      "not_reset",
+					"remaining":   remFrac,
+					"resets_in":   tLeft,
+					"window_type": wType,
+					"warm_type":   warmType,
 				})
 				result.Buckets = append(result.Buckets, BucketPrimeResult{
 					Key:        cfg.Key,
@@ -214,14 +237,23 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 					Status:     "skipped",
 					Reason:     fmt.Sprintf("quota has not reset yet (%.1f%% remaining, resets in %s)", remFrac*100, tLeft),
 					ResetTime:  rstStr,
+					WindowType: wType,
+					WarmType:   warmType,
 				})
 				continue
 			}
 
 			if opts.Check {
-				msg := fmt.Sprintf("Quota for '%s' [%s] is READY for priming (Reset occurred / New cycle waiting).", profKey, cfg.Name)
-				emit("ready", cfg.Key, cfg.BucketID, msg, map[string]any{
-					"ready": true,
+				readyMsg := fmt.Sprintf("Quota for '%s' [%s] is READY for priming (Reset occurred / New cycle waiting).", profKey, cfg.Name)
+				readyReason := "ready for priming (reset occurred)"
+				if opts.Warm5h {
+					readyMsg = fmt.Sprintf("Quota for '%s' [%s] is READY for proactive 5-hour warm-up.", profKey, cfg.Name)
+					readyReason = "ready for proactive 5h warm-up"
+				}
+				emit("ready", cfg.Key, cfg.BucketID, readyMsg, map[string]any{
+					"ready":       true,
+					"window_type": wType,
+					"warm_type":   warmType,
 				})
 				result.Buckets = append(result.Buckets, BucketPrimeResult{
 					Key:        cfg.Key,
@@ -230,8 +262,10 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 					Model:      cfg.Model,
 					ModelLabel: cfg.ModelLabel,
 					Status:     "ready",
-					Reason:     "ready for priming (reset occurred)",
+					Reason:     readyReason,
 					ResetTime:  rstStr,
+					WindowType: wType,
+					WarmType:   warmType,
 				})
 				continue
 			}
@@ -251,7 +285,9 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 
 				msg := fmt.Sprintf("✓ 5-Hour window for '%s' [%s] auto-linked with previous prime in this session.", profKey, cfg.Name)
 				emit("linked", cfg.Key, cfg.BucketID, msg, map[string]any{
-					"linked": true,
+					"linked":      true,
+					"window_type": wType,
+					"warm_type":   warmType,
 				})
 				result.Buckets = append(result.Buckets, BucketPrimeResult{
 					Key:        cfg.Key,
@@ -264,6 +300,8 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 					Prompt:     fmt.Sprintf("(Linked with %s prime)", cfg.ParentKey),
 					ResetTime:  rstStr,
 					PrimedAt:   primedAt,
+					WindowType: wType,
+					WarmType:   warmType,
 				})
 				continue
 			}
@@ -301,6 +339,8 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 					emit("jitter_waiting", cfg.Key, cfg.BucketID, msg, map[string]any{
 						"wait_seconds": waitSec,
 						"target_time":  targetTime.Format(time.RFC3339),
+						"window_type":  wType,
+						"warm_type":    warmType,
 					})
 					time.Sleep(time.Duration(waitSec) * time.Second)
 				}
@@ -319,7 +359,9 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 							manualActivity = true
 							msg := fmt.Sprintf("Aborting prime for %s: manual user activity detected (quota now at %.1f%%).", cfg.Name, freshRem*100)
 							emit("aborted", cfg.Key, cfg.BucketID, msg, map[string]any{
-								"reason": "manual_activity",
+								"reason":      "manual_activity",
+								"window_type": wType,
+								"warm_type":   warmType,
 							})
 							result.Buckets = append(result.Buckets, BucketPrimeResult{
 								Key:        cfg.Key,
@@ -330,6 +372,8 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 								Status:     "aborted",
 								Reason:     "manual user activity detected",
 								ResetTime:  freshRst,
+								WindowType: wType,
+								WarmType:   warmType,
 							})
 							bState.TargetPrimeTime = ""
 							profState[cfg.Key] = bState
@@ -353,15 +397,24 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 		selectedPrompt := SelectRandomPrompt(prompts, usedPrompts)
 		usedPrompts[selectedPrompt] = true
 
-		emit("dispatching", cfg.Key, cfg.BucketID, fmt.Sprintf("Dispatching prime prompt to %s for %s", cfg.ModelLabel, cfg.Name), map[string]any{
-			"model":  cfg.ModelLabel,
-			"prompt": selectedPrompt,
+		dispatchMsg := fmt.Sprintf("Dispatching prime prompt to %s for %s", cfg.ModelLabel, cfg.Name)
+		if warmType == "proactive_5h" {
+			dispatchMsg = fmt.Sprintf("Dispatching proactive 5h warm-up prompt to %s for %s", cfg.ModelLabel, cfg.Name)
+		}
+		emit("dispatching", cfg.Key, cfg.BucketID, dispatchMsg, map[string]any{
+			"model":       cfg.ModelLabel,
+			"prompt":      selectedPrompt,
+			"window_type": wType,
+			"warm_type":   warmType,
 		})
 
 		cascadeID, err := client.StartCascade(port, csrf)
 		if err != nil {
 			msg := fmt.Sprintf("Error priming %s (StartCascade): %v", cfg.Name, err)
-			emit("error", cfg.Key, cfg.BucketID, msg, nil)
+			emit("error", cfg.Key, cfg.BucketID, msg, map[string]any{
+				"window_type": wType,
+				"warm_type":   warmType,
+			})
 			result.Buckets = append(result.Buckets, BucketPrimeResult{
 				Key:        cfg.Key,
 				BucketID:   cfg.BucketID,
@@ -370,6 +423,8 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 				ModelLabel: cfg.ModelLabel,
 				Status:     "error",
 				Reason:     fmt.Sprintf("StartCascade failed: %v", err),
+				WindowType: wType,
+				WarmType:   warmType,
 			})
 			continue
 		}
@@ -377,7 +432,10 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 		err = client.SendUserCascadeMessage(port, csrf, cascadeID, selectedPrompt, cfg.Model)
 		if err != nil {
 			msg := fmt.Sprintf("Error priming %s (SendUserCascadeMessage): %v", cfg.Name, err)
-			emit("error", cfg.Key, cfg.BucketID, msg, nil)
+			emit("error", cfg.Key, cfg.BucketID, msg, map[string]any{
+				"window_type": wType,
+				"warm_type":   warmType,
+			})
 			result.Buckets = append(result.Buckets, BucketPrimeResult{
 				Key:        cfg.Key,
 				BucketID:   cfg.BucketID,
@@ -386,6 +444,8 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 				ModelLabel: cfg.ModelLabel,
 				Status:     "error",
 				Reason:     fmt.Sprintf("SendUserCascadeMessage failed: %v", err),
+				WindowType: wType,
+				WarmType:   warmType,
 			})
 			continue
 		}
@@ -406,10 +466,16 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 		_ = SaveState(state)
 		primedProviders[cfg.Model] = true
 
-		emit("primed", cfg.Key, cfg.BucketID, fmt.Sprintf("Successfully primed quota for profile '%s' [%s]!", profKey, cfg.Name), map[string]any{
-			"model":      cfg.ModelLabel,
-			"prompt":     selectedPrompt,
-			"cascade_id": cascadeID,
+		primeSuccessMsg := fmt.Sprintf("Successfully primed quota for profile '%s' [%s]!", profKey, cfg.Name)
+		if warmType == "proactive_5h" {
+			primeSuccessMsg = fmt.Sprintf("Successfully warmed 5-hour quota window for profile '%s' [%s]!", profKey, cfg.Name)
+		}
+		emit("primed", cfg.Key, cfg.BucketID, primeSuccessMsg, map[string]any{
+			"model":       cfg.ModelLabel,
+			"prompt":      selectedPrompt,
+			"cascade_id":  cascadeID,
+			"window_type": wType,
+			"warm_type":   warmType,
 		})
 
 		result.Buckets = append(result.Buckets, BucketPrimeResult{
@@ -423,6 +489,8 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 			CascadeID:  cascadeID,
 			ResetTime:  rstStr,
 			PrimedAt:   primedAt,
+			WindowType: wType,
+			WarmType:   warmType,
 		})
 	}
 

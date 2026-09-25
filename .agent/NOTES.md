@@ -31,6 +31,24 @@
   - **PTY Multiplexing:** Terminais virtuais reais (`creack/pty` em Go) para CLI interativas (Claude Code, Aider, OpenCode) permitindo stdin/stdout streaming, perguntas de confirmação e captura de histórico.
   - **Cota-Pooling:** O `multigravity` atuará como provedor unificado de inteligência e roteador de tokens para todos os agentes filhos despachados.
 
+### 2026-09-25 [Task 14.1] Heurística de Janela de Cotas (5h vs Semanal) e Ping de Aquecimento Proativo
+
+- **Contexto:** Os serviços da Google (CloudCode / Gemini Code Assist) e 3P (Claude/GPT) organizam os limites em janelas rotativas de 5 horas e ciclos semanais. Anteriormente, a identificação dependia apenas de correspondências literais fixas de IDs. Além disso, o timer de renovação da janela de 5 horas só inicia a contagem regressiva após o consumo do primeiro token do ciclo, fazendo com que janelas ociosas demorassem para recarregar se o usuário só trabalhasse no final do dia.
+- **Decisões Técnicas:**
+  - **Heurística Matemática de Classificação de Janelas (`internal/quota/heuristic.go`):**
+    - `ClassifyWindow(b QuotaBucket, now time.Time)`: analisa identificadores canônicos (`5h`, `rolling`, `sliding`, `hourly` $\to$ `Window5h`; `weekly`, `week`, `7d` $\to$ `WindowWeekly`) e o tempo até o reset $\Delta t_{\text{reset}}$. Se $\Delta t_{\text{reset}} \le 12\text{h}$, classifica como janela de 5 horas; se $> 12\text{h}$, classifica como ciclo semanal.
+    - `CanWarm5hWindow(b QuotaBucket, parentWeekly *QuotaBucket, now time.Time)`: avalia se uma janela de 5 horas está ociosa e recém-resetada ($RemainingFraction \ge 0.999$), sem contagem regressiva ativa em andamento e com a cota semanal pai preservada ($> 5\%$).
+  - **Enriquecimento Não-Quebrante em `QuotaBucket` (`internal/quota/types.go`):**
+    - Campo aditivo `WindowType string json:"windowType,omitempty"`, preenchido deterministicamente em `RetrieveUserQuotaSummary`.
+    - `RenderQuotaStatus` exibe selos `[5-Hour Window]` / `[Weekly Limit]` e emite a dica proativa `💡 Proactive 5h warm-up available: multigravity prime <profile> --warm-5h` quando o bucket de 5h estiver 100% livre.
+  - **Motor de Aquecimento Proativo (`internal/prime`):**
+    - `PrimeOptions` expandido com `Warm5h bool`.
+    - Ao executar com `--warm-5h`, filtra exclusivamente os buckets de 5 horas ociosos, valida a integridade da cota semanal pai para evitar exaustão indevida e dispara o prompt leve para adiantar o ciclo de 5 horas.
+    - `BucketStatusReport` e `BucketPrimeResult` enriquecidos com `window_type`, `can_warm` e `warm_type` (`"proactive_5h"` vs `"cycle_reset"`).
+  - **CLI e API REST (`internal/cmd/prime.go` e `internal/server/routes.go`):**
+    - Flag `--warm-5h` adicionada à CLI com reset determinístico.
+    - Endpoints `POST /api/v1/profiles/{name}/prime` e `POST /api/v1/prime` suportam `warm_5h: true` via JSON e query param, emitindo eventos de progresso SSE detalhados.
+
 ### 2026-09-25 [Task 07.3] Priming e Aquecimento de Cotas via API com Emissão de Progresso
 
 - **Contexto:** Agregadores, ferramentas de telemetria externa e agentes de IA necessitam de endpoints REST para consultar o status de priming e agendamento de watchdog (`GET /api/v1/profiles/{name}/prime`, `GET /api/v1/prime`), bem como acionar o aquecimento proativo de cotas (`POST /api/v1/profiles/{name}/prime`, `POST /api/v1/prime`) com feedback de progresso em tempo real via Server-Sent Events (SSE). Além disso, a CLI precisava do suporte a `--json` em `multigravity prime` (Regras de Ouro #6 e #7 do `AGENTS.md`).

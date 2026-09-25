@@ -8,6 +8,7 @@ import (
 var (
 	prime5h               bool
 	primeInclude5h        bool
+	primeWarm5h           bool
 	primeForce            bool
 	primeCheck            bool
 	primeStatus           bool
@@ -32,6 +33,7 @@ func newPrimeCmd() *cobra.Command {
 			defer func() {
 				prime5h = false
 				primeInclude5h = false
+				primeWarm5h = false
 				primeForce = false
 				primeCheck = false
 				primeStatus = false
@@ -52,6 +54,7 @@ func newPrimeCmd() *cobra.Command {
 				_ = cmd.Flags().Set("no-jitter", "false")
 				_ = cmd.Flags().Set("5h", "false")
 				_ = cmd.Flags().Set("include-5h", "false")
+				_ = cmd.Flags().Set("warm-5h", "false")
 			}()
 
 			profile := ""
@@ -67,6 +70,7 @@ func newPrimeCmd() *cobra.Command {
 				NoJitter:         primeNoJitter,
 				MaxJitter:        primeMaxJitter,
 				Include5h:        prime5h || primeInclude5h,
+				Warm5h:           primeWarm5h,
 				Quiet:            primeQuiet,
 				JSON:             primeJSON,
 				Out:              cmd.OutOrStdout(),
@@ -86,6 +90,7 @@ func newPrimeCmd() *cobra.Command {
 
 	c.Flags().BoolVar(&prime5h, "5h", false, "Include 5-hour quota reset windows (gemini-5h and 3p-5h)")
 	c.Flags().BoolVar(&primeInclude5h, "include-5h", false, "Include 5-hour quota reset windows")
+	c.Flags().BoolVar(&primeWarm5h, "warm-5h", false, "Trigger proactive warm-up ping for 5-hour rolling windows to start renewal clock early")
 	c.Flags().BoolVarP(&primeForce, "force", "f", false, "Force prime regardless of current reset cycle or jitter schedule")
 	c.Flags().BoolVar(&primeCheck, "check", false, "Check if quota is ready for priming without sending prompts")
 	c.Flags().BoolVar(&primeStatus, "status", false, "Show prime automation and quota status")

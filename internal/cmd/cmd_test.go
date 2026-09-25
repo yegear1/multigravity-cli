@@ -1057,6 +1057,19 @@ func TestCobraPrimeJSON(t *testing.T) {
 	if res.Profile != "test-prime-prof" || len(res.Buckets) == 0 || res.Buckets[0].Status != "ready" {
 		t.Errorf("unexpected prime dry-run result: %+v", res)
 	}
+
+	// 3. Test prime <profile> --warm-5h --check --json
+	out, err = executeCommand(rootCmd, "prime", "test-prime-prof", "--warm-5h", "--check", "--json")
+	if err != nil {
+		t.Fatalf("prime --warm-5h --check --json failed: %v", err)
+	}
+	var warmRes prime.ProfilePrimeResult
+	if err := json.Unmarshal([]byte(out), &warmRes); err != nil {
+		t.Fatalf("failed to parse prime warm-5h result json: %v, out: %s", err, out)
+	}
+	if warmRes.Profile != "test-prime-prof" {
+		t.Errorf("unexpected profile in warm-5h result: %+v", warmRes)
+	}
 }
 
 

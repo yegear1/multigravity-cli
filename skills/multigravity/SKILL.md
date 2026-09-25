@@ -74,10 +74,13 @@ The agent MUST NOT activate this skill when:
    ```bash
    multigravity prime --status
    multigravity prime <profile> --check --5h
+   multigravity prime <profile> --check --warm-5h
    ```
 3. If priming is required and quota has reset, execute prime with jitter protection:
    ```bash
    multigravity prime <profile> --include-5h
+   # Or proactively trigger a 5-hour rolling renewal window early:
+   multigravity prime <profile> --warm-5h
    ```
 
 ### Step 3: Managing Isolation Boundaries (MCP, Skills, Config, GitHub CLI)

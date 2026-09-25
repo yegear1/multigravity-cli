@@ -41,6 +41,8 @@ type BucketStatusReport struct {
 	LastPrompt        string  `json:"last_prompt"`
 	LastResetTime     string  `json:"last_reset_time"`
 	TargetPrimeTime   string  `json:"target_prime_time"`
+	WindowType        string  `json:"window_type,omitempty"`
+	CanWarm           bool    `json:"can_warm,omitempty"`
 }
 
 // ProfilePrimeStatus contains full priming status for a profile
@@ -70,6 +72,8 @@ type BucketPrimeResult struct {
 	CascadeID  string `json:"cascade_id,omitempty"`
 	ResetTime  string `json:"reset_time,omitempty"`
 	PrimedAt   string `json:"primed_at,omitempty"`
+	WindowType string `json:"window_type,omitempty"`
+	WarmType   string `json:"warm_type,omitempty"`
 }
 
 // ProfilePrimeResult records the outcome of priming a profile

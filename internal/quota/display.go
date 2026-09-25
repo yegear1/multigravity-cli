@@ -55,6 +55,15 @@ func RenderQuotaStatus(w io.Writer, servers []ActiveServer) {
 
 		for _, g := range s.Data.Response.Groups {
 			fmt.Fprintf(w, "\n• %s (%s):\n", g.DisplayName, g.Description)
+
+			var weeklyBucket *QuotaBucket
+			for i := range g.Buckets {
+				if ClassifyWindow(g.Buckets[i], now) == WindowWeekly {
+					weeklyBucket = &g.Buckets[i]
+					break
+				}
+			}
+
 			for _, b := range g.Buckets {
 				remainingPct := math.Round(b.RemainingFraction*1000) / 10
 				usedPct := math.Round((100.0-remainingPct)*10) / 10
@@ -67,10 +76,25 @@ func RenderQuotaStatus(w io.Writer, servers []ActiveServer) {
 					bName = "Limit"
 				}
 
-				fmt.Fprintf(w, "  - %s:\n", bName)
+				wType := ClassifyWindow(b, now)
+				windowBadge := ""
+				if wType == Window5h {
+					windowBadge = " [5-Hour Window]"
+				} else if wType == WindowWeekly {
+					windowBadge = " [Weekly Limit]"
+				}
+
+				fmt.Fprintf(w, "  - %s%s:\n", bName, windowBadge)
 				fmt.Fprintf(w, "    %s Remaining: %.1f%% | Used: %.1f%%%s\n", bar, remainingPct, usedPct, timeLeftStr)
 				if b.Description != "" {
 					fmt.Fprintf(w, "    Details: %s\n", b.Description)
+				}
+				if CanWarm5hWindow(b, weeklyBucket, now) {
+					profTarget := s.Profile
+					if profTarget == "" {
+						profTarget = "default"
+					}
+					fmt.Fprintf(w, "    💡 Proactive 5h warm-up available: multigravity prime %s --warm-5h\n", profTarget)
 				}
 			}
 		}

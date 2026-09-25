@@ -403,3 +403,150 @@ func TestExecutePrimeSkippingAndDryRun(t *testing.T) {
 		t.Errorf("expected skipped status for already primed cycle, got %+v", resPrimed.Buckets)
 	}
 }
+
+func TestExecutePrimeWarm5h(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", homeDir)
+	t.Setenv("REAL_HOME", homeDir)
+
+	profDir := filepath.Join(homeDir, "warmprof")
+	if err := os.MkdirAll(profDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	var sentPrompts []string
+	client := &mockQuotaClient{
+		summaryFunc: func(port int, csrf string) (*quota.QuotaSummaryResponse, error) {
+			return &quota.QuotaSummaryResponse{
+				Response: quota.QuotaResponse{
+					Groups: []quota.QuotaGroup{
+						{
+							Buckets: []quota.QuotaBucket{
+								{
+									BucketID:          "gemini-weekly",
+									RemainingFraction: 0.85,
+									ResetTime:         "2026-10-05T00:00:00Z",
+								},
+								{
+									BucketID:          "gemini-5h",
+									RemainingFraction: 1.0,
+									ResetTime:         "",
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		startFunc: func(port int, csrf string) (string, error) {
+			return "cascade-5h-warm", nil
+		},
+		sendFunc: func(port int, csrf, cascadeID, prompt, model string) error {
+			sentPrompts = append(sentPrompts, prompt)
+			return nil
+		},
+	}
+
+	cleanup := SetTestHooks(
+		func(profile string) ([]quota.ActiveServer, error) {
+			return []quota.ActiveServer{
+				{Profile: "warmprof", PID: 9999, Port: 8765, CSRF: "csrf-warm"},
+			}, nil
+		},
+		nil,
+		func(timeout time.Duration) QuotaClient {
+			return client
+		},
+		0,
+	)
+	defer cleanup()
+
+	// 1. Check mode for Warm5h
+	checkRes, err := ExecutePrime(PrimeOptions{
+		Profile: "warmprof",
+		Warm5h:  true,
+		Check:   true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("warm5h check failed: %v", err)
+	}
+	if len(checkRes.Buckets) == 0 {
+		t.Fatalf("expected 5h bucket in check result")
+	}
+	found5h := false
+	for _, b := range checkRes.Buckets {
+		if b.Key == "gemini_5h" {
+			found5h = true
+			if b.Status != "ready" || b.WindowType != "5h" || b.WarmType != "proactive_5h" {
+				t.Errorf("unexpected 5h check result: %+v", b)
+			}
+		}
+	}
+	if !found5h {
+		t.Errorf("gemini_5h not found in warm5h check results")
+	}
+
+	// 2. Execution of Warm5h
+	res, err := ExecutePrime(PrimeOptions{
+		Profile:  "warmprof",
+		Warm5h:   true,
+		NoJitter: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("warm5h execution failed: %v", err)
+	}
+	foundPrimed5h := false
+	for _, b := range res.Buckets {
+		if b.Key == "gemini_5h" {
+			foundPrimed5h = true
+			if b.Status != "primed" || b.CascadeID != "cascade-5h-warm" || b.WarmType != "proactive_5h" {
+				t.Errorf("unexpected 5h primed result: %+v", b)
+			}
+		}
+	}
+	if !foundPrimed5h {
+		t.Errorf("gemini_5h was not primed during warm5h execution")
+	}
+	if len(sentPrompts) != 1 {
+		t.Errorf("expected exactly 1 prompt for 5h warm-up, got %d", len(sentPrompts))
+	}
+
+	// 3. Exhausted weekly quota protection test
+	client.summaryFunc = func(port int, csrf string) (*quota.QuotaSummaryResponse, error) {
+		return &quota.QuotaSummaryResponse{
+			Response: quota.QuotaResponse{
+				Groups: []quota.QuotaGroup{
+					{
+						Buckets: []quota.QuotaBucket{
+							{
+								BucketID:          "gemini-weekly",
+								RemainingFraction: 0.03, // 3% remaining: exhausted
+								ResetTime:         "2026-10-05T00:00:00Z",
+							},
+							{
+								BucketID:          "gemini-5h",
+								RemainingFraction: 1.0,
+								ResetTime:         "",
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+
+	exhaustRes, err := ExecutePrime(PrimeOptions{
+		Profile:  "warmprof",
+		Warm5h:   true,
+		NoJitter: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("warm5h exhausted test failed: %v", err)
+	}
+	for _, b := range exhaustRes.Buckets {
+		if b.Key == "gemini_5h" && b.Status != "skipped" {
+			t.Errorf("expected 5h warm-up to be skipped when weekly quota is exhausted, got %+v", b)
+		}
+	}
+}
+
