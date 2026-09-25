@@ -19,6 +19,35 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 11.5] Landing Page Estática e Onboarding Visual Interativo para Iniciantes (GitHub Pages / Showcase)
+
+- **Contexto:** Iniciantes e novos usuários necessitavam de uma vitrine interativa na web para conhecer o Multigravity, testar comandos visualmente, compreender a economia de disco de perfis Auth-Only (~2 MB) e obter instruções de instalação guiadas por sistema operacional sem barreiras.
+- **Decisões Técnicas:**
+  - **Hospedagem Nativa em `docs/`:** Estruturado o portal diretamente em `docs/` (`index.html`, `css/style.css`, `js/app.js`, `assets/`), padrão suportado nativamente pelo GitHub Pages a partir da branch principal sem requerer pipelines adicionais de build.
+  - **Zero Dependências Externas (Pure Vanilla):** Construído em HTML5 semântico, CSS3 moderno (com variáveis de tema, glassmorphism e responsive grid/flexbox) e JavaScript vanilla sem frameworks pesados, garantindo carregamento instantâneo (< 100ms) e suporte a navegação offline.
+  - **Design Engineering & Motion Craft (Emil Kowalski):**
+    - Feedback de pressão tátil em botões: `transform: scale(0.97)` em `:active`.
+    - Curvas de easing customizadas: `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)` e `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)`.
+    - Transições suaves e respeitosas a acessibilidade (`@media (prefers-reduced-motion: reduce)`).
+    - Suporte a tema escuro/claro com detecção automática do SO e persistência via `localStorage`.
+  - **Simulador Interativo de Terminal:**
+    - 4 cenários dinâmicos com digitação de comandos em tempo real e saída em cores ANSI:
+      1. Menu interativo TUI (`multigravity`) com indicadores de status `● running` / `○ idle` e atalhos.
+      2. Perfil Auth-Only (`new dev --auth-only --color blue`) com symlinks e pegada de 1.8 MB.
+      3. Telemetria de Cotas de IA (`quota dev`) com barras ASCII multi-bucket (Gemini e 3P Claude/GPT) e watchdog prime.
+      4. Limpeza de Caches (`clean --all`) com detecção de instâncias ativas e liberação segura de gigabytes.
+    - Controles de reprodução: alternância de abas, replay e cópia de comando para a área de transferência.
+  - **Onboarding Multi-SO (Linux, macOS, Windows):**
+    - Abas específicas com comandos de 1 linha (`install.sh` / `install.ps1`), criação de primeiro perfil, lançamento via atalho nativo (.desktop/.app/.lnk) e verificação.
+  - **Calculadora e Comparador Visual:**
+    - Slider dinâmico (1 a 10 perfis) demonstrando o comparativo de consumo em disco (Full: N × 500 MB vs Auth-Only: N × 2 MB) com cálculo de economia acumulada (até 99.6%).
+    - Tabela comparativa Full vs Auth-Only destacando o que é compartilhado vs o que é estritamente isolado.
+  - **Explorador de Comandos e FAQ Interativo:**
+    - Filtros por categoria e busca instantânea com botões de cópia.
+    - FAQ acessível em `<details>` e `<summary>` com rotação suave de ícone SVG.
+  - **Integração no README:**
+    - Badges e links em destaque adicionados ao `README.md` e `README.pt-br.md` apontando para `https://yegear1.github.io/multigravity-cli/`.
+
 ### 2026-09-25 [Task 11.4] Matriz Comparativa Full vs Auth-Only e Documentação no README.md
 
 - **Contexto:** Com a introdução do suporte a perfis Auth-Only (`--auth-only` / `--shared`) na Task 11.1 e medição de tamanho na Task 11.2, os usuários necessitavam de uma referência clara e didática no `README.md` comparando as dimensões operacionais (Extensões, Configurações, Isolamento de Login, Cotas e Consumo de Disco: ~500 MB vs ~2 MB) para guiar a escolha do tipo de perfil.

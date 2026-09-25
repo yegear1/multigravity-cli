@@ -12,6 +12,9 @@ No more logging in and out. Launch as many profiles as you need, all at once.
 [![GitHub profile](https://img.shields.io/badge/GitHub-Profile-lightgrey?logo=github)](https://github.com/yegear1)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#install)
+[![Showcase & Interactive Onboarding](https://img.shields.io/badge/Showcase-Live%20Demo-6366f1?logo=googlechrome&logoColor=white)](https://yegear1.github.io/multigravity-cli/)
+
+> 🌐 **Interactive Showcase & Onboarding:** Check out our visual landing page with a live interactive terminal simulator, OS step-by-step guides, and disk footprint calculator at **[yegear1.github.io/multigravity-cli](https://yegear1.github.io/multigravity-cli/)**.
 
 ---
 

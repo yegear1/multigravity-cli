@@ -12,6 +12,9 @@ Chega de fazer login e logout a todo momento. Abra quantos perfis precisar, todo
 [![Perfil GitHub](https://img.shields.io/badge/GitHub-Profile-lightgrey?logo=github)](https://github.com/yegear1)
 [![Licença: MIT](https://img.shields.io/badge/Licen%C3%A7a-MIT-yellow.svg)](LICENSE)
 [![Plataformas](https://img.shields.io/badge/plataforma-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#instalação)
+[![Showcase e Onboarding Interativo](https://img.shields.io/badge/Showcase-Demo%20ao%20Vivo-6366f1?logo=googlechrome&logoColor=white)](https://yegear1.github.io/multigravity-cli/)
+
+> 🌐 **Showcase e Onboarding Interativo:** Confira nossa landing page visual com simulador de terminal em tempo real, guia por sistema operacional e calculadora de economia de disco em **[yegear1.github.io/multigravity-cli](https://yegear1.github.io/multigravity-cli/)**.
 
 ---
 

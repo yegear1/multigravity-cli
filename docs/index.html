@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multigravity — Modern Isolated Profile Manager for Antigravity IDE</title>
+  <meta name="description" content="Manage isolated profiles for Google Antigravity IDE. Rotate Gemini and 3P AI quotas, share extensions with auth-only profiles, isolate OAuth tokens, and launch in milliseconds.">
+  <meta name="keywords" content="antigravity, multigravity, ide, ai quotas, gemini, claude, profile manager, developer tools, go">
+  <meta name="author" content="yegear">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://yegear1.github.io/multigravity-cli/">
+  <meta property="og:title" content="Multigravity — Modern Isolated Profile Manager for Antigravity IDE">
+  <meta property="og:description" content="Manage isolated profiles for Google Antigravity IDE. Rotate Gemini and 3P AI quotas, share extensions with auth-only profiles, isolate OAuth tokens, and launch in milliseconds.">
+  <meta property="og:image" content="assets/logo.jpg">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:title" content="Multigravity — Modern Isolated Profile Manager for Antigravity IDE">
+  <meta property="twitter:description" content="Manage isolated profiles for Google Antigravity IDE. Rotate Gemini and 3P AI quotas, share extensions with auth-only profiles, isolate OAuth tokens, and launch in milliseconds.">
+  <meta property="twitter:image" content="assets/logo.jpg">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="assets/icon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="ambient-glow" aria-hidden="true"></div>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="container header-content">
+      <a href="#" class="brand" aria-label="Multigravity Home">
+        <img src="assets/icon.png" alt="Multigravity Icon" class="brand-icon">
+        <span class="brand-title">multigravity</span>
+        <span class="badge-version">v2.0.0</span>
+      </a>
+
+      <nav aria-label="Main Navigation">
+        <ul class="nav-links">
+          <li><a href="#features">Features</a></li>
+          <li><a href="#terminal">Terminal</a></li>
+          <li><a href="#install">Install Guide</a></li>
+          <li><a href="#comparison">Comparison</a></li>
+          <li><a href="#commands">Commands</a></li>
+          <li><a href="#faq">FAQ</a></li>
+        </ul>
+      </nav>
+
+      <div class="header-actions">
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+          <span id="theme-icon">☀️</span>
+        </button>
+        <a href="https://github.com/yegear1/multigravity-cli" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" aria-label="GitHub Repository">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero Section -->
+    <section class="hero-section">
+      <div class="container">
+        <div class="hero-pill">
+          <span class="hero-pill-indicator"></span>
+          <span>Go 2.0 Native Engine &bull; Lightweight Auth-Only Architecture</span>
+        </div>
+
+        <h1 class="hero-title">
+          Multiple Antigravity IDE Profiles. <br>
+          <span class="gradient-text">Zero Auth Friction.</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          Isolate workspaces, rotate Gemini and 3P AI quotas, share extensions effortlessly with ultra-light profiles (~2 MB), and launch multi-account developer environments in milliseconds.
+        </p>
+
+        <div class="hero-cta">
+          <div class="install-box">
+            <code>curl -fsSL https://raw.githubusercontent.com/yegear1/multigravity-cli/main/install.sh | bash</code>
+            <button class="copy-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/yegear1/multigravity-cli/main/install.sh | bash" aria-label="Copy install command">
+              Copy
+            </button>
+          </div>
+          <a href="#install" class="btn btn-primary">Get Started</a>
+          <a href="#terminal" class="btn btn-secondary">Interactive Demo</a>
+        </div>
+
+        <div class="hero-metrics">
+          <div class="metric-chip">⚡ <strong>Go 1.23+</strong> Native Binary (&lt;10ms)</div>
+          <div class="metric-chip">💾 <strong>99.6% Disk Savings</strong> with Auth-Only</div>
+          <div class="metric-chip">🛡️ <strong>Strict Isolation</strong> of OAuth & JetSki Tokens</div>
+          <div class="metric-chip">🐧 🍏 🪟 <strong>Linux &bull; macOS &bull; Windows</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Terminal Showcase -->
+    <section id="terminal" class="terminal-section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Interactive Terminal Showcase</span>
+          <h2 class="section-title">Experience the CLI in Real Time</h2>
+          <p class="section-desc">Click between scenarios below to see how multigravity manages profiles, tracks AI quotas, and protects your disk space.</p>
+        </div>
+
+        <div class="terminal-window">
+          <div class="terminal-header">
+            <div class="terminal-controls">
+              <span class="terminal-dot dot-red"></span>
+              <span class="terminal-dot dot-yellow"></span>
+              <span class="terminal-dot dot-green"></span>
+            </div>
+
+            <div class="terminal-tabs" role="tablist">
+              <button class="term-tab-btn active" data-tab="tui" role="tab" aria-selected="true">1. Interactive TUI</button>
+              <button class="term-tab-btn" data-tab="auth_only" role="tab" aria-selected="false">2. Auth-Only Profile</button>
+              <button class="term-tab-btn" data-tab="quota" role="tab" aria-selected="false">3. AI Quota & Prime</button>
+              <button class="term-tab-btn" data-tab="clean" role="tab" aria-selected="false">4. Cache Clean</button>
+            </div>
+
+            <div style="width: 50px;"></div>
+          </div>
+
+          <div class="terminal-body">
+            <div class="term-prompt-line">
+              <span class="term-prompt">user@multigravity:~$</span>
+              <span id="term-cmd-text" class="term-cmd"></span>
+              <span class="cursor-blink"></span>
+            </div>
+            <div id="term-output-text" class="term-output"></div>
+          </div>
+
+          <div class="terminal-footer">
+            <button id="term-replay-btn" class="btn btn-ghost" style="padding: 4px 10px; font-size: 0.8rem;">
+              ↻ Replay Animation
+            </button>
+            <button id="term-copy-cmd-btn" class="copy-btn" data-copy="multigravity" style="font-size: 0.8rem; padding: 4px 10px;">
+              Copy Command
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- OS Onboarding & Step-by-Step Guide -->
+    <section id="install" class="os-guide-section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Cross-Platform Onboarding</span>
+          <h2 class="section-title">Get Started in Under 60 Seconds</h2>
+          <p class="section-desc">Choose your operating system for optimized installation, shell setup, and desktop integration.</p>
+        </div>
+
+        <div class="os-switcher" role="tablist">
+          <button class="os-tab-btn active" data-os="linux" role="tab" aria-selected="true">
+            <span>🐧 Linux</span>
+          </button>
+          <button class="os-tab-btn" data-os="macos" role="tab" aria-selected="false">
+            <span>🍏 macOS</span>
+          </button>
+          <button class="os-tab-btn" data-os="windows" role="tab" aria-selected="false">
+            <span>🪟 Windows</span>
+          </button>
+        </div>
+
+        <!-- Linux Guide -->
+        <div id="pane-linux" class="os-content-pane active">
+          <div class="step-grid">
+            <div class="step-card">
+              <div class="step-number">1</div>
+              <h4>Automatic Install</h4>
+              <p>One-liner script downloads the native static binary, sets permissions, and registers shell completion.</p>
+              <div class="step-code">
+                <code>curl -fsSL https://raw.githubusercontent.com/yegear1/multigravity-cli/main/install.sh | bash</code>
+                <button class="copy-btn step-copy-btn" data-code="curl -fsSL https://raw.githubusercontent.com/yegear1/multigravity-cli/main/install.sh | bash">Copy</button>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-number">2</div>
+              <h4>Create Auth-Only Profile</h4>
+              <p>Creates an ultra-light ~2 MB profile that shares host extensions while keeping your Google login 100% isolated.</p>
+              <div class="step-code">
+                <code>multigravity new dev --auth-only --color blue</code>
+                <button class="copy-btn step-copy-btn" data-code="multigravity new dev --auth-only --color blue">Copy</button>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-number">3</div>
+              <h4>Launch & Desktop Icon</h4>
+              <p>Launch from terminal or your application launcher via the auto-generated XDG <code>.desktop</code> entry.</p>
+              <div class="step-code">
+                <code>multigravity dev</code>
+                <button class="copy-btn step-copy-btn" data-code="multigravity dev">Copy</button>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-number">4</div>
+              <h4>Verify Health & Quotas</h4>
+              <p>Run environment diagnostics and monitor remaining AI tokens and reset windows.</p>
+              <div class="step-code">
+                <code>multigravity quota dev</code>
+                <button class="copy-btn step-copy-btn" data-code="multigravity quota dev">Copy</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- macOS Guide -->
+        <div id="pane-macos" class="os-content-pane">
+          <div class="step-grid">
+            <div class="step-card">
+              <div class="step-number">1</div>
+              <h4>Automatic Install</h4>
+              <p>Fetches the universal Darwin binary (Apple Silicon arm64 & Intel amd64) and links Keychains.</p>
+              <div class="step-code">
+                <code>curl -fsSL https://raw.githubusercontent.com/yegear1/multigravity-cli/main/install.sh | bash</code>
+                <button class="copy-btn step-copy-btn" data-code="curl -fsSL https://raw.githubusercontent.com/yegear1/multigravity-cli/main/install.sh | bash">Copy</button>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-number">2</div>
+              <h4>Create Auth-Only Profile</h4>
+              <p>Shares all your VS Code / Antigravity extensions and keybindings with zero disk bloat.</p>
+              <div class="step-code">
+                <code>multigravity new work --auth-only --color emerald</code>
+                <button class="copy-btn step-copy-btn" data-code="multigravity new work --auth-only --color emerald">Copy</button>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-number">3</div>
+              <h4>Native .app Bundle</h4>
+              <p>Generates <code>~/Applications/Multigravity work.app</code> with embedded retina ICNS icons for Spotlight & Dock.</p>
+              <div class="step-code">
+                <code>multigravity work</code>
+                <button class="copy-btn step-copy-btn" data-code="multigravity work">Copy</button>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-number">4</div>
+              <h4>Watchdog Prime</h4>
+              <p>Automate background resets so weekly quota resets the second a new cycle starts.</p>
+              <div class="step-code">
+                <code>multigravity prime --install-cron</code>
+                <button class="copy-btn step-copy-btn" data-code="multigravity prime --install-cron">Copy</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Windows Guide -->
+        <div id="pane-windows" class="os-content-pane">
+          <div class="step-grid">
+            <div class="step-card">
+              <div class="step-number">1</div>
+              <h4>Native PowerShell Install</h4>
+              <p>No WSL required! Runs natively in Windows PowerShell with Start Menu integration.</p>
+              <div class="step-code">
+                <code>irm https://raw.githubusercontent.com/yegear1/multigravity-cli/main/install.ps1 | iex</code>
+                <button class="copy-btn step-copy-btn" data-code="irm https://raw.githubusercontent.com/yegear1/multigravity-cli/main/install.ps1 | iex">Copy</button>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-number">2</div>
+              <h4>Create Auth-Only Profile</h4>
+              <p>Uses NTFS directory junctions to link extensions and settings without requiring admin rights.</p>
+              <div class="step-code">
+                <code>multigravity new dev --auth-only --color cyan</code>
+                <button class="copy-btn step-copy-btn" data-code="multigravity new dev --auth-only --color cyan">Copy</button>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-number">3</div>
+              <h4>Start Menu Shortcut</h4>
+              <p>Created automatically in Start Menu with custom high-res ICO icon for one-click launching.</p>
+              <div class="step-code">
+                <code>multigravity dev</code>
+                <button class="copy-btn step-copy-btn" data-code="multigravity dev">Copy</button>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-number">4</div>
+              <h4>Automated Priming</h4>
+              <p>Schedule automatic weekly quota refreshes using native Windows Task Scheduler.</p>
+              <div class="step-code">
+                <code>multigravity prime --install-task</code>
+                <button class="copy-btn step-copy-btn" data-code="multigravity prime --install-task">Copy</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Comparison & Calculator -->
+    <section id="comparison" class="comparison-section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Disk Storage & Isolation</span>
+          <h2 class="section-title">Full Profile vs Auth-Only</h2>
+          <p class="section-desc">See how much storage you save with Auth-Only profiles while keeping complete credential security.</p>
+        </div>
+
+        <div class="calculator-card">
+          <div class="slider-container">
+            <label for="profile-count-slider" class="slider-label">
+              Number of Profiles to Manage: <span id="profile-count-val">5</span>
+            </label>
+            <input type="range" id="profile-count-slider" min="1" max="10" value="5" step="1" aria-label="Number of profiles slider">
+          </div>
+
+          <div class="calc-results-grid">
+            <div class="calc-box">
+              <div class="calc-box-title">Full Isolated Profiles</div>
+              <div id="full-profile-size" class="calc-box-value red">2.50 GB</div>
+              <div class="calc-box-sub">~500 MB per profile (extensions duplicated)</div>
+            </div>
+
+            <div class="calc-box highlight">
+              <div class="calc-box-title">Auth-Only Profiles</div>
+              <div id="auth-profile-size" class="calc-box-value green">10 MB</div>
+              <div class="calc-box-sub">~2 MB per profile (extensions symlinked from host)</div>
+            </div>
+          </div>
+
+          <div class="savings-banner">
+            🎉 <span id="saved-space-val">2.49 GB (99.6% saved)</span> reclaimed storage on your drive!
+          </div>
+        </div>
+
+        <!-- Matrix Table -->
+        <div class="matrix-table-wrap">
+          <table class="matrix-table">
+            <thead>
+              <tr>
+                <th>Feature / Dimension</th>
+                <th>Full Profile (<code>multigravity new</code>)</th>
+                <th>Auth-Only Profile (<code>--auth-only</code>)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Initial Disk Footprint</strong></td>
+                <td>~500 MB (grows with extensions)</td>
+                <td><span class="badge-shared">~2 MB (99.6% savings)</span></td>
+              </tr>
+              <tr>
+                <td><strong>Google Login / AI Quotas</strong></td>
+                <td><span class="badge-isolated">100% Isolated</span></td>
+                <td><span class="badge-isolated">100% Isolated</span></td>
+              </tr>
+              <tr>
+                <td><strong>OAuth & JetSki Auth Tokens</strong></td>
+                <td><span class="badge-isolated">Never Shared</span></td>
+                <td><span class="badge-isolated">Never Shared</span></td>
+              </tr>
+              <tr>
+                <td><strong>IDE Extensions</strong></td>
+                <td>Isolated (per-profile install)</td>
+                <td><span class="badge-shared">Symlinked from Host</span></td>
+              </tr>
+              <tr>
+                <td><strong>Editor Settings & Keybindings</strong></td>
+                <td>Isolated (fresh defaults)</td>
+                <td><span class="badge-shared">Symlinked from Host</span></td>
+              </tr>
+              <tr>
+                <td><strong>Window Titlebar Color</strong></td>
+                <td>Customizable (<code>--color</code>)</td>
+                <td>Customizable (Safe uncoupling)</td>
+              </tr>
+              <tr>
+                <td><strong>Dev Identity (Git, SSH, gh)</strong></td>
+                <td><span class="badge-shared">Symlinked (Opt-out available)</span></td>
+                <td><span class="badge-shared">Symlinked (Opt-out available)</span></td>
+              </tr>
+              <tr>
+                <td><strong>Ideal Use Case</strong></td>
+                <td>Conflicting stacks, divergent linters</td>
+                <td>Rotating AI quotas, personal vs client accounts</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features Grid -->
+    <section id="features" class="features-section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Engineering Highlights</span>
+          <h2 class="section-title">Built for Speed, Security & Autonomy</h2>
+          <p class="section-desc">Every subsystem in Multigravity is crafted with surgical precision to ensure your workflows never break.</p>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <h3>Native Go 1.23+ Engine</h3>
+            <p>Single compiled binary with sub-10ms startup time. Zero Node.js, Python, or external runtime requirements on host machines.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🛡️</div>
+            <h3>Strict Credential Isolation</h3>
+            <p>OAuth tokens, JetSki standalone credentials, and keychains remain hermetically isolated. Never leaked across profile boundaries.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🎨</div>
+            <h3>Visual Theming & Color Coding</h3>
+            <p>Easily distinguish open windows at a glance. Set custom accent colors across 15 presets or hex codes without touching your global settings.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🤖</div>
+            <h3>AI Quotas & Headless Prime</h3>
+            <p>Inspect real-time token percentages for Gemini and 3P models (Claude 3.7 / GPT). Automated headless priming resets cycles with zero manual chats.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">📦</div>
+            <h3>Non-Destructive Chat Migration</h3>
+            <p>Safely export, sync, and import AI conversations and brains across profiles with automatic token sanitization and SQLite concurrency locks.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🌐</div>
+            <h3>Local REST & SSE Server</h3>
+            <p>Built-in HTTP server with Server-Sent Events (SSE) streaming, enabling real-time telemetry ingestion for local dashboards, Tauri UIs, and agents.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Command Explorer / Cheat Sheet -->
+    <section id="commands" class="commands-section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">CLI Reference</span>
+          <h2 class="section-title">Command Explorer</h2>
+          <p class="section-desc">Search and filter through the complete multigravity toolchain.</p>
+        </div>
+
+        <div class="search-input-wrap">
+          <input type="text" id="cmd-search-input" class="search-input" placeholder="Filter commands... (e.g. quota, clean, new, status)" aria-label="Filter commands">
+        </div>
+
+        <div class="command-filters">
+          <button class="filter-tag-btn active" data-filter="all">All Commands</button>
+          <button class="filter-tag-btn" data-filter="lifecycle">Lifecycle</button>
+          <button class="filter-tag-btn" data-filter="ai">AI & Quotas</button>
+          <button class="filter-tag-btn" data-filter="storage">Storage & Cache</button>
+          <button class="filter-tag-btn" data-filter="sharing">Sharing & Security</button>
+        </div>
+
+        <div class="commands-grid">
+          <!-- Lifecycle -->
+          <div class="cmd-card" data-category="lifecycle" data-name="multigravity">
+            <div class="cmd-card-header">
+              <span class="cmd-name">multigravity</span>
+              <span class="cmd-category">Lifecycle</span>
+            </div>
+            <p class="cmd-desc">Opens the interactive TUI menu when run without arguments, or launches a profile directly.</p>
+            <div class="cmd-example">
+              <code>multigravity work</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity work">Copy</button>
+            </div>
+          </div>
+
+          <div class="cmd-card" data-category="lifecycle" data-name="new">
+            <div class="cmd-card-header">
+              <span class="cmd-name">new &lt;profile&gt;</span>
+              <span class="cmd-category">Lifecycle</span>
+            </div>
+            <p class="cmd-desc">Creates a new profile. Use <code>--auth-only</code> to share host extensions (~2 MB footprint).</p>
+            <div class="cmd-example">
+              <code>multigravity new dev --auth-only --color blue</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity new dev --auth-only --color blue">Copy</button>
+            </div>
+          </div>
+
+          <div class="cmd-card" data-category="lifecycle" data-name="status">
+            <div class="cmd-card-header">
+              <span class="cmd-name">status [profile]</span>
+              <span class="cmd-category">Lifecycle</span>
+            </div>
+            <p class="cmd-desc">Inspect running status, disk footprint, and last used timestamp. Supports <code>--json</code>.</p>
+            <div class="cmd-example">
+              <code>multigravity status --json</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity status --json">Copy</button>
+            </div>
+          </div>
+
+          <div class="cmd-card" data-category="lifecycle" data-name="stop">
+            <div class="cmd-card-header">
+              <span class="cmd-name">stop &lt;profile&gt;</span>
+              <span class="cmd-category">Lifecycle</span>
+            </div>
+            <p class="cmd-desc">Gracefully closes a running IDE instance with SQLite flush protection. Supports <code>--force</code>.</p>
+            <div class="cmd-example">
+              <code>multigravity stop dev</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity stop dev">Copy</button>
+            </div>
+          </div>
+
+          <!-- AI & Quotas -->
+          <div class="cmd-card" data-category="ai" data-name="quota">
+            <div class="cmd-card-header">
+              <span class="cmd-name">quota [profile]</span>
+              <span class="cmd-category">AI</span>
+            </div>
+            <p class="cmd-desc">Queries live Language Server RPC to display remaining percentages and reset timers for Gemini & 3P.</p>
+            <div class="cmd-example">
+              <code>multigravity quota dev</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity quota dev">Copy</button>
+            </div>
+          </div>
+
+          <div class="cmd-card" data-category="ai" data-name="prime">
+            <div class="cmd-card-header">
+              <span class="cmd-name">prime [profile]</span>
+              <span class="cmd-category">AI</span>
+            </div>
+            <p class="cmd-desc">Dispatches low-token priming messages headlessly to start quota cycles immediately upon refresh.</p>
+            <div class="cmd-example">
+              <code>multigravity prime --install-cron</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity prime --install-cron">Copy</button>
+            </div>
+          </div>
+
+          <div class="cmd-card" data-category="ai" data-name="ai sync">
+            <div class="cmd-card-header">
+              <span class="cmd-name">ai sync &lt;src&gt; &lt;dst&gt;</span>
+              <span class="cmd-category">AI</span>
+            </div>
+            <p class="cmd-desc">Safely copies conversation history and brain files between profiles with token sanitization.</p>
+            <div class="cmd-example">
+              <code>multigravity ai sync work personal</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity ai sync work personal">Copy</button>
+            </div>
+          </div>
+
+          <!-- Storage -->
+          <div class="cmd-card" data-category="storage" data-name="clean">
+            <div class="cmd-card-header">
+              <span class="cmd-name">clean &lt;profile|--all&gt;</span>
+              <span class="cmd-category">Storage</span>
+            </div>
+            <p class="cmd-desc">Removes volatile Chromium/Electron caches without touching extensions, settings, or auth tokens.</p>
+            <div class="cmd-example">
+              <code>multigravity clean --all</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity clean --all">Copy</button>
+            </div>
+          </div>
+
+          <div class="cmd-card" data-category="storage" data-name="color">
+            <div class="cmd-card-header">
+              <span class="cmd-name">color &lt;profile&gt; [val]</span>
+              <span class="cmd-category">Storage</span>
+            </div>
+            <p class="cmd-desc">Customizes titlebar color with preset names or hex codes (e.g. <code>blue</code>, <code>#10b981</code>).</p>
+            <div class="cmd-example">
+              <code>multigravity color dev emerald</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity color dev emerald">Copy</button>
+            </div>
+          </div>
+
+          <!-- Sharing & Security -->
+          <div class="cmd-card" data-category="sharing" data-name="config seed">
+            <div class="cmd-card-header">
+              <span class="cmd-name">config seed &lt;profile&gt;</span>
+              <span class="cmd-category">Sharing</span>
+            </div>
+            <p class="cmd-desc">Injects read-only commands (git, posix, inspection) into Always Allow to eliminate approval prompts.</p>
+            <div class="cmd-example">
+              <code>multigravity config seed --all</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity config seed --all">Copy</button>
+            </div>
+          </div>
+
+          <div class="cmd-card" data-category="sharing" data-name="doctor">
+            <div class="cmd-card-header">
+              <span class="cmd-name">doctor</span>
+              <span class="cmd-category">Sharing</span>
+            </div>
+            <p class="cmd-desc">Runs self-diagnostic checks verifying IDE binaries, desktop icon assets, and home permissions.</p>
+            <div class="cmd-example">
+              <code>multigravity doctor</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity doctor">Copy</button>
+            </div>
+          </div>
+
+          <div class="cmd-card" data-category="sharing" data-name="server">
+            <div class="cmd-card-header">
+              <span class="cmd-name">server</span>
+              <span class="cmd-category">Sharing</span>
+            </div>
+            <p class="cmd-desc">Spins up local REST & Server-Sent Events (SSE) server for telemetry and external UI integration.</p>
+            <div class="cmd-example">
+              <code>multigravity server --port 8484</code>
+              <button class="copy-btn cmd-copy-btn" data-code="multigravity server --port 8484">Copy</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="faq-section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Help & Clarifications</span>
+          <h2 class="section-title">Frequently Asked Questions</h2>
+          <p class="section-desc">Got questions about profile isolation, disk footprints, or quotas? We have answers.</p>
+        </div>
+
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>How does Multigravity differ from simply opening a new Antigravity window?</span>
+              <svg class="faq-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </summary>
+            <div class="faq-content">
+              Standard windows in Antigravity share the exact same user data directory, Google authentication token, and AI quota pool. Multigravity isolates the underlying <code>--user-data-dir</code> and redirects environment variables so you can log into completely different Google accounts simultaneously with independent rate limits and quotas.
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>Will my Google account login or OAuth tokens leak between profiles?</span>
+              <svg class="faq-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </summary>
+            <div class="faq-content">
+              No. Multigravity enforces strict isolation invariants. Authentication tokens (such as <code>jetski-standalone-oauth-token</code> and installation IDs) reside outside shared symlink directories and are never synchronized, exported, or linked across profiles.
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>How does an Auth-Only profile achieve ~2 MB without breaking extensions?</span>
+              <svg class="faq-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </summary>
+            <div class="faq-content">
+              Instead of duplicating hundreds of megabytes of extensions and themes from your host machine, an Auth-Only profile creates lightweight symbolic links (or NTFS Directory Junctions on Windows) pointing to your existing host extension folder and editor keybindings. Only the session state and auth tokens are stored locally in the profile.
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>How does headless quota priming work without opening the graphical IDE?</span>
+              <svg class="faq-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </summary>
+            <div class="faq-content">
+              The Antigravity Language Server can run headlessly with an ephemeral port. Multigravity launches this binary in background mode, queries the gRPC/HTTPS telemetry endpoint, and sends a minimal, randomized conversational ping (&lt;5 tokens) using the lightest available model (<code>gemini-3.6-flash-low</code>) to start the 7-day countdown cycle immediately after a quota refresh.
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>Can I use Multigravity on Windows without WSL?</span>
+              <svg class="faq-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </summary>
+            <div class="faq-content">
+              Yes! Multigravity is written in native Go and features full Windows support. It runs directly inside Windows PowerShell, uses NTFS Junctions instead of symlinks to avoid requiring Administrator privileges, and integrates with the Windows Start Menu via native <code>.lnk</code> shortcuts and embedded <code>.ico</code> icons.
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>How do I completely uninstall Multigravity and remove all profiles?</span>
+              <svg class="faq-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </summary>
+            <div class="faq-content">
+              Run <code>./uninstall.sh</code> on Linux/macOS or <code>./uninstall.ps1</code> on Windows. The script cleans up binary links in <code>~/.local/bin</code>, desktop shortcuts, background cron/systemd jobs, and prompts whether you want to preserve or remove profile directories in <code>~/AntigravityProfiles</code>.
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Site Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-top">
+        <div class="brand">
+          <img src="assets/icon.png" alt="Multigravity" class="brand-icon">
+          <span class="brand-title">multigravity-cli</span>
+        </div>
+
+        <ul class="footer-links">
+          <li><a href="https://github.com/yegear1/multigravity-cli" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+          <li><a href="https://github.com/yegear1/multigravity-cli/releases" target="_blank" rel="noopener noreferrer">Releases</a></li>
+          <li><a href="https://github.com/yegear1/multigravity-cli/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Changelog</a></li>
+          <li><a href="https://github.com/yegear1/multigravity-cli/issues" target="_blank" rel="noopener noreferrer">Report Issue</a></li>
+          <li><a href="#">Back to Top ↑</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-bottom">
+        <p>
+          Released under the <strong>MIT License</strong>. Built with Go 1.23+ and modern web standards.
+        </p>
+        <p style="margin-top: 6px;">
+          Inspired by original work from <a href="https://github.com/sujitagarwal" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">Sujit Agarwal</a> and lightweight onboarding concepts from <a href="https://github.com/Pulkit7070/multigravity-pro" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline;">Pulkit7070</a>.
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
