@@ -16,6 +16,8 @@ const (
 	SentinelIsolatedConfig   = ".isolated_config"
 	SentinelIsolatedGH       = ".isolated_gh"
 	SentinelIsolatedDotfiles = ".isolated_dotfiles"
+	SentinelShared           = ".shared"
+	SentinelAuthOnly         = ".auth_only"
 )
 
 var profileNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)

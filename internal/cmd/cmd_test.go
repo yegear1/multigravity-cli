@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/ye-dev/multigravity-cli/internal/chat"
+	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/doctor"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
@@ -773,6 +774,46 @@ func TestCobraAICmdFlags(t *testing.T) {
 	out, err = executeCommand(rootCmd, "ai", "sync", "ai-src", "ai-dest", "--skip-in-use")
 	if err != nil {
 		t.Fatalf("ai sync --skip-in-use failed: %v, output: %s", err, out)
+	}
+}
+
+func TestCobraNewAuthOnly(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", t.TempDir())
+
+	fakeHost := t.TempDir()
+	t.Setenv("REAL_HOME", fakeHost)
+
+	// Host assets
+	hostExtDir := config.GetExtensionsDir(fakeHost)
+	_ = os.MkdirAll(filepath.Join(hostExtDir, "sample-ext"), 0755)
+
+	hostUserDir := filepath.Join(config.GetUserDataDir(fakeHost), "User")
+	_ = os.MkdirAll(hostUserDir, 0755)
+	_ = os.WriteFile(filepath.Join(hostUserDir, "settings.json"), []byte(`{}`), 0644)
+
+	// Create with --auth-only
+	out, err := executeCommand(rootCmd, "new", "auth-test-prof", "--auth-only")
+	if err != nil {
+		t.Fatalf("expected new --auth-only to succeed, got %v (output: %s)", err, out)
+	}
+
+	pDir := filepath.Join(tempHome, "auth-test-prof")
+	if !fileExists(filepath.Join(pDir, config.SentinelAuthOnly)) {
+		t.Errorf("expected .auth_only sentinel")
+	}
+	if !fileExists(filepath.Join(pDir, config.SentinelShared)) {
+		t.Errorf("expected .shared sentinel")
+	}
+
+	// Status output check
+	out, err = executeCommand(rootCmd, "status")
+	if err != nil {
+		t.Fatalf("status failed: %v", err)
+	}
+	if !strings.Contains(out, "auth-only") {
+		t.Errorf("expected status output to contain 'auth-only', got: %s", out)
 	}
 }
 

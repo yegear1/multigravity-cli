@@ -80,7 +80,7 @@ Each profile gets an automatic clickable desktop launcher:
 |---------|-------------|
 | `multigravity` | Open interactive profile selector menu (TUI) |
 | `multigravity new <name>` | Create a new full profile |
-| `multigravity new <name> --shared` | Create a lightweight profile (shared extensions & settings, isolated accounts) |
+| `multigravity new <name> --auth-only` | Create an auth-only profile (~2 MB: shared host extensions & settings, isolated accounts; alias: `--shared`) |
 | `multigravity new <name> --from <template>` | Create a profile from a saved template |
 | `multigravity new <name> --color <color>` | Create a profile with a custom window color theme |
 | `multigravity new <name> --isolated-dotfiles` | Do not link host `.gitconfig` or `.ssh` into profile |
@@ -269,14 +269,15 @@ multigravity ai quota work
 
 ---
 
-## Shared Profiles
+## Auth-Only Profiles (`--auth-only` / `--shared`)
 
 Full profiles are fully isolated — separate extensions, settings, and accounts. That's the default.
 
-**Shared profiles** go lighter: they symlink extensions and settings from your main Antigravity install, isolating only the account/auth layer. Useful when you need a second account but don't want to duplicate gigabytes of extensions.
+**Auth-Only profiles** go lighter: they symlink `extensions/` and editor configurations (`settings.json`, `keybindings.json`, `snippets`) from your host Antigravity install, isolating strictly the account/auth layer (~2 MB per profile). Useful when you need a second account or work profile but don't want to duplicate hundreds of megabytes of extensions.
 
 ```bash
-multigravity new client-x --shared
+# Create an auth-only profile (alias: --shared)
+multigravity new client-x --auth-only
 ```
 
 ---
@@ -362,4 +363,6 @@ The original base codebase remains the copyright of Sujit Agarwal and original c
 - **Original Author & Creator:** [Sujit Agarwal](https://github.com/sujitagarwal)
 - **Windows Support:** [Samin Yeasar](https://github.com/Solez-ai)
 - **Linux Support:** [Md Rayyan Nawaz](https://github.com/therayyanawaz)
+- **Community Inspiration (Multigravity Pro):** [Pulkit](https://github.com/Pulkit7070) (pioneering `--auth-only` profile semantics and onboarding walkthroughs)
 - **Enhanced Fork & Maintainer:** [yegear1](https://github.com/yegear1)
+

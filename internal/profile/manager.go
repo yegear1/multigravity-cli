@@ -13,6 +13,7 @@ import (
 // CreateOptions defines options for creating a new profile
 type CreateOptions struct {
 	Name             string
+	AuthOnly         bool
 	Shared           bool
 	IsolatedDotfiles bool
 	IsolatedMCP      bool
@@ -77,8 +78,9 @@ func CreateProfile(opts CreateOptions) error {
 	if opts.IsolatedGH {
 		_ = touchFile(filepath.Join(profileDir, config.SentinelIsolatedGH))
 	}
-	if opts.Shared {
-		_ = touchFile(filepath.Join(profileDir, ".shared"))
+	if opts.AuthOnly || opts.Shared {
+		_ = touchFile(filepath.Join(profileDir, config.SentinelAuthOnly))
+		_ = touchFile(filepath.Join(profileDir, config.SentinelShared))
 	}
 
 	if err := EnsureProfileLayout(profileDir); err != nil {

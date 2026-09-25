@@ -8,6 +8,7 @@ import (
 )
 
 var (
+	newAuthOnly         bool
 	newShared           bool
 	newIsolatedDotfiles bool
 	newIsolatedMCP      bool
@@ -23,9 +24,10 @@ var newCmd = &cobra.Command{
 	Use:     "new <name>",
 	Aliases: []string{"create"},
 	Short:   "Create a new isolated Antigravity profile",
-	Args:  cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		defer func() {
+			newAuthOnly = false
 			newShared = false
 			newIsolatedDotfiles = false
 			newIsolatedMCP = false
@@ -44,9 +46,12 @@ var newCmd = &cobra.Command{
 			templateSource = newTemplate
 		}
 
+		isAuthOnly := newAuthOnly || newShared
+
 		opts := profile.CreateOptions{
 			Name:             name,
-			Shared:           newShared,
+			AuthOnly:         isAuthOnly,
+			Shared:           isAuthOnly,
 			IsolatedDotfiles: newIsolatedDotfiles,
 			IsolatedMCP:      newIsolatedMCP,
 			IsolatedSkills:   newIsolatedSkills,
@@ -66,7 +71,8 @@ var newCmd = &cobra.Command{
 }
 
 func init() {
-	newCmd.Flags().BoolVar(&newShared, "shared", false, "Share base editor settings with system install")
+	newCmd.Flags().BoolVar(&newAuthOnly, "auth-only", false, "Share host extensions and editor settings; isolate only accounts (~2 MB)")
+	newCmd.Flags().BoolVar(&newShared, "shared", false, "Alias for --auth-only (share host extensions and editor settings)")
 	newCmd.Flags().BoolVar(&newIsolatedDotfiles, "isolated-dotfiles", false, "Do not link user .gitconfig or .ssh")
 	newCmd.Flags().BoolVar(&newIsolatedMCP, "isolated-mcp", false, "Do not link user MCP servers")
 	newCmd.Flags().BoolVar(&newIsolatedSkills, "isolated-skills", false, "Do not link user AI skills/plugins")

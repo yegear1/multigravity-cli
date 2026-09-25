@@ -80,7 +80,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 |---------|-----------|
 | `multigravity` | Abre o seletor interativo de perfis (TUI) |
 | `multigravity new <nome>` | Cria um novo perfil completo e isolado |
-| `multigravity new <nome> --shared` | Cria um perfil compartilhado leve (extensões e configurações compartilhadas, contas isoladas) |
+| `multigravity new <nome> --auth-only` | Cria um perfil auth-only (~2 MB: extensões e configurações do host compartilhadas, contas isoladas; alias: `--shared`) |
 | `multigravity new <nome> --from <modelo>` | Cria um perfil a partir de um modelo salvo |
 | `multigravity new <nome> --color <cor>` | Cria um perfil com tema de cor personalizado na janela |
 | `multigravity new <nome> --isolated-dotfiles` | Não vincula `.gitconfig` ou `.ssh` do host ao perfil |
@@ -253,14 +253,15 @@ multigravity config share trabalho
 
 ---
 
-## Perfis Compartilhados (Shared)
+## Perfis Auth-Only (`--auth-only` / `--shared`)
 
 Os perfis completos são totalmente isolados — extensões, configurações e contas separadas. Esse é o padrão.
 
-Os **perfis compartilhados** são mais leves: utilizam links simbólicos para as extensões e configurações da sua instalação principal do Antigravity, isolando apenas as contas e a camada de autenticação. Ideal para quando você precisa de uma conta secundária sem duplicar gigabytes de extensões.
+Os **perfis auth-only** são mais leves: utilizam links simbólicos para as extensões (`extensions/`) e arquivos de configuração do editor (`settings.json`, `keybindings.json`, `snippets`) da sua instalação host do Antigravity, isolando estritamente os dados de login/conta (~2 MB por perfil). Ideal para quando você precisa de uma conta secundária sem duplicar centenas de megabytes de extensões.
 
 ```bash
-multigravity new cliente-x --shared
+# Cria um perfil auth-only (alias: --shared)
+multigravity new cliente-x --auth-only
 ```
 
 ---
@@ -346,4 +347,6 @@ A base de código original permanece sob os direitos autorais de Sujit Agarwal e
 - **Autor e Criador Original:** [Sujit Agarwal](https://github.com/sujitagarwal)
 - **Suporte ao Windows:** [Samin Yeasar](https://github.com/Solez-ai)
 - **Suporte ao Linux:** [Md Rayyan Nawaz](https://github.com/therayyanawaz)
+- **Inspiração Comunitária (Multigravity Pro):** [Pulkit](https://github.com/Pulkit7070) (pioneirismo no conceito de perfis `--auth-only` e guias visuais de onboarding)
 - **Fork Aprimorado e Mantenedor:** [yegear1](https://github.com/yegear1)
+

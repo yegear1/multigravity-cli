@@ -33,7 +33,7 @@ The agent MUST activate this skill when:
 - Operating in a multi-profile environment or needing to discover the active Antigravity profile context.
 - Inspecting AI token limits, quota consumption, or reset schedules across Gemini weekly, Gemini 5h, 3P weekly, or 3P 5h buckets.
 - Automating or validating quota prime cycles (`multigravity prime` or `multigravity ai prime`).
-- Provisioning a new isolated developer workspace/profile with dedicated GitHub CLI credentials, MCP servers, or custom theme colors.
+- Provisioning a new isolated developer workspace/profile (full or lightweight auth-only with shared host extensions via `--auth-only` / `--shared`) with dedicated GitHub CLI credentials, MCP servers, or custom theme colors.
 - Sharing or isolating configuration components (`mcp`, `skills`, `config.json`, `gh`) between profiles.
 - Backing up, exporting, restoring, or synchronizing AI chat histories and brains (`ai export`, `ai sync`, `ai import`).
 - Diagnosing environment health, missing dependencies, or launch blockers (`multigravity doctor`).
@@ -105,6 +105,7 @@ The agent MUST NOT activate this skill when:
    - `.isolated_config`: `config.json` and AI permissions isolated (seeded with default read-only commands)
    - `.isolated_gh`: GitHub CLI credentials (`~/.config/gh`) isolated
    - `.isolated_dotfiles`: Host `.gitconfig` and `.ssh` isolated
+   - `.auth_only` / `.shared`: Auth-only profile sharing host extensions and editor settings (~2 MB)
 
 ### Step 4: AI Conversation History & Brain Syncing
 1. List available conversations in a profile:

@@ -15,7 +15,7 @@ type ProfileInfo struct {
 	Path      string    `json:"path"`
 	IsRunning bool      `json:"is_running"`
 	PIDs      []int     `json:"pids,omitempty"`
-	Type      string    `json:"type"` // "full" or "shared"
+	Type      string    `json:"type"` // "full" or "auth-only"
 	LastUsed  time.Time `json:"last_used"`
 	Size      string    `json:"size"`
 	Color     string    `json:"color,omitempty"`
@@ -66,8 +66,10 @@ func GetProfile(name string) (*ProfileInfo, error) {
 	}
 
 	pType := "full"
-	if _, err := os.Stat(filepath.Join(dir, ".shared")); err == nil {
-		pType = "shared"
+	if _, err := os.Stat(filepath.Join(dir, config.SentinelAuthOnly)); err == nil {
+		pType = "auth-only"
+	} else if _, err := os.Stat(filepath.Join(dir, config.SentinelShared)); err == nil {
+		pType = "auth-only"
 	}
 
 	pids, _ := GetProfilePIDs(name)

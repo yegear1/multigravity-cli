@@ -45,8 +45,9 @@ func SaveTemplate(profileName, templateName string) error {
 		return fmt.Errorf("failed to copy profile to template: %w", err)
 	}
 
-	// Templates should not retain the .shared marker
-	_ = os.Remove(filepath.Join(tplPath, ".shared"))
+	// Templates should not retain the .shared or .auth_only marker
+	_ = os.Remove(filepath.Join(tplPath, config.SentinelShared))
+	_ = os.Remove(filepath.Join(tplPath, config.SentinelAuthOnly))
 
 	return nil
 }

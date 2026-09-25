@@ -19,6 +19,31 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 11.1] Suporte a Perfis Auth-Only Reais (--auth-only / --shared) com Symlinks de Host
+
+- **Contexto:** Perfis isolados alocavam pastas vazias em `~/.antigravity/extensions` e forçavam a reinstalação de centenas de megabytes de extensões para cada nova conta. Usuários necessitavam de alternância rápida de contas com consumo residual de disco (~2 MB).
+- **Decisões Técnicas:**
+  - **Flag `--auth-only` e Alias `--shared`:** Adicionada flag `--auth-only` em `internal/cmd/new.go` mantendo `--shared` como alias totalmente funcional e retrocompatível.
+  - **Symlink Seguro de Extensões (`LinkHostExtensions`):** Se o perfil possuir os sentinelas `.auth_only` ou `.shared`, vincula via symlink `$REAL_HOME/.antigravity/extensions` ao perfil. Preserva diretórios com arquivos existentes caso o usuário já possua extensões manuais, com fallback gracioso se o host ainda não possuir a pasta de extensões.
+  - **Symlink de Configurações de Editor (`LinkUserSettings`):** Vincula via links simbólicos `settings.json`, `keybindings.json` e o diretório `snippets` de `GetUserDataDir(REAL_HOME)/User` para o diretório `User` do perfil.
+  - **Preservação de Theming e Desacoplamento:** O desacoplamento seguro em `ApplyProfileColor` (`internal/profile/color.go`) desfaz o link de `settings.json` ao aplicar cores customizadas, preservando a instalação global intacta enquanto mantém `keybindings.json`, `snippets` e `extensions/` compartilhados.
+  - **Classificação em `ProfileInfo`:** Perfis com `.auth_only` ou `.shared` são reportados com `Type: "auth-only"` em `status`, `list --json`, TUI e endpoints HTTP.
+  - **Higiene em Templates:** Ao salvar um perfil como modelo (`template save`), remove os sentinelas `.shared` e `.auth_only` para evitar contaminação de novos perfis.
+
+### 2026-09-25 [Benchmark & Backlog] Incorporação de Ideias do Pulkit7070/multigravity-pro e Análise de Licença
+
+- **Contexto:** Análise comparativa entre o nosso repositório (`yegear1/multigravity-cli`) e o fork `Pulkit7070/multigravity-pro`.
+- **Análise de Licença:**
+  - O repositório `Pulkit7070/multigravity-pro` é distribuído sob licença **MIT**, assim como o `sujitagarwal/multigravity-cli` e o nosso projeto.
+  - A licença MIT é irrestrita quanto à reutilização, modificação, adaptação de ideias e sublicenciamento, exigindo apenas aviso de copyright quando houver cópia literal de código.
+  - Como a nossa stack é nativa em Go (enquanto a do Pulkit é em Bash/PowerShell), trata-se de reimplementação técnica e evolução conceitual. Manteremos crédito explícito a `Pulkit7070` na seção `Credits & Acknowledgments` do `README.md` e nos logs de tarefas, em conformidade com as melhores práticas open source.
+- **Melhorias Mapeadas no Backlog (Épico 11):**
+  - **[11.1]** Suporte a `--auth-only` no comando `new` com symlink real de `extensions` e `settings.json/keybindings.json/snippets` do host, garantindo perfil de ~2 MB para alternância rápida de logins.
+  - **[11.2]** Adicionar `--json` ao `multigravity status` (conforme Regra de Ouro #7).
+  - **[11.3]** Embutir ícone padrão (`icon.icns` / `.ico`) nos atalhos desktop gerados.
+  - **[11.4]** Matriz comparativa didática (Full vs Auth-Only) no `README.md`.
+  - **[11.5]** Portal / Landing page visual e interativa de documentação (GitHub Pages).
+
 ### 2026-09-12 [Task 00.1] Calibração de Template e Definição da Estratégia de Isolamento
 
 - **Contexto:** O projeto é uma CLI em Bash e PowerShell para gerenciar instâncias isoladas do Antigravity IDE.

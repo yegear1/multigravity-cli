@@ -13,14 +13,20 @@ func EnsureProfileLayout(profileDir string) error {
 	if err := os.MkdirAll(profileDir, 0755); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(config.GetExtensionsDir(profileDir), 0755); err != nil {
-		return err
-	}
-
 	userHome, _ := os.UserHomeDir()
 	realHome := os.Getenv("REAL_HOME")
 	if realHome == "" {
 		realHome = userHome
+	}
+
+	isAuthOnly := hasSentinel(profileDir, config.SentinelAuthOnly) || hasSentinel(profileDir, config.SentinelShared)
+	if isAuthOnly {
+		LinkHostExtensions(profileDir, realHome)
+		LinkUserSettings(profileDir, realHome)
+	} else {
+		if err := os.MkdirAll(config.GetExtensionsDir(profileDir), 0755); err != nil {
+			return err
+		}
 	}
 
 	switch runtime.GOOS {
@@ -50,6 +56,49 @@ func EnsureProfileLayout(profileDir string) error {
 	LinkGHConfig(profileDir, realHome)
 
 	return nil
+}
+
+// LinkHostExtensions symlinks the host extensions directory for auth-only profiles
+func LinkHostExtensions(profileDir, hostHome string) {
+	hostExt := config.GetExtensionsDir(hostHome)
+	targetExt := config.GetExtensionsDir(profileDir)
+
+	if fi, err := os.Stat(hostExt); err == nil && fi.IsDir() {
+		if lfi, err := os.Lstat(targetExt); err == nil {
+			if lfi.Mode()&os.ModeSymlink != 0 {
+				return // Already a symlink
+			}
+			if entries, err := os.ReadDir(targetExt); err == nil && len(entries) == 0 {
+				_ = os.Remove(targetExt)
+			} else {
+				return // Non-empty directory, preserve existing files
+			}
+		}
+
+		if err := os.MkdirAll(filepath.Dir(targetExt), 0755); err == nil {
+			_ = os.Symlink(hostExt, targetExt)
+		}
+	} else {
+		_ = os.MkdirAll(targetExt, 0755)
+	}
+}
+
+// LinkUserSettings symlinks host settings.json, keybindings.json, and snippets for auth-only profiles
+func LinkUserSettings(profileDir, hostHome string) {
+	hostUserDataDir := config.GetUserDataDir(hostHome)
+	profileUserDataDir := config.GetUserDataDir(profileDir)
+
+	hostUserDir := filepath.Join(hostUserDataDir, "User")
+	profileUserDir := filepath.Join(profileUserDataDir, "User")
+
+	_ = os.MkdirAll(profileUserDir, 0755)
+
+	items := []string{"settings.json", "keybindings.json", "snippets"}
+	for _, item := range items {
+		src := filepath.Join(hostUserDir, item)
+		dest := filepath.Join(profileUserDir, item)
+		symlinkIfMissing(src, dest)
+	}
 }
 
 // LinkDevDotfiles symlinks .gitconfig, .ssh, .gnupg, and .git-credentials if not isolated

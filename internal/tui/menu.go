@@ -56,8 +56,8 @@ func RunMenu(r io.Reader, w io.Writer, launcher LauncherFunc) error {
 		}
 
 		typeStr := "isolated"
-		if p.Type == "shared" {
-			typeStr = "shared"
+		if p.Type == "auth-only" || p.Type == "shared" {
+			typeStr = "auth-only"
 		}
 
 		colorStr := ""

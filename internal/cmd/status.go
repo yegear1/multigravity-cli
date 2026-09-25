@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
@@ -18,12 +16,12 @@ var statusCmd = &cobra.Command{
 		}
 
 		if len(profiles) == 0 {
-			fmt.Println("No profiles found.")
+			cmd.Println("No profiles found.")
 			return nil
 		}
 
-		fmt.Printf("%-18s %-10s %-12s %-20s %s\n", "PROFILE", "RUNNING", "TYPE", "LAST USED", "SIZE")
-		fmt.Printf("%-18s %-10s %-12s %-20s %s\n", "-------", "-------", "----", "---------", "----")
+		cmd.Printf("%-18s %-10s %-12s %-20s %s\n", "PROFILE", "RUNNING", "TYPE", "LAST USED", "SIZE")
+		cmd.Printf("%-18s %-10s %-12s %-20s %s\n", "-------", "-------", "----", "---------", "----")
 
 		green := color.New(color.FgGreen).SprintFunc()
 
@@ -38,7 +36,7 @@ var statusCmd = &cobra.Command{
 				lastUsedStr = p.LastUsed.Format("2006-01-02 15:04")
 			}
 
-			fmt.Printf("%-18s %-10s %-12s %-20s %s\n", p.Name, runningStr, p.Type, lastUsedStr, p.Size)
+			cmd.Printf("%-18s %-10s %-12s %-20s %s\n", p.Name, runningStr, p.Type, lastUsedStr, p.Size)
 		}
 
 		return nil
