@@ -37,9 +37,6 @@
 
 ## Backlog (Próximas, em ordem)
 
-- [x] **[11.3]** Ícone Embutido (`//go:embed`) e Associação Automática em Atalhos Desktop (macOS .icns, Windows, Linux) (Inspirado em Pulkit7070/multigravity-pro)
-- [x] **[11.4]** Matriz Comparativa Full vs Auth-Only e Atualização de Créditos Open Source no `README.md` (Inspirado em Pulkit7070/multigravity-pro)
-- [x] **[11.5]** Landing Page Estática e Onboarding Visual Interativo para Iniciantes (GitHub Pages / Showcase) (Inspirado em Pulkit7070/multigravity-pro)
 - [ ] **[07.1]** Gerenciamento Completo de Perfis via API (Criação, Exclusão, Renomeação e Launch de Instâncias)
 - [ ] **[07.2]** Mutação de Compartilhamento Dinâmico via API (Toggle de MCP, Skills, Config, Git/GitHub)
 - [ ] **[07.3]** Priming e Aquecimento de Cotas via API com Emissão de Progresso
