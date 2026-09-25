@@ -19,6 +19,26 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 15.1] Gerenciador de Git Worktrees Efêmeros por Agente/Tarefa (`internal/worktree`)
+
+- **Contexto:** Para suportar orquestração de múltiplos agentes de IA (Claude Code, Aider, OpenCode) e execuções paralelas sobre o mesmo repositório, o sistema necessita de isolamento em nível de sistema de arquivos através de Git Worktrees efêmeros, sem poluir o `git status` do repositório hospedeiro nem sobrescrever branches principais.
+- **Decisões Técnicas:**
+  - **Módulo `internal/worktree`:**
+    - `types.go`: contratos estruturados `Worktree`, `WorktreeStatus`, `CreateOptions`, `RemoveOptions`, `DiffOptions` e `WorktreeManifest`.
+    - `git.go`: invocações isoladas via `exec.Command` para comandos Git com resolução de `--git-common-dir`.
+    - `manager.go`: ciclo de vida completo (`CreateWorktree`, `ListWorktrees`, `GetWorktree`, `RemoveWorktree`, `PruneWorktrees`, `GetWorktreeStatus`, `GetWorktreeDiff`).
+  - **Convenção de Localização e Isolamento de Git (`EnsureGitExclude`):**
+    - Worktrees por padrão residem em `<repo>/.multigravity/worktrees/<task-id>`.
+    - Adiciona automaticamente `.multigravity/` em `<gitCommonDir>/info/exclude` de forma idempotente, mantendo o diretório invisível para `git status` e `git diff` sem alterar o `.gitignore` versionado do projeto.
+  - **Armadilha Evitada no Parser de `git status --porcelain`:**
+    - A função `runGit` deve remover apenas `\r\n` trailing (`strings.TrimRight(out, "\r\n")`) e NUNCA `strings.TrimSpace` na saída completa, pois modificações unstaged possuem formato ` M <file>` com espaço leading no índice 0. O parser extrai o caminho com `strings.TrimSpace(l[2:])`.
+  - **Persistência de Metadados e Reconciliação:**
+    - Metadados gravados em `<gitCommonDir>/multigravity-worktrees.json` sob mutex de sincronização, reconciliados dinamicamente com a saída de `git worktree list --porcelain`.
+  - **CLI `multigravity worktree` (alias `wt`):**
+    - Subcomandos: `list`, `create`, `status`, `diff`, `remove`, `prune` com contratos JSON estruturados via `--json` e autocompletion dinâmico.
+  - **API REST & SSE (`internal/server`):**
+    - Rotas `/api/v1/worktrees` e `/api/worktrees` registradas para todas as operações, transmitindo eventos de ação em tempo real no feed SSE (`action: "worktree"`).
+
 ### 2026-09-25 [Task 14.4] Gateway Anthropic-Compatible (/v1/messages) e Mapeamento de Modelos (Claude Sonnet/Opus ↔ Gemini 3.5/3.6)
 
 - **Contexto:** Ferramentas, bibliotecas e agentes projetados para o ecossistema Anthropic (como Claude Code CLI, Cursor, Aider, Cline, Roo Code, e SDKs `@anthropic-ai/sdk` / Python `anthropic`) demandam conformidade estrita com o protocolo da Anthropic Messages API (`POST /v1/messages`), incluindo sua sequência específica de eventos SSE (`message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`), blocos de `system` (string ou array de blocos) e content blocks multimodais (imagens base64).

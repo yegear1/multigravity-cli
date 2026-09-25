@@ -13,6 +13,7 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/prime"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
+	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
 
 // APIResponse standardizes the JSON response payload
@@ -95,6 +96,27 @@ type BatchPrimeRequest struct {
 	Warm5hAlt    bool     `json:"warm-5h,omitempty"`
 	NoJitter     bool     `json:"no_jitter"`
 	MaxJitter    float64  `json:"max_jitter"`
+}
+
+// CreateWorktreeRequest defines parameters for creating a new worktree via API
+type CreateWorktreeRequest struct {
+	ID         string            `json:"id"`
+	RepoPath   string            `json:"repo_path,omitempty"`
+	Branch     string            `json:"branch,omitempty"`
+	BaseCommit string            `json:"base_commit,omitempty"`
+	TargetDir  string            `json:"target_dir,omitempty"`
+	Profile    string            `json:"profile,omitempty"`
+	TaskID     string            `json:"task_id,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+	CopyFiles  []string          `json:"copy_files,omitempty"`
+	LinkPaths  []string          `json:"link_paths,omitempty"`
+}
+
+// DeleteWorktreeRequest defines optional body parameters for deleting a worktree
+type DeleteWorktreeRequest struct {
+	Repo         string `json:"repo,omitempty"`
+	Force        bool   `json:"force"`
+	DeleteBranch bool   `json:"delete_branch"`
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, data any) {
@@ -227,6 +249,23 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("POST /api/v1/router/reset", s.handleGatewayRouterReset)
 	s.mux.HandleFunc("POST /v1/router/strategy", s.handleGatewayRouterStrategy)
 	s.mux.HandleFunc("POST /api/v1/router/strategy", s.handleGatewayRouterStrategy)
+
+	// Git Worktrees (ADE Orchestrator)
+	s.mux.HandleFunc("GET /api/v1/worktrees", s.handleListWorktrees)
+	s.mux.HandleFunc("GET /api/worktrees", s.handleListWorktrees)
+	s.mux.HandleFunc("POST /api/v1/worktrees", s.handleCreateWorktree)
+	s.mux.HandleFunc("POST /api/worktrees", s.handleCreateWorktree)
+	s.mux.HandleFunc("POST /api/v1/worktrees/prune", s.handlePruneWorktrees)
+	s.mux.HandleFunc("POST /api/worktrees/prune", s.handlePruneWorktrees)
+
+	s.mux.HandleFunc("GET /api/v1/worktrees/{id}", s.handleGetWorktree)
+	s.mux.HandleFunc("GET /api/worktrees/{id}", s.handleGetWorktree)
+	s.mux.HandleFunc("DELETE /api/v1/worktrees/{id}", s.handleDeleteWorktree)
+	s.mux.HandleFunc("DELETE /api/worktrees/{id}", s.handleDeleteWorktree)
+	s.mux.HandleFunc("GET /api/v1/worktrees/{id}/status", s.handleGetWorktreeStatus)
+	s.mux.HandleFunc("GET /api/worktrees/{id}/status", s.handleGetWorktreeStatus)
+	s.mux.HandleFunc("GET /api/v1/worktrees/{id}/diff", s.handleGetWorktreeDiff)
+	s.mux.HandleFunc("GET /api/worktrees/{id}/diff", s.handleGetWorktreeDiff)
 }
 
 func (s *Server) handleGatewayChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -1270,4 +1309,176 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// Worktree Handlers
+
+func (s *Server) handleListWorktrees(w http.ResponseWriter, r *http.Request) {
+	repo := r.URL.Query().Get("repo")
+	list, err := worktree.ListWorktrees(repo)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if list == nil {
+		list = []worktree.Worktree{}
+	}
+	s.writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
+	var req CreateWorktreeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid json body: %v", err))
+		return
+	}
+
+	opts := worktree.CreateOptions{
+		ID:         req.ID,
+		RepoPath:   req.RepoPath,
+		Branch:     req.Branch,
+		BaseCommit: req.BaseCommit,
+		TargetDir:  req.TargetDir,
+		Profile:    req.Profile,
+		TaskID:     req.TaskID,
+		Metadata:   req.Metadata,
+		CopyFiles:  req.CopyFiles,
+		LinkPaths:  req.LinkPaths,
+	}
+
+	wt, err := worktree.CreateWorktree(opts)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.broker.Broadcast(SSEEvent{
+		Event: "action",
+		Data: map[string]any{
+			"action":    "worktree",
+			"type":      "create",
+			"id":        wt.ID,
+			"path":      wt.Path,
+			"branch":    wt.Branch,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+
+	s.writeJSON(w, http.StatusCreated, wt)
+}
+
+func (s *Server) handleGetWorktree(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repo := r.URL.Query().Get("repo")
+
+	wt, err := worktree.GetWorktree(repo, id)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, wt)
+}
+
+func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repo := r.URL.Query().Get("repo")
+	force := r.URL.Query().Get("force") == "true"
+	deleteBranch := r.URL.Query().Get("delete_branch") == "true" || r.URL.Query().Get("delete-branch") == "true"
+
+	if r.Header.Get("Content-Type") == "application/json" && r.ContentLength > 0 {
+		var req DeleteWorktreeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			if req.Repo != "" {
+				repo = req.Repo
+			}
+			if req.Force {
+				force = true
+			}
+			if req.DeleteBranch {
+				deleteBranch = true
+			}
+		}
+	}
+
+	opts := worktree.RemoveOptions{
+		Force:        force,
+		DeleteBranch: deleteBranch,
+	}
+
+	if err := worktree.RemoveWorktree(repo, id, opts); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.broker.Broadcast(SSEEvent{
+		Event: "action",
+		Data: map[string]any{
+			"action":    "worktree",
+			"type":      "delete",
+			"id":        id,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":      id,
+		"removed": true,
+	})
+}
+
+func (s *Server) handleGetWorktreeStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repo := r.URL.Query().Get("repo")
+
+	status, err := worktree.GetWorktreeStatus(repo, id)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) handleGetWorktreeDiff(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repo := r.URL.Query().Get("repo")
+	stat := r.URL.Query().Get("stat") == "true"
+	cached := r.URL.Query().Get("cached") == "true"
+	base := r.URL.Query().Get("base")
+
+	opts := worktree.DiffOptions{
+		Base:     base,
+		StatOnly: stat,
+		Cached:   cached,
+	}
+
+	diff, err := worktree.GetWorktreeDiff(repo, id, opts)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]string{
+		"diff": diff,
+	})
+}
+
+func (s *Server) handlePruneWorktrees(w http.ResponseWriter, r *http.Request) {
+	repo := r.URL.Query().Get("repo")
+	if err := worktree.PruneWorktrees(repo); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.broker.Broadcast(SSEEvent{
+		Event: "action",
+		Data: map[string]any{
+			"action":    "worktree",
+			"type":      "prune",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"pruned": true,
+	})
 }

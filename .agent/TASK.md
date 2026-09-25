@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [15.1] | Gerenciador de Git Worktrees Efêmeros por Agente/Tarefa (`internal/worktree`) | feat(worktree): add ephemeral git worktree manager with cli and rest endpoints | 2026-09-25 |
 | [14.4] | Gateway Anthropic-Compatible (`/v1/messages`) e Mapeamento de Modelos (Claude Sonnet/Opus ↔ Gemini 3.5/3.6) | feat(gateway): add anthropic messages gateway with sse and multi-account failover | 2026-09-25 |
 | [14.3] | Roteador Multi-Contas com Algoritmos de Distribuição (Smart Priority, Round Robin) e Auto-Failover em HTTP 429/403 entre Perfis | feat(gateway): implement multi-account router with smart load balancing and auto-failover | 2026-09-25 |
 | [14.2] | Gateway de Completions OpenAI-Compatible (`/v1/chat/completions`) no `multigravity serve` com SSE | feat(gateway): add openai completions gateway with sse streaming | 2026-09-25 |
@@ -49,7 +50,7 @@
 - [x] **[14.4]** Gateway Anthropic-Compatible (`/v1/messages`) e Mapeamento de Modelos (Claude Sonnet/Opus ↔ Gemini 3.5/3.6)
 
 ### Fase 2: Orquestrador de Agentes — Worktrees, PTYs & Task Dispatcher (Épico 15)
-- [ ] **[15.1]** Gerenciador de Git Worktrees Efêmeros por Agente/Tarefa (`internal/worktree`)
+- [x] **[15.1]** Gerenciador de Git Worktrees Efêmeros por Agente/Tarefa (`internal/worktree`)
 - [ ] **[15.2]** Multiplexador de Terminais PTY e Execução Headless de Agentes CLI (Claude Code, Aider, OpenCode) com Isolamento de Identidade
 - [ ] **[15.3]** Motor de Despacho de Tarefas (`multigravity dispatch`) com Associação de Perfil, Worktree e Captura de Logs
 - [ ] **[15.4]** Visualizador e API de Diffs / Status de Execução de Tarefas no `multigravity serve` para futura GUI Desktop (Tauri/Wails)

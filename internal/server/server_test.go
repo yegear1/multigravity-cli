@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1531,6 +1533,161 @@ func TestGatewayRouterInServer(t *testing.T) {
 
 	if router.GetStatus().CooldownProfiles != 0 {
 		t.Errorf("expected 0 cooldown profiles after reset, got %d", router.GetStatus().CooldownProfiles)
+	}
+}
+
+func initTestGitRepoForServer(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s failed: %v: %s", strings.Join(args, " "), err, string(out))
+		}
+	}
+
+	run("init", "-b", "main")
+	testFile := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(testFile, []byte("# Test Repo\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "README.md")
+	run("commit", "-m", "Initial commit")
+
+	return dir
+}
+
+func TestWorktreeServerEndpoints(t *testing.T) {
+	srv, _ := setupTestServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	repoDir := initTestGitRepoForServer(t)
+
+	// 1. GET /api/v1/worktrees?repo=... (initially empty)
+	resp, err := http.Get(ts.URL + "/api/v1/worktrees?repo=" + repoDir)
+	if err != nil {
+		t.Fatalf("failed to GET /api/v1/worktrees: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var listResp APIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
+		t.Fatalf("failed to decode list response: %v", err)
+	}
+	dataList, ok := listResp.Data.([]any)
+	if !ok || len(dataList) != 0 {
+		t.Fatalf("expected empty list, got: %v", listResp.Data)
+	}
+
+	// 2. POST /api/v1/worktrees (create worktree)
+	createBody := strings.NewReader(fmt.Sprintf(`{
+		"id": "server-task-1",
+		"repo_path": %q,
+		"profile": "qa-profile"
+	}`, repoDir))
+	createResp, err := http.Post(ts.URL+"/api/v1/worktrees", "application/json", createBody)
+	if err != nil {
+		t.Fatalf("failed to POST /api/v1/worktrees: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d", createResp.StatusCode)
+	}
+	var createdResp APIResponse
+	if err := json.NewDecoder(createResp.Body).Decode(&createdResp); err != nil {
+		t.Fatalf("failed to decode created worktree: %v", err)
+	}
+	wtMap, ok := createdResp.Data.(map[string]any)
+	if !ok || wtMap["id"] != "server-task-1" {
+		t.Fatalf("expected id server-task-1, got: %v", createdResp.Data)
+	}
+	wtPath := wtMap["path"].(string)
+
+	// 3. GET /api/v1/worktrees/server-task-1?repo=...
+	getResp, err := http.Get(fmt.Sprintf("%s/api/v1/worktrees/server-task-1?repo=%s", ts.URL, repoDir))
+	if err != nil {
+		t.Fatalf("failed to GET worktree: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", getResp.StatusCode)
+	}
+
+	// 4. GET /api/v1/worktrees/server-task-1/status?repo=...
+	statusResp, err := http.Get(fmt.Sprintf("%s/api/v1/worktrees/server-task-1/status?repo=%s", ts.URL, repoDir))
+	if err != nil {
+		t.Fatalf("failed to GET status: %v", err)
+	}
+	defer statusResp.Body.Close()
+	if statusResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", statusResp.StatusCode)
+	}
+	var statusData APIResponse
+	if err := json.NewDecoder(statusResp.Body).Decode(&statusData); err != nil {
+		t.Fatalf("failed to decode status: %v", err)
+	}
+	sMap := statusData.Data.(map[string]any)
+	if sMap["is_clean"] != true {
+		t.Errorf("expected is_clean=true, got %v", sMap["is_clean"])
+	}
+
+	// 5. Modify file in worktree and check diff
+	if err := os.WriteFile(filepath.Join(wtPath, "README.md"), []byte("# Server Mod\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	diffResp, err := http.Get(fmt.Sprintf("%s/api/v1/worktrees/server-task-1/diff?repo=%s", ts.URL, repoDir))
+	if err != nil {
+		t.Fatalf("failed to GET diff: %v", err)
+	}
+	defer diffResp.Body.Close()
+	if diffResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", diffResp.StatusCode)
+	}
+	var diffData APIResponse
+	if err := json.NewDecoder(diffResp.Body).Decode(&diffData); err != nil {
+		t.Fatalf("failed to decode diff: %v", err)
+	}
+	dMap := diffData.Data.(map[string]any)
+	diffStr := dMap["diff"].(string)
+	if !strings.Contains(diffStr, "Server Mod") {
+		t.Errorf("expected diff to contain 'Server Mod', got %s", diffStr)
+	}
+
+	// 6. DELETE /api/v1/worktrees/server-task-1
+	delReq, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/worktrees/server-task-1?repo=%s&force=true&delete_branch=true", ts.URL, repoDir), nil)
+	if err != nil {
+		t.Fatalf("failed to create delete request: %v", err)
+	}
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatalf("failed to execute DELETE: %v", err)
+	}
+	defer delResp.Body.Close()
+	if delResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", delResp.StatusCode)
+	}
+
+	// 7. POST /api/v1/worktrees/prune
+	pruneResp, err := http.Post(fmt.Sprintf("%s/api/v1/worktrees/prune?repo=%s", ts.URL, repoDir), "application/json", nil)
+	if err != nil {
+		t.Fatalf("failed to POST prune: %v", err)
+	}
+	defer pruneResp.Body.Close()
+	if pruneResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", pruneResp.StatusCode)
 	}
 }
 
