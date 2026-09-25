@@ -19,7 +19,25 @@
 
 ## Decisões Técnicas Recentes
 
-### 2026-09-25 [Task 14.3] Roteador Multi-Contas com Algoritmos de Distribuição e Auto-Failover em HTTP 429/403 entre Perfis
+### 2026-09-25 [Task 14.4] Gateway Anthropic-Compatible (/v1/messages) e Mapeamento de Modelos (Claude Sonnet/Opus ↔ Gemini 3.5/3.6)
+
+- **Contexto:** Ferramentas, bibliotecas e agentes projetados para o ecossistema Anthropic (como Claude Code CLI, Cursor, Aider, Cline, Roo Code, e SDKs `@anthropic-ai/sdk` / Python `anthropic`) demandam conformidade estrita com o protocolo da Anthropic Messages API (`POST /v1/messages`), incluindo sua sequência específica de eventos SSE (`message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`), blocos de `system` (string ou array de blocos) e content blocks multimodais (imagens base64).
+- **Decisões Técnicas:**
+  - **Módulo de Tipos e Contratos (`internal/gateway/anthropic_types.go`):**
+    - `AnthropicMessageRequest`, `AnthropicMessage`, `AnthropicContentBlock` (com `AnthropicImageSource`), `AnthropicMessageResponse`, `AnthropicUsage`.
+    - Eventos SSE estruturados: `AnthropicMessageStartEvent`, `AnthropicContentBlockStartEvent`, `AnthropicContentBlockDeltaEvent` (`AnthropicTextDelta`), `AnthropicContentBlockStopEvent`, `AnthropicMessageDeltaEvent`, `AnthropicMessageStopEvent`.
+    - `AnthropicErrorResponse` no formato nativo `{"type": "error", "error": {"type": "...", "message": "..."}}`.
+  - **Conversão e Manipulação (`internal/gateway/anthropic.go`):**
+    - `ExtractAnthropicSystem`: extrai instrução do sistema tanto de string quanto de arrays de blocos ou JSON cru.
+    - `CollapseAnthropicMessages`: traduz mensagens do formato Anthropic para `CloudCodeRequest` (mapeando `assistant` para o papel `"model"` do CloudCode, empacotando imagens base64 em `inlineData` e texto em `parts`).
+    - `HandleMessages`: processa `POST /v1/messages` e `/api/v1/messages`, suportando credenciais via `x-api-key` ou `Authorization: Bearer <key>`.
+    - Integração transparente com `Router`: seleção de nós via `SelectProfile`, auto-failover em HTTP 429/403 com `StreamGenerateContentWithConnect`, e emissão dos headers de telemetria `X-Profile-Used`, `X-Failover-Count`, `X-Remaining-Profiles`, `X-Routing-Strategy`.
+  - **Mapeamento e Normalização de Modelos (`internal/gateway/models.go`):**
+    - Suporte a aliases com hífen e notação de ponto (`claude-3-7-sonnet`, `claude-3.7-sonnet`, `claude-3-5-sonnet`, `claude-3.5-sonnet`, `claude-3.5-haiku`, `claude-sonnet`, `claude-opus`, `claude-haiku`).
+    - Heurística dinâmica para famílias Claude direcionando versões 3.7 para `gemini-3.6-flash-high`, Sonnet para `claude-sonnet-4-6`, Opus para `claude-opus-4-6` e Haiku para `gemini-3.5-flash-low`/`medium`.
+  - **Rotas e CORS no Servidor (`internal/server`):**
+    - Endpoints registrados: `POST /v1/messages` e `POST /api/v1/messages`.
+    - `corsMiddleware` expandido para aceitar headers `x-api-key`, `anthropic-version`, `anthropic-beta` em `Access-Control-Allow-Headers`.
 
 - **Contexto:** Em ambientes com múltiplos agentes ou automações concorrentes, contas isoladas esgotam cotas de 5h ou semanais em momentos distintos. Usuários necessitam de um balanceador inteligente com auto-failover transparente para que chamadas a `/v1/chat/completions` nunca sejam interrompidas enquanto houver ao menos um perfil com cota saudável no pool.
 - **Decisões Técnicas:**

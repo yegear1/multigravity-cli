@@ -248,6 +248,9 @@ func TestCORSHeaders(t *testing.T) {
 	if !strings.Contains(allowHeaders, "X-Routing-Strategy") || !strings.Contains(allowHeaders, "X-Failover") {
 		t.Errorf("expected CORS allow headers to include X-Routing-Strategy and X-Failover, got %q", allowHeaders)
 	}
+	if !strings.Contains(allowHeaders, "x-api-key") || !strings.Contains(allowHeaders, "anthropic-version") {
+		t.Errorf("expected CORS allow headers to include x-api-key and anthropic-version, got %q", allowHeaders)
+	}
 	exposeHeaders := rec.Header().Get("Access-Control-Expose-Headers")
 	if !strings.Contains(exposeHeaders, "X-Profile-Used") || !strings.Contains(exposeHeaders, "X-Failover-Count") {
 		t.Errorf("expected CORS expose headers to include X-Profile-Used and X-Failover-Count, got %q", exposeHeaders)
@@ -1351,6 +1354,30 @@ func TestGatewayEndpointsInServer(t *testing.T) {
 		}
 		if len(compResp.Choices) != 1 || compResp.Choices[0].Message.Content != "Hello from gateway server!" {
 			t.Errorf("unexpected choices on %s: %+v", path, compResp.Choices)
+		}
+	}
+
+	// 3. Anthropic Messages non-streaming: /v1/messages and /api/v1/messages
+	for _, path := range []string{"/v1/messages", "/api/v1/messages"} {
+		payload := `{"model": "claude-3-7-sonnet", "messages": [{"role": "user", "content": "hi anthropic"}], "max_tokens": 1024}`
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", "anthropic-key-test")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d: %s", path, rec.Code, rec.Body.String())
+		}
+		var msgResp gateway.AnthropicMessageResponse
+		if err := json.NewDecoder(rec.Body).Decode(&msgResp); err != nil {
+			t.Fatalf("failed to decode Anthropic message response from %s: %v", path, err)
+		}
+		if msgResp.Type != "message" || msgResp.Role != "assistant" {
+			t.Errorf("unexpected message response format on %s: %+v", path, msgResp)
+		}
+		if len(msgResp.Content) != 1 || msgResp.Content[0].Text != "Hello from gateway server!" {
+			t.Errorf("unexpected content on %s: %+v", path, msgResp.Content)
 		}
 	}
 }

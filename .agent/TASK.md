@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [14.4] | Gateway Anthropic-Compatible (`/v1/messages`) e Mapeamento de Modelos (Claude Sonnet/Opus ↔ Gemini 3.5/3.6) | feat(gateway): add anthropic messages gateway with sse and multi-account failover | 2026-09-25 |
 | [14.3] | Roteador Multi-Contas com Algoritmos de Distribuição (Smart Priority, Round Robin) e Auto-Failover em HTTP 429/403 entre Perfis | feat(gateway): implement multi-account router with smart load balancing and auto-failover | 2026-09-25 |
 | [14.2] | Gateway de Completions OpenAI-Compatible (`/v1/chat/completions`) no `multigravity serve` com SSE | feat(gateway): add openai completions gateway with sse streaming | 2026-09-25 |
 | [14.1] | Heurística de Janela de Cotas (5h vs Semanal) e Ping de Aquecimento Proativo | feat(quota): add window heuristic and proactive 5h warm-up prime | 2026-09-25 |
@@ -45,7 +46,7 @@
 
 ### Fase 1: Gateway de IA Multi-Contas & Refinamento de Cotas (Épico 14)
 - [x] **[14.3]** Roteador Multi-Contas com Algoritmos de Distribuição (Smart Priority, Round Robin) e Auto-Failover em HTTP 429/403 entre Perfis
-- [ ] **[14.4]** Gateway Anthropic-Compatible (`/v1/messages`) e Mapeamento de Modelos (Claude Sonnet/Opus ↔ Gemini 3.5/3.6)
+- [x] **[14.4]** Gateway Anthropic-Compatible (`/v1/messages`) e Mapeamento de Modelos (Claude Sonnet/Opus ↔ Gemini 3.5/3.6)
 
 ### Fase 2: Orquestrador de Agentes — Worktrees, PTYs & Task Dispatcher (Épico 15)
 - [ ] **[15.1]** Gerenciador de Git Worktrees Efêmeros por Agente/Tarefa (`internal/worktree`)

@@ -37,18 +37,24 @@ var ModelAliases = map[string]string{
 
 	// Anthropic / Claude mappings
 	"claude-3-5-sonnet":          "claude-sonnet-4-6",
+	"claude-3.5-sonnet":          "claude-sonnet-4-6",
 	"claude-3-5-sonnet-latest":   "claude-sonnet-4-6",
 	"claude-3-5-sonnet-20241022": "claude-sonnet-4-6",
 	"claude-3-7-sonnet":          "gemini-3.6-flash-high",
+	"claude-3.7-sonnet":          "gemini-3.6-flash-high",
 	"claude-3-7-sonnet-latest":   "gemini-3.6-flash-high",
 	"claude-3-7-sonnet-20250219": "gemini-3.6-flash-high",
 	"claude-3-opus":              "claude-opus-4-6",
 	"claude-3-opus-latest":       "claude-opus-4-6",
 	"claude-3-opus-20240229":     "claude-opus-4-6",
 	"claude-3-5-haiku":           "gemini-3.5-flash-low",
+	"claude-3.5-haiku":           "gemini-3.5-flash-low",
 	"claude-3-5-haiku-20241022":  "gemini-3.5-flash-low",
 	"claude-3-haiku":             "gemini-3.5-flash-medium",
 	"claude-3-haiku-20240307":    "gemini-3.5-flash-medium",
+	"claude-sonnet":              "claude-sonnet-4-6",
+	"claude-opus":                "claude-opus-4-6",
+	"claude-haiku":               "gemini-3.5-flash-low",
 }
 
 // NormalizeModel resolves model aliases and ensures a valid model identifier for upstream
@@ -59,9 +65,18 @@ func NormalizeModel(model string) string {
 	}
 
 	// Dynamic prefix / keyword heuristics
-	if strings.Contains(m, "claude") && (strings.Contains(m, "sonnet") || strings.Contains(m, "opus")) {
+	if strings.Contains(m, "claude") {
+		if strings.Contains(m, "3-7") || strings.Contains(m, "3.7") {
+			return "gemini-3.6-flash-high"
+		}
 		if strings.Contains(m, "opus") {
 			return "claude-opus-4-6"
+		}
+		if strings.Contains(m, "haiku") {
+			if strings.Contains(m, "3-5") || strings.Contains(m, "3.5") {
+				return "gemini-3.5-flash-low"
+			}
+			return "gemini-3.5-flash-medium"
 		}
 		return "claude-sonnet-4-6"
 	}
