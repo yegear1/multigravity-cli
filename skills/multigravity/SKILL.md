@@ -191,6 +191,8 @@ The agent MUST NOT activate this skill when:
    | `POST` | `/api/v1/profiles/{name}/restart` | Gracefully restart profile (`{"args": [...]}`) |
    | `POST` | `/api/v1/profiles/{name}/clean` | Clean volatile caches for a profile |
    | `POST` | `/api/v1/profiles/{name}/rename` | Safely rename profile (`{"new_name": "target"}`) |
+   | `POST` | `/v1/chat/completions` / `/api/v1/chat/completions` | OpenAI-compatible chat completions gateway with SSE streaming |
+   | `GET` | `/v1/models` / `/api/v1/models` | OpenAI-compatible model catalog listing supported models |
    | `GET` | `/events` / `/api/v1/events` | Real-time Server-Sent Events (SSE) stream (`init`, `profiles`, `action`, `prime`, `ping`) |
 
 ## 5. Canonical Examples

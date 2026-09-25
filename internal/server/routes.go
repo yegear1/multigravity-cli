@@ -119,7 +119,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, X-Profile")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -208,6 +208,28 @@ func (s *Server) setupRoutes() {
 	// Real-time Streaming (SSE)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 	s.mux.HandleFunc("GET /api/v1/events", s.handleEvents)
+
+	// OpenAI-Compatible Completions Gateway
+	s.mux.HandleFunc("POST /v1/chat/completions", s.handleGatewayChatCompletions)
+	s.mux.HandleFunc("POST /api/v1/chat/completions", s.handleGatewayChatCompletions)
+	s.mux.HandleFunc("GET /v1/models", s.handleGatewayModels)
+	s.mux.HandleFunc("GET /api/v1/models", s.handleGatewayModels)
+}
+
+func (s *Server) handleGatewayChatCompletions(w http.ResponseWriter, r *http.Request) {
+	if s.gateway != nil {
+		s.gateway.HandleChatCompletions(w, r)
+		return
+	}
+	s.writeError(w, http.StatusServiceUnavailable, "gateway is not initialized")
+}
+
+func (s *Server) handleGatewayModels(w http.ResponseWriter, r *http.Request) {
+	if s.gateway != nil {
+		s.gateway.HandleModels(w, r)
+		return
+	}
+	s.writeError(w, http.StatusServiceUnavailable, "gateway is not initialized")
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

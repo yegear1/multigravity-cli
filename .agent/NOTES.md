@@ -19,6 +19,21 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 14.2] Gateway de Completions OpenAI-Compatible (`/v1/chat/completions`) no `multigravity serve` com SSE
+
+- **Contexto:** Ferramentas externas de IA (Cursor, Aider, OpenCode, Continue, scripts Python/TypeScript com SDK OpenAI) requerem um endpoint HTTP local compatível com a especificação OpenAI (`POST /v1/chat/completions` e `GET /v1/models`) para consumir modelos do Antigravity/CloudCode via streaming SSE de baixa latência e respostas atômicas em JSON.
+- **Decisões Técnicas:**
+  - **Módulo Desacoplado `internal/gateway`:**
+    - `types.go`: contratos estruturados para requests, responses, chunks de delta SSE, catálogo de modelos e erros padronizados OpenAI (`invalid_request_error`, `api_error`).
+    - `models.go`: catálogo de modelos expostos e normalização inteligente (`NormalizeModel`), mapeando modelos Gemini (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-3.5-flash`, etc.) e aliases 3P (`gpt-4o`, `gpt-4o-mini`, `claude-3-5-sonnet`, `claude-3-7-sonnet`, `claude-sonnet-4-6`, `gpt-oss-120b-medium`).
+    - `collapse.go`: conversor e colapsador `CollapseOpenAIMessages()`, extraindo instruções `system` no bloco nativo `systemInstruction`, mapeando `assistant` para o papel `"model"` do CloudCode, e tratando partes multimodais com URIs de imagem base64 (`data:image/...;base64,...`) em `inlineData`.
+    - `client.go`: cliente upstream para `POST https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse` (e fallback `daily-cloudcode-pa.googleapis.com`). Cumpre rigorosamente a **invariante de Chesterton de nunca enviar o cabeçalho `x-goog-user-project`**.
+    - `gateway.go`: controlador central com suporte a streaming contínuo via `http.Flusher` (emitindo chunks `chat.completion.chunk`, chunk final de parada `finish_reason: "stop"` e marcador `data: [DONE]`) e modo atômico (`stream: false`).
+  - **Integração no Servidor HTTP (`internal/server`):**
+    - Rotas canônicas registradas: `POST /v1/chat/completions` e `GET /v1/models`, com aliases espelhados sob `/api/v1/`.
+    - Atualizado `corsMiddleware` para expor o cabeçalho `X-Profile` em `Access-Control-Allow-Headers`.
+    - Exportado método `SetGateway()` para injeção hermética de instâncias em testes de integração sem dependências de rede.
+
 ### 2026-09-25 [Benchmark & Roadmap] Arquitetura de Gateway Multi-Contas (Elysium) e Orquestrador de Agentes ADE (Orca / Alethe)
 
 - **Contexto:** Benchmark realizado comparando o `multigravity-cli` com `mbl9898/multigravity-elysium`, `Kc1t/alethe-agents` e `Orca (onorca.dev)` para estruturar os Épicos 14 (Fase 1: Gateway de IA & Cotas) e 15 (Fase 2: Orquestrador de Agentes ADE).

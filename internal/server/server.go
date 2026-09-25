@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/ye-dev/multigravity-cli/internal/gateway"
 )
 
 // Config defines the configuration parameters for the HTTP server
@@ -23,6 +25,7 @@ type Server struct {
 	mux        *http.ServeMux
 	listener   net.Listener
 	broker     *Broker
+	gateway    *gateway.Gateway
 }
 
 // NewServer creates a new HTTP server instance with configured routes
@@ -38,9 +41,10 @@ func NewServer(cfg Config) *Server {
 	}
 
 	s := &Server{
-		cfg:    cfg,
-		mux:    http.NewServeMux(),
-		broker: NewBroker(),
+		cfg:     cfg,
+		mux:     http.NewServeMux(),
+		broker:  NewBroker(),
+		gateway: gateway.NewGateway(),
 	}
 
 	s.broker.Start(2 * time.Second)
@@ -86,6 +90,16 @@ func (s *Server) Start() error {
 // Broker returns the active SSE event broker
 func (s *Server) Broker() *Broker {
 	return s.broker
+}
+
+// Gateway returns the OpenAI-compatible completions gateway
+func (s *Server) Gateway() *gateway.Gateway {
+	return s.gateway
+}
+
+// SetGateway overrides the gateway instance (primarily for testing)
+func (s *Server) SetGateway(gw *gateway.Gateway) {
+	s.gateway = gw
 }
 
 // Shutdown initiates graceful termination of the HTTP server

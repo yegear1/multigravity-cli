@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ye-dev/multigravity-cli/internal/gateway"
 	"github.com/ye-dev/multigravity-cli/internal/prime"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
@@ -1281,5 +1282,146 @@ func TestPrimeProgressSSE(t *testing.T) {
 		t.Errorf("did not observe 'event: action' in SSE stream")
 	}
 }
+
+func TestGatewayEndpointsInServer(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	// Mock upstream
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"response":{"candidates":[{"content":{"parts":[{"text":"Hello from gateway server!"}]}}]}}`)
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	gwClient := gateway.NewClient(
+		gateway.WithEndpoints([]string{upstream.URL}),
+		gateway.WithHTTPClient(upstream.Client()),
+	)
+	mockGW := gateway.NewGateway(
+		gateway.WithGatewayClient(gwClient),
+		gateway.WithTokenResolver(func(r *http.Request, p string) (string, error) {
+			return "test-token", nil
+		}),
+	)
+	srv.SetGateway(mockGW)
+
+	// 1. Models catalog endpoints: /v1/models and /api/v1/models
+	for _, path := range []string{"/v1/models", "/api/v1/models"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d", path, rec.Code)
+		}
+		var models gateway.ModelListResponse
+		if err := json.NewDecoder(rec.Body).Decode(&models); err != nil {
+			t.Fatalf("failed to decode models from %s: %v", path, err)
+		}
+		if models.Object != "list" || len(models.Data) == 0 {
+			t.Errorf("expected populated models list on %s, got %+v", path, models)
+		}
+	}
+
+	// 2. Chat completions non-streaming: /v1/chat/completions and /api/v1/chat/completions
+	for _, path := range []string{"/v1/chat/completions", "/api/v1/chat/completions"} {
+		payload := `{"model": "gemini-2.5-pro", "messages": [{"role": "user", "content": "hi"}], "stream": false}`
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer custom-key")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d: %s", path, rec.Code, rec.Body.String())
+		}
+		var compResp gateway.ChatCompletionResponse
+		if err := json.NewDecoder(rec.Body).Decode(&compResp); err != nil {
+			t.Fatalf("failed to decode completion response from %s: %v", path, err)
+		}
+		if len(compResp.Choices) != 1 || compResp.Choices[0].Message.Content != "Hello from gateway server!" {
+			t.Errorf("unexpected choices on %s: %+v", path, compResp.Choices)
+		}
+	}
+}
+
+func TestGatewayStreamingInServer(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"response":{"candidates":[{"content":{"parts":[{"text":"Streamed "}]}}]}}`)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"response":{"candidates":[{"content":{"parts":[{"text":"response!"}]}}]}}`)
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	gwClient := gateway.NewClient(
+		gateway.WithEndpoints([]string{upstream.URL}),
+		gateway.WithHTTPClient(upstream.Client()),
+	)
+	mockGW := gateway.NewGateway(
+		gateway.WithGatewayClient(gwClient),
+		gateway.WithTokenResolver(func(r *http.Request, p string) (string, error) {
+			return "stream-token", nil
+		}),
+	)
+	srv.SetGateway(mockGW)
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	payload := `{"model": "gpt-4o", "messages": [{"role": "user", "content": "stream please"}], "stream": true}`
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to post to /v1/chat/completions: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	var chunks []string
+	sawDone := false
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "data:") {
+				val := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+				if val == "[DONE]" {
+					sawDone = true
+					break
+				}
+				var chunk gateway.ChatCompletionChunk
+				if err := json.Unmarshal([]byte(val), &chunk); err == nil {
+					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+						chunks = append(chunks, chunk.Choices[0].Delta.Content)
+					}
+				}
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	if !sawDone {
+		t.Errorf("did not observe [DONE] in SSE stream")
+	}
+	combined := strings.Join(chunks, "")
+	if combined != "Streamed response!" {
+		t.Errorf("unexpected combined streamed content: %q", combined)
+	}
+}
+
 
 

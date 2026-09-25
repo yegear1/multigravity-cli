@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [14.2] | Gateway de Completions OpenAI-Compatible (`/v1/chat/completions`) no `multigravity serve` com SSE | feat(gateway): add openai completions gateway with sse streaming | 2026-09-25 |
 | [14.1] | Heurística de Janela de Cotas (5h vs Semanal) e Ping de Aquecimento Proativo | feat(quota): add window heuristic and proactive 5h warm-up prime | 2026-09-25 |
 | [07.3] | Priming e Aquecimento de Cotas via API com Emissão de Progresso | feat(prime): add priming API endpoints, SSE progress, and CLI --json | 2026-09-25 |
 | [07.2] | Mutação de Compartilhamento Dinâmico via API (Toggle de MCP, Skills, Config, Git/GitHub) | feat(server): add sharing mutation endpoints and dynamic resource toggling | 2026-09-25 |
@@ -42,7 +43,6 @@
 ## Backlog (Próximas, em ordem)
 
 ### Fase 1: Gateway de IA Multi-Contas & Refinamento de Cotas (Épico 14)
-- [ ] **[14.2]** Gateway de Completions OpenAI-Compatible (`/v1/chat/completions`) no `multigravity serve` com SSE
 - [ ] **[14.3]** Roteador Multi-Contas com Algoritmos de Distribuição (Smart Priority, Round Robin) e Auto-Failover em HTTP 429/403 entre Perfis
 - [ ] **[14.4]** Gateway Anthropic-Compatible (`/v1/messages`) e Mapeamento de Modelos (Claude Sonnet/Opus ↔ Gemini 3.5/3.6)
 
