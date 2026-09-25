@@ -19,6 +19,25 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 11.3] Ícone Embutido (//go:embed) e Associação Automática em Atalhos Desktop
+
+- **Contexto:** Os atalhos de desktop gerados para cada perfil dependiam de ícones externos do sistema (`Icon=antigravity` no Linux podia ficar genérico se o pacote da IDE não estivesse nos temas de ícones do sistema) ou download manual de `icon.icns` durante o `install.sh`. No Windows e no macOS, faltava gravação nativa de ícones padrão nos bundles e atalhos `.lnk`. Inspirado na facilidade de uso do fork `Pulkit7070/multigravity-pro`.
+- **Decisões Técnicas:**
+  - **Empacotamento via `//go:embed`:**
+    - Armazenados em `internal/shortcut/assets/`:
+      - `icon.icns`: Mac OS X icon multi-resolução (~710 KB).
+      - `icon.png`: alta resolução PNG (512x512, 119 KB) extraído do canal `ic09` do ICNS, otimizado para o padrão XDG Desktop Entry Specification.
+      - `icon.ico`: ícone padrão Microsoft Windows (256x256 PNG encapsulado, ~40 KB) compatível com o Windows Shell / Explorer.
+    - Exportadas funções `GetIconICNS()`, `GetIconPNG()`, `GetIconICO()` e `HasEmbeddedIcon()`.
+  - **Gravação e Associação Automática nos Atalhos:**
+    - **macOS (`createShortcutDarwin`):** Grava `Contents/Resources/icon.icns` diretamente dentro de `Multigravity <profile>.app`, imediatamente associado pelo `CFBundleIconFile: icon` no `Info.plist`.
+    - **Linux (`createShortcutLinux`):** Função `EnsureLinuxIcon()` extrai o ícone para `~/.local/share/multigravity/icon.png` (ou caminho hermético de teste) e injeta `Icon=<caminho_absoluto>` no arquivo `multigravity-<profile>.desktop`.
+    - **Windows (`createShortcutWindows`):** Função `EnsureWindowsIcon()` extrai o ícone para `%APPDATA%\multigravity\icon.ico` e define `$Shortcut.IconLocation = "<caminho_absoluto>, 0"` via COM `WScript.Shell`, mantendo fallback para `app.FindApp()`.
+  - **Auto-Contenção no Diagnóstico (`doctor`):**
+    - `internal/doctor/doctor.go` atualizado para checar `shortcut.HasEmbeddedIcon()`, reportando `Application Icon: Embedded (built-in)` com `StatusOK` (zero warnings), dispensando dependência de rede em instalações offline.
+  - **Hermeticidade em Testes:**
+    - `shortcut_test.go` e `doctor_test.go` validam a presença dos assets embutidos, a gravação de `icon.png`, `icon.icns` e `icon.ico`, e os caminhos gerados nos arquivos `.desktop` e bundles `.app` sem poluir as pastas do usuário host.
+
 ### 2026-09-25 [Task 11.2] Contrato Machine-Readable (--json) e Consulta Granular em multigravity status
 
 - **Contexto:** O comando `multigravity status` exibia apenas saída tabular estilizada em ANSI. UIs locais, agregadores de telemetria e agentes de IA necessitam de dados estruturados com tipagem precisa, incluindo tamanho em bytes, estado de execução, tipo do perfil e data de último uso (Regra de Ouro #7 do `AGENTS.md`).

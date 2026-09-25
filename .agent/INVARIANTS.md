@@ -32,15 +32,15 @@
 
 ### macOS (Darwin)
 - **Keychains:** `Library/Keychains` deve ser linkado para `$HOME/Library/Keychains` se não existir, caso contrário o macOS recusa salvar credenciais de forma persistente.
-- **Atalhos:** Criados em `$HOME/Applications/Multigravity <nome>.app` contendo estrutura padrão de bundle macOS com `Contents/MacOS/run`, `Info.plist` e `icon.icns`.
+- **Atalhos:** Criados em `$HOME/Applications/Multigravity <nome>.app` contendo estrutura padrão de bundle macOS com `Contents/MacOS/run`, `Info.plist` e `Contents/Resources/icon.icns` (gravado a partir do asset embutido via `//go:embed`).
 
 ### Linux
 - **XDG Base Directory:** `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME` e `XDG_STATE_HOME` devem apontar para as respectivas subpastas dentro do perfil para não poluir o sistema.
-- **Atalhos:** Gerados em `~/.local/share/applications/multigravity-<nome>.desktop` apontando para o wrapper script em `~/.local/share/multigravity/launchers/<nome>.sh`.
+- **Atalhos:** Gerados em `~/.local/share/applications/multigravity-<nome>.desktop` apontando para o wrapper script em `~/.local/share/multigravity/launchers/<nome>.sh` e referenciando deterministicamente o ícone em `~/.local/share/multigravity/icon.png` (extraído dos assets embutidos via `//go:embed`).
 
 ### Windows
 - **Variáveis de Usuário:** `$env:USERPROFILE`, `$env:APPDATA` e `$env:LOCALAPPDATA` devem ser apontados para as subpastas correspondentes dentro de `$PROFILE_DIR`.
-- **Atalhos:** `.lnk` gerados em `$env:APPDATA\Microsoft\Windows\Start Menu\Programs\`.
+- **Atalhos:** `.lnk` gerados em `$env:APPDATA\Microsoft\Windows\Start Menu\Programs\` com `IconLocation` apontando para `%APPDATA%\multigravity\icon.ico` (extraído dos assets embutidos via `//go:embed`).
 
 ---
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -62,5 +63,29 @@ func TestRunDoctorAppNotFound(t *testing.T) {
 	}
 	if res.Errors == 0 {
 		t.Errorf("expected at least 1 error, got %d", res.Errors)
+	}
+}
+
+func TestDoctorEmbeddedIconCheck(t *testing.T) {
+	report, err := Diagnose()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runtime.GOOS == "darwin" {
+		found := false
+		for _, check := range report.Checks {
+			if check.Name == "Application Icon" {
+				found = true
+				if check.Status != StatusOK {
+					t.Errorf("expected StatusOK for Application Icon, got %s", check.Status)
+				}
+				if !strings.Contains(check.Message, "Embedded") {
+					t.Errorf("expected Embedded in message, got %s", check.Message)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Application Icon check not found in report")
+		}
 	}
 }

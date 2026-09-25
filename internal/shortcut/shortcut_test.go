@@ -56,6 +56,14 @@ func TestCreateAndRemoveShortcutLinux(t *testing.T) {
 		t.Errorf("expected desktop name Multigravity dev-work, got:\n%s", string(desktopContent))
 	}
 
+	expectedIcon := filepath.Join(tmpDir, "icon.png")
+	if _, err := os.Stat(expectedIcon); err != nil {
+		t.Fatalf("expected linux icon at %s: %v", expectedIcon, err)
+	}
+	if !strings.Contains(string(desktopContent), "Icon="+expectedIcon) {
+		t.Errorf("expected desktop file to contain Icon=%s, got:\n%s", expectedIcon, string(desktopContent))
+	}
+
 	// Remove shortcut
 	if err := removeShortcutLinux(profile); err != nil {
 		t.Fatalf("failed to remove linux shortcut: %v", err)
@@ -86,12 +94,20 @@ func TestCreateAndRemoveShortcutDarwin(t *testing.T) {
 	appDir := filepath.Join(customMacAppDir, "Multigravity mac-dev.app")
 	runScript := filepath.Join(appDir, "Contents", "MacOS", "run")
 	infoPlist := filepath.Join(appDir, "Contents", "Info.plist")
+	iconFile := filepath.Join(appDir, "Contents", "Resources", "icon.icns")
 
 	if _, err := os.Stat(runScript); err != nil {
 		t.Fatalf("run script not found: %v", err)
 	}
 	if _, err := os.Stat(infoPlist); err != nil {
 		t.Fatalf("Info.plist not found: %v", err)
+	}
+	iconStat, err := os.Stat(iconFile)
+	if err != nil {
+		t.Fatalf("app bundle icon.icns not found: %v", err)
+	}
+	if iconStat.Size() != int64(len(GetIconICNS())) {
+		t.Errorf("expected icon size %d, got %d", len(GetIconICNS()), iconStat.Size())
 	}
 
 	// Remove shortcut
@@ -107,5 +123,46 @@ func TestCreateAndRemoveShortcutDarwin(t *testing.T) {
 func TestCreateShortcutInvalidName(t *testing.T) {
 	if err := CreateShortcut("invalid name with spaces"); err == nil {
 		t.Errorf("expected error for invalid profile name")
+	}
+}
+
+func TestEmbeddedIcons(t *testing.T) {
+	if !HasEmbeddedIcon() {
+		t.Fatalf("expected HasEmbeddedIcon to be true")
+	}
+	if len(GetIconICNS()) == 0 {
+		t.Errorf("expected embedded icon.icns to have content")
+	}
+	if len(GetIconPNG()) == 0 {
+		t.Errorf("expected embedded icon.png to have content")
+	}
+	if len(GetIconICO()) == 0 {
+		t.Errorf("expected embedded icon.ico to have content")
+	}
+}
+
+func TestEnsureLinuxAndWindowsIcons(t *testing.T) {
+	tmpDir := t.TempDir()
+	customLinuxDesktopDir = filepath.Join(tmpDir, "linux", "applications")
+	customWinStartMenuDir = filepath.Join(tmpDir, "windows", "Programs")
+	defer func() {
+		customLinuxDesktopDir = ""
+		customWinStartMenuDir = ""
+	}()
+
+	linuxPath, err := EnsureLinuxIcon()
+	if err != nil {
+		t.Fatalf("failed to ensure linux icon: %v", err)
+	}
+	if _, err := os.Stat(linuxPath); err != nil {
+		t.Errorf("linux icon file not found at %s: %v", linuxPath, err)
+	}
+
+	winPath, err := EnsureWindowsIcon()
+	if err != nil {
+		t.Fatalf("failed to ensure windows icon: %v", err)
+	}
+	if _, err := os.Stat(winPath); err != nil {
+		t.Errorf("windows icon file not found at %s: %v", winPath, err)
 	}
 }

@@ -1,6 +1,7 @@
 package shortcut
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,35 @@ import (
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
 )
+
+//go:embed assets/icon.icns
+var defaultIconICNS []byte
+
+//go:embed assets/icon.png
+var defaultIconPNG []byte
+
+//go:embed assets/icon.ico
+var defaultIconICO []byte
+
+// GetIconICNS returns the embedded macOS icon bytes
+func GetIconICNS() []byte {
+	return defaultIconICNS
+}
+
+// GetIconPNG returns the embedded Linux icon bytes
+func GetIconPNG() []byte {
+	return defaultIconPNG
+}
+
+// GetIconICO returns the embedded Windows icon bytes
+func GetIconICO() []byte {
+	return defaultIconICO
+}
+
+// HasEmbeddedIcon returns true if default icon assets are embedded
+func HasEmbeddedIcon() bool {
+	return len(defaultIconICNS) > 0 || len(defaultIconPNG) > 0 || len(defaultIconICO) > 0
+}
 
 var (
 	// customPaths for testing overrides
@@ -98,6 +128,32 @@ func linuxDesktopDir() string {
 	return filepath.Join(home, ".local", "share", "applications")
 }
 
+func linuxIconPath() string {
+	if customLinuxDesktopDir != "" {
+		return filepath.Join(filepath.Dir(customLinuxDesktopDir), "icon.png")
+	}
+	if env := os.Getenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR"); env != "" {
+		return filepath.Join(env, "icon.png")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "share", "multigravity", "icon.png")
+}
+
+// EnsureLinuxIcon extracts the embedded PNG icon to disk if needed and returns its path
+func EnsureLinuxIcon() (string, error) {
+	if len(defaultIconPNG) == 0 {
+		return "", fmt.Errorf("embedded PNG icon not available")
+	}
+	target := linuxIconPath()
+	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(target, defaultIconPNG, 0644); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
 func macApplicationsDir() string {
 	if customMacAppDir != "" {
 		return customMacAppDir
@@ -122,6 +178,36 @@ func windowsStartMenuDir() string {
 		return filepath.Join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs")
 	}
 	return filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs")
+}
+
+func windowsIconPath() string {
+	if customWinStartMenuDir != "" {
+		return filepath.Join(filepath.Dir(customWinStartMenuDir), "icon.ico")
+	}
+	if env := os.Getenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR"); env != "" {
+		return filepath.Join(env, "icon.ico")
+	}
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, "AppData", "Roaming", "multigravity", "icon.ico")
+	}
+	return filepath.Join(appData, "multigravity", "icon.ico")
+}
+
+// EnsureWindowsIcon extracts the embedded ICO icon to disk if needed and returns its path
+func EnsureWindowsIcon() (string, error) {
+	if len(defaultIconICO) == 0 {
+		return "", fmt.Errorf("embedded ICO icon not available")
+	}
+	target := windowsIconPath()
+	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(target, defaultIconICO, 0644); err != nil {
+		return "", err
+	}
+	return target, nil
 }
 
 func createShortcutLinux(profile string) error {
@@ -149,19 +235,24 @@ exec %q %q "$@"
 		return fmt.Errorf("failed to create launcher script: %w", err)
 	}
 
+	iconTarget := "antigravity"
+	if iconPath, err := EnsureLinuxIcon(); err == nil && iconPath != "" {
+		iconTarget = iconPath
+	}
+
 	desktopContent := fmt.Sprintf(`[Desktop Entry]
 Version=1.0
 Type=Application
 Name=Multigravity %s
 Comment=Launch the %s Antigravity profile
 Exec=%q %%F
-Icon=antigravity
+Icon=%s
 Terminal=false
 StartupNotify=false
 StartupWMClass=Antigravity
 Categories=TextEditor;Development;IDE;
 MimeType=application/x-antigravity-workspace;
-`, profile, profile, launcherPath)
+`, profile, profile, launcherPath, iconTarget)
 
 	if err := os.WriteFile(desktopPath, []byte(desktopContent), 0644); err != nil {
 		return fmt.Errorf("failed to create desktop entry: %w", err)
@@ -196,7 +287,16 @@ func createShortcutDarwin(profile string) error {
 	if err := os.MkdirAll(macosDir, 0755); err != nil {
 		return err
 	}
-	_ = os.MkdirAll(resDir, 0755)
+	if err := os.MkdirAll(resDir, 0755); err != nil {
+		return err
+	}
+
+	iconPath := filepath.Join(resDir, "icon.icns")
+	if len(defaultIconICNS) > 0 {
+		if err := os.WriteFile(iconPath, defaultIconICNS, 0644); err != nil {
+			return fmt.Errorf("failed to write app bundle icon: %w", err)
+		}
+	}
 
 	runScript := filepath.Join(macosDir, "run")
 	launcherBin := GetMultigravityBinary()

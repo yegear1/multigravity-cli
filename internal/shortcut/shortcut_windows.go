@@ -20,8 +20,13 @@ func createShortcutWindows(profile string) error {
 	exe := GetMultigravityBinary()
 
 	iconLocation := ""
-	if appPath, err := app.FindApp(); err == nil {
-		iconLocation = appPath + ", 0"
+	if icoPath, err := EnsureWindowsIcon(); err == nil && icoPath != "" {
+		iconLocation = icoPath + ", 0"
+	}
+	if iconLocation == "" {
+		if appPath, err := app.FindApp(); err == nil {
+			iconLocation = appPath + ", 0"
+		}
 	}
 
 	psScript := fmt.Sprintf(`$WshShell = New-Object -ComObject WScript.Shell

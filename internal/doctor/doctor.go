@@ -10,6 +10,7 @@ import (
 
 	"github.com/ye-dev/multigravity-cli/internal/app"
 	"github.com/ye-dev/multigravity-cli/internal/config"
+	"github.com/ye-dev/multigravity-cli/internal/shortcut"
 )
 
 // CheckStatus represents the severity/outcome of a diagnostic check
@@ -109,40 +110,49 @@ func Diagnose() (*DiagnosticReport, error) {
 
 	// 4. Icon Check (macOS)
 	if platform == "darwin" {
-		home, _ := os.UserHomeDir()
-		candidates := []string{
-			"icon.icns",
-			filepath.Join(home, ".local", "share", "multigravity", "icon.icns"),
-		}
-		if exe, err := os.Executable(); err == nil && exe != "" {
-			candidates = append(candidates, filepath.Join(filepath.Dir(exe), "icon.icns"))
-		}
-
-		iconFound := false
-		var checkedPath string
-		for _, p := range candidates {
-			checkedPath = p
-			if _, err := os.Stat(p); err == nil {
-				iconFound = true
-				break
-			}
-		}
-
-		if iconFound {
+		if shortcut.HasEmbeddedIcon() {
 			report.Checks = append(report.Checks, DiagnosticCheck{
 				Name:    "Application Icon",
 				Status:  StatusOK,
-				Message: "Application Icon: Found",
-				Detail:  checkedPath,
+				Message: "Application Icon: Embedded (built-in)",
+				Detail:  "embedded://assets/icon.icns",
 			})
 		} else {
-			report.Checks = append(report.Checks, DiagnosticCheck{
-				Name:    "Application Icon",
-				Status:  StatusWarning,
-				Message: fmt.Sprintf("Application Icon: Missing (%s). Shortcuts will have default icons.", checkedPath),
-				Detail:  checkedPath,
-			})
-			report.Warnings++
+			home, _ := os.UserHomeDir()
+			candidates := []string{
+				"icon.icns",
+				filepath.Join(home, ".local", "share", "multigravity", "icon.icns"),
+			}
+			if exe, err := os.Executable(); err == nil && exe != "" {
+				candidates = append(candidates, filepath.Join(filepath.Dir(exe), "icon.icns"))
+			}
+
+			iconFound := false
+			var checkedPath string
+			for _, p := range candidates {
+				checkedPath = p
+				if _, err := os.Stat(p); err == nil {
+					iconFound = true
+					break
+				}
+			}
+
+			if iconFound {
+				report.Checks = append(report.Checks, DiagnosticCheck{
+					Name:    "Application Icon",
+					Status:  StatusOK,
+					Message: "Application Icon: Found",
+					Detail:  checkedPath,
+				})
+			} else {
+				report.Checks = append(report.Checks, DiagnosticCheck{
+					Name:    "Application Icon",
+					Status:  StatusWarning,
+					Message: fmt.Sprintf("Application Icon: Missing (%s). Shortcuts will have default icons.", checkedPath),
+					Detail:  checkedPath,
+				})
+				report.Warnings++
+			}
 		}
 	}
 
