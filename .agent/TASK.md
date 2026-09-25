@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [11.4] | Matriz Comparativa Full vs Auth-Only e Atualização de Documentação no README.md | docs(readme): add full vs auth-only comparison matrix and decision guide | 2026-09-25 |
 | [11.3] | Ícone Embutido (`//go:embed`) e Associação Automática em Atalhos Desktop | feat(shortcut): embed default icons via go:embed and associate across desktop shortcuts | 2026-09-25 |
 | [11.2] | Contrato Machine-Readable (`--json`) no Comando multigravity status | feat(status): add --json flag with byte-level sizing and single profile query | 2026-09-25 |
 | [11.1] | Suporte a Perfis Auth-Only Reais (`--auth-only` / `--shared`) com Symlink de Extensões e Configurações Host | feat(profile): add --auth-only flag with host extensions and editor settings symlinks | 2026-09-25 |
@@ -36,7 +37,7 @@
 ## Backlog (Próximas, em ordem)
 
 - [x] **[11.3]** Ícone Embutido (`//go:embed`) e Associação Automática em Atalhos Desktop (macOS .icns, Windows, Linux) (Inspirado em Pulkit7070/multigravity-pro)
-- [ ] **[11.4]** Matriz Comparativa Full vs Auth-Only e Atualização de Créditos Open Source no `README.md` (Inspirado em Pulkit7070/multigravity-pro)
+- [x] **[11.4]** Matriz Comparativa Full vs Auth-Only e Atualização de Créditos Open Source no `README.md` (Inspirado em Pulkit7070/multigravity-pro)
 - [ ] **[11.5]** Landing Page Estática e Onboarding Visual Interativo para Iniciantes (GitHub Pages / Showcase) (Inspirado em Pulkit7070/multigravity-pro)
 - [ ] **[07.1]** Gerenciamento Completo de Perfis via API (Criação, Exclusão, Renomeação e Launch de Instâncias)
 - [ ] **[07.2]** Mutação de Compartilhamento Dinâmico via API (Toggle de MCP, Skills, Config, Git/GitHub)

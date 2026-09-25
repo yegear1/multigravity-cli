@@ -255,13 +255,44 @@ multigravity config share trabalho
 
 ## Perfis Auth-Only (`--auth-only` / `--shared`)
 
-Os perfis completos são totalmente isolados — extensões, configurações e contas separadas. Esse é o padrão.
+Os perfis completos são ambientes totalmente isolados — extensões, configurações, caches e contas separadas. Esse é o padrão.
 
-Os **perfis auth-only** são mais leves: utilizam links simbólicos para as extensões (`extensions/`) e arquivos de configuração do editor (`settings.json`, `keybindings.json`, `snippets`) da sua instalação host do Antigravity, isolando estritamente os dados de login/conta (~2 MB por perfil). Ideal para quando você precisa de uma conta secundária sem duplicar centenas de megabytes de extensões.
+Os **perfis auth-only** adotam uma abordagem enxuta: utilizam links simbólicos para a pasta `extensions/` e configurações essenciais do editor (`settings.json`, `keybindings.json`, `snippets`) diretamente da instalação host do Antigravity, isolando **estritamente a camada de autenticação/conta e o histórico de IA**. Isso proporciona um consumo de disco de apenas **~2 MB** por perfil (em comparação aos **~500 MB+** de uma instalação completa), preservando 100% de sessões de login e cotas de tokens independentes entre contas Google.
+
+### Matriz Comparativa: Full vs. Auth-Only
+
+| Recurso / Aspecto | Perfil Completo (Padrão) | Perfil Auth-Only (`--auth-only` / `--shared`) |
+| :--- | :--- | :--- |
+| **Comando de Criação** | `multigravity new <nome>` | `multigravity new <nome> --auth-only` *(ou `--shared`)* |
+| **Uso Inicial de Disco** | **~500 MB** *(cresce com extensões duplicadas e caches)* | **~2 MB** *(enxuto, quase zero espaço adicional em disco)* |
+| **Contas Antigravity / Gemini** | **Isoladas** *(tokens OAuth e logins Google independentes)* | **Isoladas** *(tokens OAuth e logins Google independentes)* |
+| **Cotas de IA e Limites de Tokens** | **Independentes** *(gerenciadas por conta Google separada)* | **Independentes** *(gerenciadas por conta Google separada)* |
+| **Histórico e Chats de IA** | **Isolados** *(gerenciados via `ai export/import/sync`)* | **Isolados** *(gerenciados via `ai export/import/sync`)* |
+| **Extensões da IDE** | **Isoladas** *(exige instalar extensões em cada perfil)* | **Compartilhadas via symlink** *(espelha extensões do host de imediato)* |
+| **Configurações e Atalhos** | **Isolados** *(`User/settings.json`, keybindings, snippets)* | **Compartilhados via symlink** *(espelha preferências do host)* |
+| **Temas de Janela (`--color`)** | **Suportado** *(cor personalizada na barra de título e acentos)* | **Suportado** *(desacopla `settings.json` com segurança e sem alterar o host)* |
+| **Dotfiles Dev (`.gitconfig`, `.ssh`)** | **Vinculados por padrão** *(opt-out via `--isolated-dotfiles`)* | **Vinculados por padrão** *(opt-out via `--isolated-dotfiles`)* |
+| **GitHub CLI (`gh`) e Config** | **Vinculados por padrão** *(opt-out via `--isolated-gh`)* | **Vinculados por padrão** *(opt-out via `--isolated-gh`)* |
+| **Ideal Para** | Stacks divergentes (Trabalho vs Pessoal, linters e extensões distintas) | Rotação de cotas entre contas Google, logins secundários mantendo o mesmo ferramental |
+
+### Qual Tipo de Perfil Escolher?
+
+- **Escolha Perfil Completo** se:
+  - Você precisa de conjuntos de extensões completamente diferentes para cada projeto (ex: backend Go vs mobile Flutter vs machine learning em Python).
+  - Você deseja testar atalhos ou configurações experimentais de editor sem interferir no seu ambiente diário.
+  - Você precisa de segregação corporativa rígida entre ambientes da empresa e pessoais.
+
+- **Escolha Perfil Auth-Only** se:
+  - Seu objetivo principal é alternar **múltiplas contas Google** para rotacionar cotas semanais e janelas de 5 horas do Gemini.
+  - Você quer manter exatamente o mesmo tema, extensões, snippets e atalhos de teclado do host sem reinstalar nada.
+  - Você deseja criar novos perfis em segundos com consumo de disco residual (~2 MB vs ~500 MB).
 
 ```bash
 # Cria um perfil auth-only (alias: --shared)
-multigravity new cliente-x --auth-only
+multigravity new conta-secundaria --auth-only
+
+# Cria um perfil auth-only com tema de cor personalizado
+multigravity new conta-secundaria --auth-only --color purple
 ```
 
 ---
@@ -347,6 +378,6 @@ A base de código original permanece sob os direitos autorais de Sujit Agarwal e
 - **Autor e Criador Original:** [Sujit Agarwal](https://github.com/sujitagarwal)
 - **Suporte ao Windows:** [Samin Yeasar](https://github.com/Solez-ai)
 - **Suporte ao Linux:** [Md Rayyan Nawaz](https://github.com/therayyanawaz)
-- **Inspiração Comunitária (Multigravity Pro):** [Pulkit](https://github.com/Pulkit7070) (pioneirismo no conceito de perfis `--auth-only` e guias visuais de onboarding)
+- **Inspiração Comunitária (Multigravity Pro):** [Pulkit](https://github.com/Pulkit7070) (pioneirismo no conceito de perfis `--auth-only` e guias visuais de onboarding em [Pulkit7070/multigravity-pro](https://github.com/Pulkit7070/multigravity-pro))
 - **Fork Aprimorado e Mantenedor:** [yegear1](https://github.com/yegear1)
 

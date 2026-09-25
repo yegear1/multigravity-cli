@@ -19,6 +19,15 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 11.4] Matriz Comparativa Full vs Auth-Only e Documentação no README.md
+
+- **Contexto:** Com a introdução do suporte a perfis Auth-Only (`--auth-only` / `--shared`) na Task 11.1 e medição de tamanho na Task 11.2, os usuários necessitavam de uma referência clara e didática no `README.md` comparando as dimensões operacionais (Extensões, Configurações, Isolamento de Login, Cotas e Consumo de Disco: ~500 MB vs ~2 MB) para guiar a escolha do tipo de perfil.
+- **Decisões Técnicas:**
+  - **Matriz Comparativa Didática:** Estruturada tabela no `README.md` e `README.pt-br.md` cobrindo 11 aspectos: comando de criação, pegada inicial de disco (~500 MB vs ~2 MB), isolamento de contas Google, cotas/limites independentes, histórico de IA, extensões da IDE (isoladas vs symlink), configurações e atalhos (`settings.json`, keybindings, snippets), theming visual (`--color` com desacoplamento seguro), dotfiles dev (`.gitconfig`, SSH), GitHub CLI e melhor cenário de uso.
+  - **Guia Rápido de Escolha ("Which Profile Type Should I Choose?"):** Seção orientando quando usar Perfil Completo (stacks divergentes, linters/extensões distintas) vs Perfil Auth-Only (rotação de cotas entre contas Google, ferramental idêntico, consumo residual de disco).
+  - **Reconhecimento Open Source:** Link direto adicionado para o repositório `Pulkit7070/multigravity-pro` na seção de Créditos e Agradecimentos, honrando a inspiração do paradigma de perfis leves e onboarding didático.
+
+
 ### 2026-09-25 [Task 11.3] Ícone Embutido (//go:embed) e Associação Automática em Atalhos Desktop
 
 - **Contexto:** Os atalhos de desktop gerados para cada perfil dependiam de ícones externos do sistema (`Icon=antigravity` no Linux podia ficar genérico se o pacote da IDE não estivesse nos temas de ícones do sistema) ou download manual de `icon.icns` durante o `install.sh`. No Windows e no macOS, faltava gravação nativa de ícones padrão nos bundles e atalhos `.lnk`. Inspirado na facilidade de uso do fork `Pulkit7070/multigravity-pro`.

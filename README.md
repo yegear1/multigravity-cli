@@ -271,13 +271,44 @@ multigravity ai quota work
 
 ## Auth-Only Profiles (`--auth-only` / `--shared`)
 
-Full profiles are fully isolated — separate extensions, settings, and accounts. That's the default.
+Full profiles are completely isolated environments — separate extensions, settings, caches, and accounts. That's the default.
 
-**Auth-Only profiles** go lighter: they symlink `extensions/` and editor configurations (`settings.json`, `keybindings.json`, `snippets`) from your host Antigravity install, isolating strictly the account/auth layer (~2 MB per profile). Useful when you need a second account or work profile but don't want to duplicate hundreds of megabytes of extensions.
+**Auth-Only profiles** take a lightweight approach: they symlink `extensions/` and core editor configurations (`settings.json`, `keybindings.json`, `snippets`) directly from your host Antigravity installation, isolating **strictly the account/auth layer and AI session state**. This yields a footprint of **~2 MB** per profile instead of the typical **~500 MB+** of a full installation, while still providing 100% independent Google login sessions and token quotas.
+
+### Full vs. Auth-Only Comparison Matrix
+
+| Feature / Aspect | Full Profile (Default) | Auth-Only Profile (`--auth-only` / `--shared`) |
+| :--- | :--- | :--- |
+| **Command** | `multigravity new <name>` | `multigravity new <name> --auth-only` *(or `--shared`)* |
+| **Initial Disk Footprint** | **~500 MB** *(grows with duplicate extensions & caches)* | **~2 MB** *(lean, near-zero disk usage)* |
+| **Antigravity / Gemini Accounts** | **Isolated** *(independent OAuth tokens & Google logins)* | **Isolated** *(independent OAuth tokens & Google logins)* |
+| **AI Quotas & Token Limits** | **Independent** *(tracked separately per Google account)* | **Independent** *(tracked separately per Google account)* |
+| **AI History & Brain Chats** | **Isolated** *(manipulated via `ai export/import/sync`)* | **Isolated** *(manipulated via `ai export/import/sync`)* |
+| **IDE Extensions** | **Isolated** *(requires installing extensions per profile)* | **Shared via symlink** *(instantly mirrors host extensions)* |
+| **Editor Settings & Keybindings** | **Isolated** *(`User/settings.json`, keybindings, snippets)* | **Shared via symlink** *(mirrors host preferences)* |
+| **Window Theming (`--color`)** | **Supported** *(custom title bar & accent color)* | **Supported** *(safely uncouples `settings.json` non-destructively)* |
+| **Dev Dotfiles (`.gitconfig`, `.ssh`)** | **Symlinked by default** *(opt-out with `--isolated-dotfiles`)* | **Symlinked by default** *(opt-out with `--isolated-dotfiles`)* |
+| **GitHub CLI (`gh`) & Config** | **Symlinked by default** *(opt-out with `--isolated-gh`)* | **Symlinked by default** *(opt-out with `--isolated-gh`)* |
+| **Best For** | Divergent stacks (Work vs Personal, different linters/themes) | Quota rotation across Google accounts, secondary logins with shared toolchains |
+
+### Which Profile Type Should I Choose?
+
+- **Choose Full Profile** if:
+  - You want completely different sets of VS Code / Antigravity extensions for different projects (e.g. Go backend vs Flutter mobile vs Python ML).
+  - You need custom editor keybindings or settings that shouldn't affect your daily driver.
+  - You want strict separation between corporate and personal environments.
+
+- **Choose Auth-Only Profile** if:
+  - You primarily need **multiple Google accounts** to cycle or expand your weekly and 5-hour Gemini AI quotas.
+  - You want to keep your familiar themes, extensions, snippets, and keybindings without reinstalling them.
+  - You want fast profile creation with negligible disk footprint (~2 MB vs ~500 MB).
 
 ```bash
 # Create an auth-only profile (alias: --shared)
-multigravity new client-x --auth-only
+multigravity new alt-account --auth-only
+
+# Create an auth-only profile with a distinct color theme
+multigravity new alt-account --auth-only --color purple
 ```
 
 ---
@@ -363,6 +394,6 @@ The original base codebase remains the copyright of Sujit Agarwal and original c
 - **Original Author & Creator:** [Sujit Agarwal](https://github.com/sujitagarwal)
 - **Windows Support:** [Samin Yeasar](https://github.com/Solez-ai)
 - **Linux Support:** [Md Rayyan Nawaz](https://github.com/therayyanawaz)
-- **Community Inspiration (Multigravity Pro):** [Pulkit](https://github.com/Pulkit7070) (pioneering `--auth-only` profile semantics and onboarding walkthroughs)
+- **Community Inspiration (Multigravity Pro):** [Pulkit](https://github.com/Pulkit7070) (pioneering `--auth-only` profile semantics and onboarding walkthroughs in [Pulkit7070/multigravity-pro](https://github.com/Pulkit7070/multigravity-pro))
 - **Enhanced Fork & Maintainer:** [yegear1](https://github.com/yegear1)
 
