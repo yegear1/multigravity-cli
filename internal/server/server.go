@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/gateway"
+	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
 
 // Config defines the configuration parameters for the HTTP server
@@ -40,11 +41,16 @@ func NewServer(cfg Config) *Server {
 		cfg.StartTime = time.Now()
 	}
 
+	gw := gateway.NewGateway()
+	if profs, err := profile.ListProfiles(); err == nil && len(profs) > 0 {
+		gw.Router().SyncProfiles(profs)
+	}
+
 	s := &Server{
 		cfg:     cfg,
 		mux:     http.NewServeMux(),
 		broker:  NewBroker(),
-		gateway: gateway.NewGateway(),
+		gateway: gw,
 	}
 
 	s.broker.Start(2 * time.Second)

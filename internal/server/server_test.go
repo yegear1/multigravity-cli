@@ -244,6 +244,14 @@ func TestCORSHeaders(t *testing.T) {
 	if !strings.Contains(allowMethods, "PUT") {
 		t.Errorf("expected CORS allow methods to include PUT, got %q", allowMethods)
 	}
+	allowHeaders := rec.Header().Get("Access-Control-Allow-Headers")
+	if !strings.Contains(allowHeaders, "X-Routing-Strategy") || !strings.Contains(allowHeaders, "X-Failover") {
+		t.Errorf("expected CORS allow headers to include X-Routing-Strategy and X-Failover, got %q", allowHeaders)
+	}
+	exposeHeaders := rec.Header().Get("Access-Control-Expose-Headers")
+	if !strings.Contains(exposeHeaders, "X-Profile-Used") || !strings.Contains(exposeHeaders, "X-Failover-Count") {
+		t.Errorf("expected CORS expose headers to include X-Profile-Used and X-Failover-Count, got %q", exposeHeaders)
+	}
 }
 
 func TestServerStartShutdown(t *testing.T) {
@@ -1422,6 +1430,83 @@ func TestGatewayStreamingInServer(t *testing.T) {
 		t.Errorf("unexpected combined streamed content: %q", combined)
 	}
 }
+
+func TestGatewayRouterInServer(t *testing.T) {
+	srv := NewServer(Config{Host: "127.0.0.1", Port: 0})
+
+	router := gateway.NewRouter(gateway.WithRouterStrategy(gateway.StrategySmart))
+	router.SyncProfiles([]string{"srv-dev1", "srv-dev2"})
+
+	gw := gateway.NewGateway(gateway.WithGatewayRouter(router))
+	srv.SetGateway(gw)
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. GET /v1/router/status
+	resp1, err := http.Get(ts.URL + "/v1/router/status")
+	if err != nil {
+		t.Fatalf("failed to GET /v1/router/status: %v", err)
+	}
+	defer resp1.Body.Close()
+
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp1.StatusCode)
+	}
+
+	var status gateway.RouterStatus
+	if err := json.NewDecoder(resp1.Body).Decode(&status); err != nil {
+		t.Fatalf("failed to decode router status: %v", err)
+	}
+	if status.TotalProfiles != 2 || status.Strategy != "smart" {
+		t.Errorf("unexpected router status: %+v", status)
+	}
+
+	// 2. GET /api/v1/router/status (alias)
+	resp2, err := http.Get(ts.URL + "/api/v1/router/status")
+	if err != nil {
+		t.Fatalf("failed to GET /api/v1/router/status: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on /api/v1/router/status, got %d", resp2.StatusCode)
+	}
+
+	// 3. POST /v1/router/strategy
+	stratPayload := `{"strategy": "round-robin"}`
+	resp3, err := http.Post(ts.URL+"/v1/router/strategy", "application/json", strings.NewReader(stratPayload))
+	if err != nil {
+		t.Fatalf("failed to POST /v1/router/strategy: %v", err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp3.StatusCode)
+	}
+
+	if router.GetStrategy() != gateway.StrategyRoundRobin {
+		t.Errorf("expected strategy to be round-robin, got %s", router.GetStrategy())
+	}
+
+	// 4. POST /v1/router/reset
+	router.MarkRateLimited("srv-dev1", 429, "rate limited", 10*time.Minute)
+	if router.GetStatus().CooldownProfiles != 1 {
+		t.Fatalf("expected 1 cooldown profile")
+	}
+
+	resp4, err := http.Post(ts.URL+"/v1/router/reset", "application/json", nil)
+	if err != nil {
+		t.Fatalf("failed to POST /v1/router/reset: %v", err)
+	}
+	defer resp4.Body.Close()
+	if resp4.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp4.StatusCode)
+	}
+
+	if router.GetStatus().CooldownProfiles != 0 {
+		t.Errorf("expected 0 cooldown profiles after reset, got %d", router.GetStatus().CooldownProfiles)
+	}
+}
+
 
 
 

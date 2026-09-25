@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeModel(t *testing.T) {
@@ -356,3 +357,229 @@ func TestGatewayValidationErrors(t *testing.T) {
 		t.Errorf("expected 405 for GET on completions, got %d", w4.Code)
 	}
 }
+
+func TestGatewayAutoFailoverNonStreaming(t *testing.T) {
+	// Mock upstream: if token is "token-primary", return 429 Too Many Requests
+	// if token is "token-secondary", return 200 OK
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "Bearer token-primary" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error": "Resource has been exhausted"}`))
+			return
+		}
+		if auth == "Bearer token-secondary" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"response":{"candidates":[{"content":{"parts":[{"text":"Success from secondary!"}]}}]}}`)
+			_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer upstream.Close()
+
+	client := NewClient(
+		WithEndpoints([]string{upstream.URL}),
+		WithHTTPClient(upstream.Client()),
+	)
+
+	router := NewRouter(WithRouterStrategy(StrategyPriority))
+	router.SyncProfiles([]string{"primary", "secondary"})
+
+	gw := NewGateway(
+		WithGatewayClient(client),
+		WithGatewayRouter(router),
+		WithTokenResolver(func(r *http.Request, profileName string) (string, error) {
+			if profileName == "primary" {
+				return "token-primary", nil
+			}
+			return "token-secondary", nil
+		}),
+	)
+
+	body := `{"model": "gemini-2.5-pro", "messages": [{"role": "user", "content": "hi"}], "stream": false}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	gw.HandleChatCompletions(w, req)
+	resp := w.Result()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200 OK after failover, got %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Verify transparency headers
+	if resp.Header.Get("X-Profile-Used") != "secondary" {
+		t.Errorf("expected X-Profile-Used to be 'secondary', got %q", resp.Header.Get("X-Profile-Used"))
+	}
+	if resp.Header.Get("X-Failover-Count") != "1" {
+		t.Errorf("expected X-Failover-Count to be '1', got %q", resp.Header.Get("X-Failover-Count"))
+	}
+
+	var compResp ChatCompletionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&compResp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if compResp.Choices[0].Message.Content != "Success from secondary!" {
+		t.Errorf("unexpected content: %s", compResp.Choices[0].Message.Content)
+	}
+}
+
+func TestGatewayAutoFailoverStreaming(t *testing.T) {
+	// Mock upstream: if token is "token-primary", return 429
+	// if token is "token-secondary", stream SSE
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "Bearer token-primary" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error": "Quota exceeded for model"}`))
+			return
+		}
+		if auth == "Bearer token-secondary" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"response":{"candidates":[{"content":{"parts":[{"text":"Streamed from secondary"}]}}]}}`)
+			_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer upstream.Close()
+
+	client := NewClient(
+		WithEndpoints([]string{upstream.URL}),
+		WithHTTPClient(upstream.Client()),
+	)
+
+	router := NewRouter(WithRouterStrategy(StrategyPriority))
+	router.SyncProfiles([]string{"primary", "secondary"})
+
+	gw := NewGateway(
+		WithGatewayClient(client),
+		WithGatewayRouter(router),
+		WithTokenResolver(func(r *http.Request, profileName string) (string, error) {
+			if profileName == "primary" {
+				return "token-primary", nil
+			}
+			return "token-secondary", nil
+		}),
+	)
+
+	body := `{"model": "gemini-2.5-pro", "messages": [{"role": "user", "content": "stream"}], "stream": true}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	gw.HandleChatCompletions(w, req)
+	resp := w.Result()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK after failover, got %d", resp.StatusCode)
+	}
+
+	if resp.Header.Get("X-Profile-Used") != "secondary" {
+		t.Errorf("expected X-Profile-Used 'secondary', got %q", resp.Header.Get("X-Profile-Used"))
+	}
+	if resp.Header.Get("X-Failover-Count") != "1" {
+		t.Errorf("expected X-Failover-Count '1', got %q", resp.Header.Get("X-Failover-Count"))
+	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	bodyStr := string(bodyBytes)
+	if !strings.Contains(bodyStr, "Streamed from secondary") {
+		t.Errorf("expected stream chunk from secondary, got: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "data: [DONE]") {
+		t.Errorf("expected [DONE] in stream, got: %s", bodyStr)
+	}
+}
+
+func TestGatewayAllProfilesExhausted(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error": "Rate limit exceeded"}`))
+	}))
+	defer upstream.Close()
+
+	client := NewClient(
+		WithEndpoints([]string{upstream.URL}),
+		WithHTTPClient(upstream.Client()),
+	)
+
+	router := NewRouter(WithRouterStrategy(StrategyPriority))
+	router.SyncProfiles([]string{"prof1", "prof2"})
+
+	gw := NewGateway(
+		WithGatewayClient(client),
+		WithGatewayRouter(router),
+	)
+
+	body := `{"model": "gemini-2.5-pro", "messages": [{"role": "user", "content": "hi"}], "stream": false}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	gw.HandleChatCompletions(w, req)
+	resp := w.Result()
+
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("expected 429 Too Many Requests when all exhausted, got %d", resp.StatusCode)
+	}
+}
+
+func TestGatewayRouterManagementEndpoints(t *testing.T) {
+	router := NewRouter(WithRouterStrategy(StrategySmart))
+	router.SyncProfiles([]string{"dev-1", "dev-2"})
+
+	gw := NewGateway(WithGatewayRouter(router))
+
+	// 1. GET /v1/router/status
+	reqStatus := httptest.NewRequest("GET", "/v1/router/status", nil)
+	wStatus := httptest.NewRecorder()
+	gw.HandleRouterStatus(wStatus, reqStatus)
+
+	if wStatus.Code != http.StatusOK {
+		t.Fatalf("expected 200 for status, got %d", wStatus.Code)
+	}
+
+	var status RouterStatus
+	if err := json.NewDecoder(wStatus.Body).Decode(&status); err != nil {
+		t.Fatalf("failed to decode router status: %v", err)
+	}
+	if status.TotalProfiles != 2 || status.HealthyProfiles != 2 {
+		t.Errorf("unexpected status: %+v", status)
+	}
+
+	// 2. POST /v1/router/strategy
+	stratPayload := `{"strategy": "round-robin"}`
+	reqStrat := httptest.NewRequest("POST", "/v1/router/strategy", strings.NewReader(stratPayload))
+	wStrat := httptest.NewRecorder()
+	gw.HandleRouterStrategy(wStrat, reqStrat)
+
+	if wStrat.Code != http.StatusOK {
+		t.Fatalf("expected 200 for strategy update, got %d", wStrat.Code)
+	}
+	if router.GetStrategy() != StrategyRoundRobin {
+		t.Errorf("expected strategy 'round-robin', got %q", router.GetStrategy())
+	}
+
+	// 3. POST /v1/router/reset
+	router.MarkRateLimited("dev-1", 429, "rate limited", 5*time.Minute)
+	if router.GetStatus().CooldownProfiles != 1 {
+		t.Fatalf("expected 1 cooldown profile")
+	}
+
+	reqReset := httptest.NewRequest("POST", "/v1/router/reset", nil)
+	wReset := httptest.NewRecorder()
+	gw.HandleRouterReset(wReset, reqReset)
+
+	if wReset.Code != http.StatusOK {
+		t.Fatalf("expected 200 for reset, got %d", wReset.Code)
+	}
+	if router.GetStatus().CooldownProfiles != 0 {
+		t.Errorf("expected 0 cooldown profiles after reset, got %d", router.GetStatus().CooldownProfiles)
+	}
+}
+

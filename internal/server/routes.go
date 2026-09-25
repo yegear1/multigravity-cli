@@ -119,7 +119,8 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, X-Profile")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, X-Profile, X-Routing-Strategy, X-Failover")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Profile-Used, X-Failover-Count, X-Remaining-Profiles, X-Routing-Strategy")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -214,6 +215,14 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("POST /api/v1/chat/completions", s.handleGatewayChatCompletions)
 	s.mux.HandleFunc("GET /v1/models", s.handleGatewayModels)
 	s.mux.HandleFunc("GET /api/v1/models", s.handleGatewayModels)
+
+	// Multi-Account Router Management
+	s.mux.HandleFunc("GET /v1/router/status", s.handleGatewayRouterStatus)
+	s.mux.HandleFunc("GET /api/v1/router/status", s.handleGatewayRouterStatus)
+	s.mux.HandleFunc("POST /v1/router/reset", s.handleGatewayRouterReset)
+	s.mux.HandleFunc("POST /api/v1/router/reset", s.handleGatewayRouterReset)
+	s.mux.HandleFunc("POST /v1/router/strategy", s.handleGatewayRouterStrategy)
+	s.mux.HandleFunc("POST /api/v1/router/strategy", s.handleGatewayRouterStrategy)
 }
 
 func (s *Server) handleGatewayChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +236,30 @@ func (s *Server) handleGatewayChatCompletions(w http.ResponseWriter, r *http.Req
 func (s *Server) handleGatewayModels(w http.ResponseWriter, r *http.Request) {
 	if s.gateway != nil {
 		s.gateway.HandleModels(w, r)
+		return
+	}
+	s.writeError(w, http.StatusServiceUnavailable, "gateway is not initialized")
+}
+
+func (s *Server) handleGatewayRouterStatus(w http.ResponseWriter, r *http.Request) {
+	if s.gateway != nil {
+		s.gateway.HandleRouterStatus(w, r)
+		return
+	}
+	s.writeError(w, http.StatusServiceUnavailable, "gateway is not initialized")
+}
+
+func (s *Server) handleGatewayRouterReset(w http.ResponseWriter, r *http.Request) {
+	if s.gateway != nil {
+		s.gateway.HandleRouterReset(w, r)
+		return
+	}
+	s.writeError(w, http.StatusServiceUnavailable, "gateway is not initialized")
+}
+
+func (s *Server) handleGatewayRouterStrategy(w http.ResponseWriter, r *http.Request) {
+	if s.gateway != nil {
+		s.gateway.HandleRouterStrategy(w, r)
 		return
 	}
 	s.writeError(w, http.StatusServiceUnavailable, "gateway is not initialized")

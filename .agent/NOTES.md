@@ -19,6 +19,24 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 14.3] Roteador Multi-Contas com Algoritmos de Distribuição e Auto-Failover em HTTP 429/403 entre Perfis
+
+- **Contexto:** Em ambientes com múltiplos agentes ou automações concorrentes, contas isoladas esgotam cotas de 5h ou semanais em momentos distintos. Usuários necessitam de um balanceador inteligente com auto-failover transparente para que chamadas a `/v1/chat/completions` nunca sejam interrompidas enquanto houver ao menos um perfil com cota saudável no pool.
+- **Decisões Técnicas:**
+  - **Módulo `Router` em `internal/gateway/router.go`:**
+    - Algoritmos implementados: `smart` (Smart Priority ponderado por cota restante, penalidade de erros e bônus de ociosidade), `round-robin` (rotação sequencial ignorando perfis em cooldown), `priority` (ordem declarada/alfabética de lista) e `sticky` (afinidade com o último perfil saudável até falhar).
+    - Estado de nó `ProfileNode` com rastreamento thread-safe de `CooldownUntil`, `RemainingFraction`, `TotalRequests`, `TotalSuccess`, `RateLimitHits`, `TotalFailovers`, `ConsecutiveErrors`.
+    - Sincronização dinâmica com `profile.ListProfiles()`.
+  - **Mecanismo de Auto-Failover Transparente (`internal/gateway/client.go` e `gateway.go`):**
+    - Definição do erro estruturado `UpstreamHTTPError` e detector `IsRateLimitOrQuotaExhausted`.
+    - Método `StreamGenerateContentWithConnect`: em modo streaming, a conexão HTTP 200 é confirmada com o upstream antes de gravar os headers SSE (`text/event-stream`) no cliente. Se o upstream retornar HTTP 429 ou 403, o router coloca o perfil em cooldown, incrementa contadores de failover e tenta o próximo perfil sem que o cliente perceba qualquer anomalia.
+    - Emissão de headers de transparência: `X-Profile-Used`, `X-Failover-Count`, `X-Remaining-Profiles`, `X-Routing-Strategy`.
+  - **Endpoints de Gestão e CORS (`internal/server`):**
+    - `GET /v1/router/status` (e alias `/api/v1/router/status`): telemetria completa do pool em JSON.
+    - `POST /v1/router/reset`: limpa cooldowns de todos os perfis.
+    - `POST /v1/router/strategy`: altera dinamicamente o algoritmo ativo (`{"strategy": "round-robin"}`).
+    - `corsMiddleware` atualizado para aceitar e expor os novos headers.
+
 ### 2026-09-25 [Task 14.2] Gateway de Completions OpenAI-Compatible (`/v1/chat/completions`) no `multigravity serve` com SSE
 
 - **Contexto:** Ferramentas externas de IA (Cursor, Aider, OpenCode, Continue, scripts Python/TypeScript com SDK OpenAI) requerem um endpoint HTTP local compatível com a especificação OpenAI (`POST /v1/chat/completions` e `GET /v1/models`) para consumir modelos do Antigravity/CloudCode via streaming SSE de baixa latência e respostas atômicas em JSON.

@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -176,6 +177,17 @@ func (c *Client) StreamGenerateContent(
 	token string,
 	onChunk func(delta string, finishReason string) error,
 ) error {
+	return c.StreamGenerateContentWithConnect(ctx, reqPayload, token, nil, onChunk)
+}
+
+// StreamGenerateContentWithConnect sends the request to CloudCode PA upstream, triggers onConnect on HTTP 200, and streams deltas to onChunk.
+func (c *Client) StreamGenerateContentWithConnect(
+	ctx context.Context,
+	reqPayload *CloudCodeRequest,
+	token string,
+	onConnect func() error,
+	onChunk func(delta string, finishReason string) error,
+) error {
 	reqBody, err := json.Marshal(reqPayload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal cloudcode request: %w", err)
@@ -201,12 +213,24 @@ func (c *Client) StreamGenerateContent(
 		if resp.StatusCode != http.StatusOK {
 			bodyBytes, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
-			lastErr = fmt.Errorf("upstream %s returned HTTP %d: %s", endpoint, resp.StatusCode, string(bodyBytes))
+			upstreamErr := &UpstreamHTTPError{
+				StatusCode: resp.StatusCode,
+				Message:    string(bodyBytes),
+				Endpoint:   endpoint,
+			}
+			lastErr = upstreamErr
 			// If 429 or 403, we can try the next endpoint if configured
 			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden {
 				continue
 			}
-			return lastErr
+			return upstreamErr
+		}
+
+		if onConnect != nil {
+			if err := onConnect(); err != nil {
+				_ = resp.Body.Close()
+				return err
+			}
 		}
 
 		// Read SSE stream
@@ -243,3 +267,36 @@ func (c *Client) StreamGenerateContent(
 	}
 	return fmt.Errorf("no upstream endpoints available")
 }
+
+// UpstreamHTTPError captures HTTP error responses from Google CloudCode upstream
+type UpstreamHTTPError struct {
+	StatusCode int
+	Message    string
+	Endpoint   string
+}
+
+func (e *UpstreamHTTPError) Error() string {
+	return fmt.Sprintf("upstream %s returned HTTP %d: %s", e.Endpoint, e.StatusCode, e.Message)
+}
+
+// IsRateLimitOrQuotaExhausted tests if an error represents HTTP 429, 403 or quota limits
+func IsRateLimitOrQuotaExhausted(err error) (bool, int) {
+	if err == nil {
+		return false, 0
+	}
+	var upstreamErr *UpstreamHTTPError
+	if errors.As(err, &upstreamErr) {
+		if upstreamErr.StatusCode == http.StatusTooManyRequests || upstreamErr.StatusCode == http.StatusForbidden {
+			return true, upstreamErr.StatusCode
+		}
+	}
+	errStr := strings.ToLower(err.Error())
+	if strings.Contains(errStr, "429") || strings.Contains(errStr, "too many requests") || strings.Contains(errStr, "rate limit") {
+		return true, http.StatusTooManyRequests
+	}
+	if strings.Contains(errStr, "403") || strings.Contains(errStr, "resource exhausted") || strings.Contains(errStr, "quota") {
+		return true, http.StatusForbidden
+	}
+	return false, 0
+}
+

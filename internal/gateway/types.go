@@ -13,6 +13,8 @@ type ChatCompletionRequest struct {
 	MaxTokens   int           `json:"max_tokens,omitempty"`
 	Temperature float64       `json:"temperature,omitempty"`
 	Profile     string        `json:"profile,omitempty"`
+	Strategy    string        `json:"strategy,omitempty"`
+	Failover    *bool         `json:"failover,omitempty"`
 }
 
 // ChatMessage represents a single message in an OpenAI conversation
@@ -196,4 +198,40 @@ type CloudCodeGenerationConfig struct {
 type CloudCodeImagePart struct {
 	MimeType string
 	Data     string
+}
+
+// RouterStatus represents the overall status and telemetry of the multi-account router
+type RouterStatus struct {
+	Strategy         string              `json:"strategy"`
+	FailoverEnabled  bool                `json:"failover_enabled"`
+	DefaultCooldown  string              `json:"default_cooldown"`
+	TotalProfiles    int                 `json:"total_profiles"`
+	HealthyProfiles  int                 `json:"healthy_profiles"`
+	CooldownProfiles int                 `json:"cooldown_profiles"`
+	TotalRequests    int64               `json:"total_requests"`
+	TotalSuccess     int64               `json:"total_success"`
+	TotalFailovers   int64               `json:"total_failovers"`
+	Profiles         []ProfileNodeStatus `json:"profiles"`
+}
+
+// ProfileNodeStatus represents individual profile health and metrics within the router pool
+type ProfileNodeStatus struct {
+	Name              string  `json:"name"`
+	Status            string  `json:"status"` // "healthy", "cooldown", "rate_limited"
+	RemainingFraction float64 `json:"remaining_fraction"`
+	ResetTime         string  `json:"reset_time,omitempty"`
+	CooldownUntil     *string `json:"cooldown_until,omitempty"`
+	CooldownRemaining string  `json:"cooldown_remaining,omitempty"`
+	TotalRequests     int64   `json:"total_requests"`
+	TotalSuccess      int64   `json:"total_success"`
+	RateLimitHits     int64   `json:"rate_limit_hits"`
+	TotalFailovers    int64   `json:"total_failovers"`
+	ConsecutiveErrors int     `json:"consecutive_errors"`
+	LastUsed          *string `json:"last_used,omitempty"`
+	LastError         string  `json:"last_error,omitempty"`
+}
+
+// SetStrategyRequest allows changing the active routing strategy via JSON
+type SetStrategyRequest struct {
+	Strategy string `json:"strategy"`
 }
