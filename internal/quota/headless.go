@@ -2,6 +2,7 @@ package quota
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,13 +19,17 @@ import (
 )
 
 type HeadlessInstance struct {
-	Cmd  *exec.Cmd
-	Port int
-	CSRF string
-	PID  int
+	Cmd       *exec.Cmd
+	Port      int
+	CSRF      string
+	PID       int
+	IsManaged bool
 }
 
 func (h *HeadlessInstance) Close() {
+	if h.IsManaged {
+		return
+	}
 	if h.Cmd != nil && h.Cmd.Process != nil {
 		_ = h.Cmd.Process.Kill()
 		_ = h.Cmd.Wait()
@@ -34,6 +39,29 @@ func (h *HeadlessInstance) Close() {
 var httpsPortRegex = regexp.MustCompile(`at (\d+) for HTTPS`)
 
 func StartHeadlessServer(profileName string) (*HeadlessInstance, error) {
+	// Fast-path: Check if a managed background headless instance is already running
+	if profileName != "" {
+		statePath := filepath.Join(config.GetProfileDir(profileName), ".multigravity", "headless.json")
+		if data, err := os.ReadFile(statePath); err == nil {
+			var state struct {
+				PID       int    `json:"pid"`
+				Port      int    `json:"port"`
+				CSRFToken string `json:"csrf_token"`
+			}
+			if json.Unmarshal(data, &state) == nil && state.Port > 0 && state.CSRFToken != "" {
+				client := NewClient(800 * time.Millisecond)
+				if _, err := client.RetrieveUserQuotaSummary(state.Port, state.CSRFToken); err == nil {
+					return &HeadlessInstance{
+						Port:      state.Port,
+						CSRF:      state.CSRFToken,
+						PID:       state.PID,
+						IsManaged: true,
+					}, nil
+				}
+			}
+		}
+	}
+
 	lsBin, err := app.FindLanguageServer()
 	if err != nil || lsBin == "" {
 		return nil, fmt.Errorf("language server executable not found")

@@ -315,6 +315,28 @@ multigravity workspace active
 multigravity workspace show <profile> <workspace-name>
 ```
 
+### Background Headless Language Servers & Agent Invocation
+```bash
+# List running background headless instances across profiles
+multigravity headless list --json
+
+# Start a persistent background headless server for a profile
+multigravity headless start <profile>
+
+# Inspect headless status, port, PID, CSRF, and health
+multigravity headless status <profile> --json
+
+# View or stream headless language server logs
+multigravity headless logs <profile> -n 50 -f
+
+# Stop or restart a profile's background headless instance
+multigravity headless restart <profile>
+multigravity headless stop <profile>
+
+# Execute a headless agent prompt with strict identity isolation (via agy CLI or cascade RPC)
+multigravity headless run <profile> "Audit security dependencies" --json
+```
+
 ## 6. Contrast Pairs
 
 ```bash

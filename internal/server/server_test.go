@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/gateway"
+	"github.com/ye-dev/multigravity-cli/internal/headless"
 	"github.com/ye-dev/multigravity-cli/internal/prime"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
@@ -2114,6 +2115,127 @@ func TestWorkspaceServerEndpoints(t *testing.T) {
 	srv.Handler().ServeHTTP(recProfActive, reqProfActive)
 	if recProfActive.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recProfActive.Code)
+	}
+}
+
+func TestHeadlessServerEndpoints(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	profName := "hl-srv-prof"
+	if err := profile.CreateProfile(profile.CreateOptions{Name: profName}); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	fakePID := 11223
+	fakePort := 55667
+	fakeCSRF := "srv-csrf-token"
+	aliveMap := map[int]bool{fakePID: true}
+
+	restoreHooks := headless.SetTestHooks(
+		func() (string, error) {
+			return "/fake/language_server", nil
+		},
+		func(port int, csrf string) error {
+			return nil
+		},
+		func(pid int) bool {
+			return aliveMap[pid]
+		},
+		func(pid int) error {
+			delete(aliveMap, pid)
+			return nil
+		},
+		func(cmd *exec.Cmd, logFile string, portChan chan int, errChan chan error) (*headless.InstanceInfo, error) {
+			return &headless.InstanceInfo{
+				PID:       fakePID,
+				Port:      fakePort,
+				CSRFToken: fakeCSRF,
+				Status:    headless.StateRunning,
+				StartedAt: time.Now(),
+			}, nil
+		},
+	)
+	defer restoreHooks()
+
+	restoreRunnerHooks := headless.SetRunnerTestHooks(
+		func() (string, error) {
+			return "/fake/agy", nil
+		},
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			resp := `{"response": "server prompt ok", "usage": {"total_tokens": 100}, "duration_seconds": 0.8}`
+			return []byte(resp), 0, nil
+		},
+	)
+	defer restoreRunnerHooks()
+
+	// 1. GET /api/v1/headless (initial empty)
+	reqList := httptest.NewRequest(http.MethodGet, "/api/v1/headless", nil)
+	recList := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recList, reqList)
+	if recList.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recList.Code)
+	}
+	var listResp APIResponse
+	if err := json.Unmarshal(recList.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("failed to decode list: %v", err)
+	}
+	if !listResp.Success {
+		t.Fatalf("expected success true")
+	}
+
+	// 2. POST /api/v1/headless/{profile}/start
+	reqStart := httptest.NewRequest(http.MethodPost, "/api/v1/headless/"+profName+"/start", strings.NewReader(`{"port": 0}`))
+	reqStart.Header.Set("Content-Type", "application/json")
+	recStart := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recStart, reqStart)
+	if recStart.Code != http.StatusOK {
+		t.Fatalf("expected 200 on start, got %d, body: %s", recStart.Code, recStart.Body.String())
+	}
+	var startAPIResp APIResponse
+	if err := json.Unmarshal(recStart.Body.Bytes(), &startAPIResp); err != nil {
+		t.Fatalf("failed to decode start response: %v", err)
+	}
+	if !startAPIResp.Success {
+		t.Fatalf("expected start success true")
+	}
+
+	// 3. GET /api/v1/headless/{profile}
+	reqStatus := httptest.NewRequest(http.MethodGet, "/api/v1/headless/"+profName, nil)
+	recStatus := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recStatus, reqStatus)
+	if recStatus.Code != http.StatusOK {
+		t.Fatalf("expected 200 on status, got %d", recStatus.Code)
+	}
+	var statusAPIResp APIResponse
+	if err := json.Unmarshal(recStatus.Body.Bytes(), &statusAPIResp); err != nil {
+		t.Fatalf("failed to decode status: %v", err)
+	}
+	if !statusAPIResp.Success {
+		t.Fatalf("expected status success true")
+	}
+
+	// 4. POST /api/v1/headless/{profile}/run
+	reqRun := httptest.NewRequest(http.MethodPost, "/api/v1/headless/"+profName+"/run", strings.NewReader(`{"prompt": "Test query"}`))
+	reqRun.Header.Set("Content-Type", "application/json")
+	recRun := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recRun, reqRun)
+	if recRun.Code != http.StatusOK {
+		t.Fatalf("expected 200 on run, got %d, body: %s", recRun.Code, recRun.Body.String())
+	}
+	var runAPIResp APIResponse
+	if err := json.Unmarshal(recRun.Body.Bytes(), &runAPIResp); err != nil {
+		t.Fatalf("failed to decode run result: %v", err)
+	}
+	if !runAPIResp.Success {
+		t.Fatalf("expected run success true")
+	}
+
+	// 5. POST /api/v1/headless/{profile}/stop
+	reqStop := httptest.NewRequest(http.MethodPost, "/api/v1/headless/"+profName+"/stop", nil)
+	recStop := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recStop, reqStop)
+	if recStop.Code != http.StatusOK {
+		t.Fatalf("expected 200 on stop, got %d", recStop.Code)
 	}
 }
 

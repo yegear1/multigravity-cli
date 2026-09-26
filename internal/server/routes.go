@@ -13,6 +13,7 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/dispatch"
 	"github.com/ye-dev/multigravity-cli/internal/doctor"
+	"github.com/ye-dev/multigravity-cli/internal/headless"
 	"github.com/ye-dev/multigravity-cli/internal/prime"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
@@ -327,6 +328,22 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /api/profiles/{name}/workspaces", s.handleProfileWorkspaces)
 	s.mux.HandleFunc("GET /api/v1/profiles/{name}/workspaces/active", s.handleProfileActiveWorkspace)
 	s.mux.HandleFunc("GET /api/profiles/{name}/workspaces/active", s.handleProfileActiveWorkspace)
+
+	// Headless Language Server & Agent Manager
+	s.mux.HandleFunc("GET /api/v1/headless", s.handleListHeadlessInstances)
+	s.mux.HandleFunc("GET /api/headless", s.handleListHeadlessInstances)
+	s.mux.HandleFunc("GET /api/v1/headless/{profile}", s.handleGetHeadlessStatus)
+	s.mux.HandleFunc("GET /api/headless/{profile}", s.handleGetHeadlessStatus)
+	s.mux.HandleFunc("POST /api/v1/headless/{profile}/start", s.handleStartHeadless)
+	s.mux.HandleFunc("POST /api/headless/{profile}/start", s.handleStartHeadless)
+	s.mux.HandleFunc("POST /api/v1/headless/{profile}/stop", s.handleStopHeadless)
+	s.mux.HandleFunc("POST /api/headless/{profile}/stop", s.handleStopHeadless)
+	s.mux.HandleFunc("POST /api/v1/headless/{profile}/restart", s.handleRestartHeadless)
+	s.mux.HandleFunc("POST /api/headless/{profile}/restart", s.handleRestartHeadless)
+	s.mux.HandleFunc("POST /api/v1/headless/{profile}/run", s.handleRunHeadlessPrompt)
+	s.mux.HandleFunc("POST /api/headless/{profile}/run", s.handleRunHeadlessPrompt)
+	s.mux.HandleFunc("GET /api/v1/headless/{profile}/logs", s.handleGetHeadlessLogs)
+	s.mux.HandleFunc("GET /api/headless/{profile}/logs", s.handleGetHeadlessLogs)
 
 	// Web UI Visualizer (HTML for Tauri/Wails/Browser)
 	s.mux.HandleFunc("GET /ui/tasks", s.handleUITasksDashboard)
@@ -2195,6 +2212,241 @@ func (s *Server) handleProfileActiveWorkspace(w http.ResponseWriter, r *http.Req
 	}
 
 	s.writeJSON(w, http.StatusOK, summary.ActiveWorkspace)
+}
+
+// --- Headless Language Server & Agent Handlers ---
+
+type startHeadlessRequest struct {
+	Port         int    `json:"port"`
+	Timeout      string `json:"timeout"`
+	ForceRestart bool   `json:"force_restart"`
+	Force        bool   `json:"force"`
+}
+
+type runHeadlessRequest struct {
+	Prompt                     string `json:"prompt"`
+	Timeout                    string `json:"timeout"`
+	DangerouslySkipPermissions bool   `json:"dangerously_skip_permissions"`
+}
+
+func (s *Server) handleListHeadlessInstances(w http.ResponseWriter, r *http.Request) {
+	mgr := headless.GetDefaultManager()
+	list, err := mgr.List()
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []*headless.InstanceInfo{}
+	}
+	s.writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleGetHeadlessStatus(w http.ResponseWriter, r *http.Request) {
+	profileName := r.PathValue("profile")
+	if profileName == "" {
+		s.writeError(w, http.StatusBadRequest, "profile name is required")
+		return
+	}
+
+	mgr := headless.GetDefaultManager()
+	st, err := mgr.GetStatus(profileName)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleStartHeadless(w http.ResponseWriter, r *http.Request) {
+	profileName := r.PathValue("profile")
+	if profileName == "" {
+		s.writeError(w, http.StatusBadRequest, "profile name is required")
+		return
+	}
+
+	var req startHeadlessRequest
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+			return
+		}
+	}
+
+	timeout := 10 * time.Second
+	if req.Timeout != "" {
+		if d, err := time.ParseDuration(req.Timeout); err == nil {
+			timeout = d
+		}
+	}
+
+	mgr := headless.GetDefaultManager()
+	inst, err := mgr.Start(profileName, headless.StartOptions{
+		Profile:      profileName,
+		Port:         req.Port,
+		Timeout:      timeout,
+		ForceRestart: req.Force || req.ForceRestart,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":  "headless_start",
+				"profile": profileName,
+				"status":  string(inst.Status),
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, inst)
+}
+
+func (s *Server) handleStopHeadless(w http.ResponseWriter, r *http.Request) {
+	profileName := r.PathValue("profile")
+	if profileName == "" {
+		s.writeError(w, http.StatusBadRequest, "profile name is required")
+		return
+	}
+
+	mgr := headless.GetDefaultManager()
+	if err := mgr.Stop(profileName); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":  "headless_stop",
+				"profile": profileName,
+				"status":  "stopped",
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"profile": profileName,
+		"status":  "stopped",
+	})
+}
+
+func (s *Server) handleRestartHeadless(w http.ResponseWriter, r *http.Request) {
+	profileName := r.PathValue("profile")
+	if profileName == "" {
+		s.writeError(w, http.StatusBadRequest, "profile name is required")
+		return
+	}
+
+	var req startHeadlessRequest
+	if r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	timeout := 10 * time.Second
+	if req.Timeout != "" {
+		if d, err := time.ParseDuration(req.Timeout); err == nil {
+			timeout = d
+		}
+	}
+
+	mgr := headless.GetDefaultManager()
+	inst, err := mgr.Restart(profileName, headless.StartOptions{
+		Profile: profileName,
+		Port:    req.Port,
+		Timeout: timeout,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":  "headless_restart",
+				"profile": profileName,
+				"status":  string(inst.Status),
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, inst)
+}
+
+func (s *Server) handleRunHeadlessPrompt(w http.ResponseWriter, r *http.Request) {
+	profileName := r.PathValue("profile")
+	if profileName == "" {
+		s.writeError(w, http.StatusBadRequest, "profile name is required")
+		return
+	}
+
+	var req runHeadlessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+		return
+	}
+	if req.Prompt == "" {
+		s.writeError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+
+	timeout := 120 * time.Second
+	if req.Timeout != "" {
+		if d, err := time.ParseDuration(req.Timeout); err == nil {
+			timeout = d
+		}
+	}
+
+	mgr := headless.GetDefaultManager()
+	result, err := mgr.RunAgentPrompt(headless.AgentRunOptions{
+		Profile:                    profileName,
+		Prompt:                     req.Prompt,
+		Timeout:                    timeout,
+		DangerouslySkipPermissions: req.DangerouslySkipPermissions,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleGetHeadlessLogs(w http.ResponseWriter, r *http.Request) {
+	profileName := r.PathValue("profile")
+	if profileName == "" {
+		s.writeError(w, http.StatusBadRequest, "profile name is required")
+		return
+	}
+
+	tail := 50
+	if tStr := r.URL.Query().Get("tail"); tStr != "" {
+		if t, err := strconv.Atoi(tStr); err == nil && t > 0 {
+			tail = t
+		}
+	}
+
+	mgr := headless.GetDefaultManager()
+	logs, err := mgr.GetLogs(profileName, tail)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"profile": profileName,
+		"logs":    logs,
+	})
 }
 
 

@@ -19,6 +19,38 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 08.2] Invocação e Gestão de Agentes Headless em Background com Isolamento de Identidade
+
+- **Contexto:** Agentes headless, pipelines automatizados, orquestradores externos (Cursor, Claude Code, Aider, agregadores REST) e rotinas de cota exigem acesso persistente ou sob demanda ao `language_server` do Antigravity e à CLI `agy` sem abrir a pesada interface gráfica Electron da IDE. Anteriormente, invocações efêmeras recriavam o processo a cada chamada sofrendo cold-start de 1.5–3.0s. Além disso, a execução de prompts de agentes headless necessitava de isolamento estrito de identidade e contratos estruturados em JSON.
+- **Decisões Técnicas:**
+  - **Módulo Desacoplado `internal/headless`:**
+    - `types.go`: contratos estruturados `InstanceInfo` (`profile`, `pid`, `port`, `csrf_token`, `status`, `started_at`, `log_file`, `health_error`, `executable_path`), `StartOptions`, `AgentRunOptions`, `AgentRunResult` (`profile`, `prompt`, `response`, `total_tokens`, `duration_seconds`, `exit_code`, `error`).
+    - `process_unix.go` e `process_windows.go`: abstração multiplataforma para execução desanexada (`Setpgid: true` no POSIX, `CREATE_NEW_PROCESS_GROUP` no Windows), verificação não-invasiva de liveness de PID e encerramento gracioso (SIGTERM com fallback para kill).
+    - `manager.go`:
+      - Persistência e auto-reaping: grava `<profileDir>/.multigravity/headless.json` e detecta PIDs mortos de forma resiliente, limpando estado órfão automaticamente.
+      - Invariante #8: exporta `$HOME` / `%USERPROFILE%` direcionado para a raiz do perfil e preserva o `PATH` do host com caminhos binários do usuário.
+      - Captura de porta HTTPS dinâmica e token CSRF a partir do stderr com verificação imediata de health check TLS.
+      - Métodos: `Start`, `Stop`, `Restart`, `GetStatus`, `List`, `GetLogs`.
+    - `runner.go`:
+      - Motor duplo para execução de prompts: executa via `agy` (`-p <prompt> --print-timeout <dur> --output-format json --dangerously-skip-permissions`) ou fallback via Language Server Cascade RPC (`StartCascade` / `SendUserCascadeMessage`).
+      - Parse estruturado de saída JSON e contagem de tokens consumidos.
+    - Test hooks herméticos (`SetTestHooks`, `SetRunnerTestHooks`) garantindo 100% de cobertura sem processos reais em runtime de teste.
+  - **Fast-Path em `internal/quota/headless.go`:**
+    - `StartHeadlessServer` verifica se um servidor headless gerenciado já está ativo e saudável para o perfil antes de disparar um processo novo, eliminando o cold-start de ~2s em `multigravity quota` e `multigravity prime` (resposta em ~10ms) com `IsManaged: true` evitando que `Close()` finalize o processo em background.
+  - **CLI `multigravity headless` (aliases `hl`) (`internal/cmd/headless.go`):**
+    - Subcomandos: `list` (alias `ls`), `status <profile>`, `start <profile>`, `stop <profile>`, `restart <profile>`, `logs <profile>` (`--tail`, `--follow`), `run <profile> <prompt>` (`--timeout`, `--dangerously-skip-permissions`, `--json`).
+    - Contrato `--json` em todos os subcomandos e autocompletion de perfis.
+  - **API REST & SSE (`internal/server`):**
+    - Rotas duplas `/api/v1/headless/...` e `/api/headless/...`:
+      - `GET /headless`: listagem de instâncias ativas.
+      - `GET /headless/{profile}`: status e health check.
+      - `POST /headless/{profile}/start`: inicialização em background.
+      - `POST /headless/{profile}/stop`: encerramento gracioso.
+      - `POST /headless/{profile}/restart`: reinicialização.
+      - `POST /headless/{profile}/run`: execução de prompt headless.
+      - `GET /headless/{profile}/logs`: logs com suporte a `?tail=N`.
+    - Eventos SSE emitidos em tempo real (`action: "headless_start"`, `"headless_stop"`, `"headless_restart"`).
+
 ### 2026-09-26 [Task 08.1] Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil
 
 - **Contexto:** Perfis do Antigravity possuem workspaces e projetos associados em `.gemini/config/projects/*.json` com metadados de branches, políticas de execução de agentes (sandboxMode, autoExecutionPolicy) e links de sistema de arquivos (`file://...`). Para orquestradores de agentes, GUIs desktop (Tauri/Wails) e desenvolvedores em terminal, era fundamental mapear quais repositórios pertencem a cada perfil, correlacionar o diretório atual (`multigravity ws current`) e rastrear qual workspace está ativamente aberto em instâncias em execução.

@@ -195,6 +195,78 @@ func FindLanguageServer() (string, error) {
 	return "", errors.New("language_server binary not found")
 }
 
+// FindAgy detects the path to the agy CLI binary
+func FindAgy() (string, error) {
+	if override := os.Getenv("AGY_BIN"); override != "" {
+		if isExecutableOrApp(override) {
+			return override, nil
+		}
+		if path, err := exec.LookPath(override); err == nil {
+			return path, nil
+		}
+	}
+
+	userHome, _ := os.UserHomeDir()
+	binName := "agy"
+	if runtime.GOOS == "windows" {
+		binName = "agy.exe"
+	}
+
+	if path, err := exec.LookPath(binName); err == nil {
+		return path, nil
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		candidates := []string{
+			"/usr/local/bin/agy",
+			filepath.Join(userHome, ".local", "bin", "agy"),
+			"/opt/homebrew/bin/agy",
+			"/Applications/Agy.app/Contents/MacOS/agy",
+		}
+		for _, c := range candidates {
+			if isExecutableOrApp(c) {
+				return c, nil
+			}
+		}
+	case "windows":
+		localAppData := os.Getenv("LOCALAPPDATA")
+		progFiles := os.Getenv("PROGRAMFILES")
+		userProfile := os.Getenv("USERPROFILE")
+		if userProfile == "" {
+			userProfile = userHome
+		}
+		candidates := []string{
+			filepath.Join(localAppData, "Programs", "agy", "agy.exe"),
+			filepath.Join(progFiles, "agy", "agy.exe"),
+			filepath.Join(userProfile, "scoop", "apps", "agy", "current", "agy.exe"),
+			filepath.Join(userHome, ".local", "bin", "agy.exe"),
+		}
+		for _, c := range candidates {
+			if isExecutableOrApp(c) {
+				return c, nil
+			}
+		}
+	default:
+		candidates := []string{
+			filepath.Join(userHome, ".local", "bin", "agy"),
+			"/usr/local/bin/agy",
+			"/usr/bin/agy",
+			"/opt/agy/bin/agy",
+			"/opt/agy/agy",
+			filepath.Join(userHome, "apps", "agy", "bin", "agy"),
+			filepath.Join(userHome, "apps", "agy", "agy"),
+		}
+		for _, c := range candidates {
+			if isExecutableOrApp(c) {
+				return c, nil
+			}
+		}
+	}
+
+	return "", errors.New("agy binary not found")
+}
+
 func isExecutableOrApp(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
