@@ -2,9 +2,9 @@
 
 # Multigravity
 
-**Execute múltiplos perfis do Antigravity (e `agy`) simultaneamente — cada um com suas próprias contas, extensões, configurações e conversas de IA.**
+**A Plataforma de Desenvolvimento Agêntico e Gateway de IA Multi-Contas para o Google Antigravity (e `agy`).**
 
-Chega de fazer login e logout a todo momento. Abra quantos perfis precisar, todos ao mesmo tempo.
+Orquestre agentes autônomos de código, compartilhe e balanceie cotas de IA entre múltiplas contas Google com auto-failover, gerencie perfis isolados da IDE e execute tarefas em Git worktrees efêmeros.
 
 [English](README.md) | **Português**
 
@@ -65,13 +65,18 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 
 ## Principais Recursos
 
+- **Gateway de IA Multi-Contas:** Endpoints locais compatíveis com OpenAI (`/v1/chat/completions`) e Anthropic (`/v1/messages`) com auto-failover transparente em HTTP 429/403 e balanceamento inteligente entre contas.
+- **Orquestrador de Agentes Autônomos:** Despacho de agentes CLI (Claude Code, Aider, OpenCode) com multiplexador de terminais PTY virtuais, ambiente isolado por perfil e streaming de logs em tempo real (`multigravity dispatch`).
+- **Git Worktrees Efêmeros:** Provisionamento de branches e diretórios de trabalho isolados por tarefa em `.multigravity/worktrees/`, automaticamente ignorados pelo rastreamento Git do host (`multigravity worktree`).
+- **Visualizador Web de Diffs Integrado:** Painel web de tarefas (`/ui/tasks`) e visualizador de diffs lado a lado/unificado (`/ui/tasks/:id/diff`) embutidos diretamente no binário Go, sem dependências externas.
+- **Inteligência de Workspaces e Repositórios:** Mapeamento automático de projetos, branches ativas e identificação de qual perfil detém determinado diretório (`multigravity workspace`).
 - **Menu TUI Interativo:** Execute `multigravity` sem argumentos em um terminal interativo para abrir uma interface rápida de seleção com indicadores de status ao vivo (`● em execução` / `○ ocioso`).
-- **Pronto para Antigravity 2.0 (`agy`):** Detecta nativamente os binários `antigravity` e `agy`.
+- **Pronto para Antigravity 2.0 (`agy`):** Detecta nativamente os binários `antigravity` e `agy` em Linux, macOS e Windows.
+- **Perfis Auth-Only Ultraleves:** Crie perfis em segundos com extensões e preferências compartilhadas do host com apenas ~2 MB de consumo de disco (`--auth-only` / `--shared`).
 - **Temas Visuais de Janela:** Atribua cores distintas na barra de título e no workbench por perfil (`--color` ou `multigravity color`) para nunca confundir janelas pessoais com as do trabalho.
-- **Dotfiles de Dev Preservados:** Os arquivos `.gitconfig` e chaves `~/.ssh` da sua máquina são vinculados automaticamente nos perfis isolados, garantindo que commits Git e conexões SSH funcionem de imediato (com opção `--isolated-dotfiles` caso prefira isolamento estrito).
+- **Dotfiles de Dev Preservados:** Os arquivos `.gitconfig` e chaves `~/.ssh` da sua máquina são vinculados automaticamente nos perfis isolados (com opção `--isolated-dotfiles`).
 - **Gerenciamento Seguro de Ciclo de Vida:** Comandos `stop` e `restart` graciosos, com travas de concorrência que impedem excluir ou renomear perfis em execução.
-- **Limpeza de Cache e Backups Otimizados:** O comando `multigravity clean` recupera gigabytes de caches voláteis do Electron/Chromium, e o `export` remove caches automaticamente para gerar backups leves e rápidos.
-- **Migração Granular de Sessões de IA:** `multigravity ai export` / `import` permite transferir bancos de conversas e artefatos de IA entre perfis ou máquinas com total sanitização e sem expor tokens OAuth ou credenciais.
+- **Migração Granular de Sessões de IA:** `multigravity ai export` / `import` permite transferir bancos de conversas e artefatos de IA entre perfis ou máquinas com total sanitização de tokens OAuth.
 
 ---
 
@@ -128,6 +133,44 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity prime [nome] [opt]` | Prime automático dos ciclos semanais de tokens no reset (dual-bucket, jitter, cron/systemd) |
 | `multigravity ai prime [nome] [opt]` | Alias para `multigravity prime` |
 
+### Agentes Autônomos e Despacho de Tarefas
+
+| Comando | Descrição |
+|---------|-----------|
+| `multigravity dispatch run <cmd> [flags]` | Despacha uma tarefa de agente autônomo com isolamento de perfil e worktree opcional (alias: `dp run`) |
+| `multigravity dispatch list [--json]` | Lista tarefas despachadas com status, duração e metadados (alias: `dp list`) |
+| `multigravity dispatch status <task-id> [--json]` | Exibe o estado de execução detalhado e manifesto de uma tarefa |
+| `multigravity dispatch logs <task-id> [-f\|--tail N]` | Exibe ou transmite logs de execução em tempo real |
+| `multigravity dispatch diff <task-id> [--web\|--structured\|--json]` | Inspeciona diff Git no terminal, tabela estruturada, JSON ou abre visualizador web |
+| `multigravity dispatch dashboard [--json]` | Dashboard executivo com contadores de tarefas em execução, concluídas e com falha |
+| `multigravity dispatch cancel <task-id> [--force]` | Cancela uma tarefa em execução graciosamente (ou forçado) |
+| `multigravity dispatch delete <task-id> [--worktree]` | Exclui registro da tarefa e limpa opcionalmente seu worktree |
+| `multigravity dispatch prune [--max-age <dur>]` | Remove tarefas concluídas anteriores ao limite de retenção |
+| `multigravity agent run <perfil> [--] <cmd>` | Executa agente CLI interativo (Claude Code, Aider, OpenCode) em PTY dedicado (alias: `ag run`) |
+| `multigravity agent list [--json]` | Lista sessões ativas de agentes em PTY |
+| `multigravity agent attach <id>` | Conecta o terminal diretamente a uma sessão de agente em PTY |
+| `multigravity agent stop <id>` | Encerra uma sessão PTY de agente graciosamente |
+
+### Git Worktrees Efêmeros
+
+| Comando | Descrição |
+|---------|-----------|
+| `multigravity worktree list [--repo <caminho>] [--json]` | Lista git worktrees ativos gerenciados pelo Multigravity (alias: `wt list`) |
+| `multigravity worktree create <nome> [--branch <b>] [--json]` | Cria um worktree efêmero em `.multigravity/worktrees/` |
+| `multigravity worktree status <nome> [--json]` | Consulta status Git, arquivos modificados e untracked no worktree |
+| `multigravity worktree diff <nome> [--stat] [--json]` | Exibe o diff gerado no worktree em relação à branch base |
+| `multigravity worktree remove <nome> [--force]` | Limpa e remove um worktree efêmero |
+| `multigravity worktree prune` | Remove registros de worktrees órfãos ou obsoletos |
+
+### Workspaces e Repositórios
+
+| Comando | Descrição |
+|---------|-----------|
+| `multigravity workspace list [--active] [--json]` | Lista workspaces mapeados e status Git entre perfis (alias: `ws list`) |
+| `multigravity workspace active [--json]` | Lista workspaces abertos em instâncias ativas da IDE |
+| `multigravity workspace current [--json]` | Detecta qual perfil e workspace detêm o diretório atual de trabalho (alias: `ws here`) |
+| `multigravity workspace show <perfil> <ws> [--json]` | Exibe status detalhado do repositório, branch ativa e políticas |
+
 ### Modelos (Templates)
 
 | Comando | Descrição |
@@ -143,12 +186,13 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity export <nome> [caminho] [--include-cache]` | Compacta um perfil em `.tar.gz` (`.zip` no Windows), enxuto por padrão |
 | `multigravity import <arquivo> [nome]` | Restaura um perfil a partir de um arquivo compactado |
 
-### Utilitários
+### Servidor e Gateway de IA
 
 | Comando | Descrição |
 |---------|-----------|
-| `multigravity stats` | Exibe o uso de disco detalhado por perfil |
-| `multigravity doctor` | Diagnostica o ambiente, caminhos e detecção de binários (`antigravity` / `agy`) |
+| `multigravity serve [--port <p>] [--host <h>]` | Inicia daemon HTTP local com API REST, streaming SSE, Gateway de IA (`/v1/chat/completions`, `/v1/messages`) e UI Web (`/ui/tasks`) |
+| `multigravity stats [--json]` | Exibe o uso de disco detalhado por perfil |
+| `multigravity doctor [--json]` | Diagnostica o ambiente, caminhos e detecção de binários (`antigravity` / `agy`) |
 | `multigravity update` | Atualiza o Multigravity para a versão mais recente |
 | `multigravity completion` | Configura o autocompletar de comandos no shell |
 | `multigravity version` | Exibe a versão do Multigravity |
@@ -252,6 +296,144 @@ multigravity new cliente-x --isolated-config
 # Alternar um perfil existente entre os modos compartilhado e isolado
 multigravity config isolate trabalho
 multigravity config share trabalho
+```
+
+---
+
+## Telemetria de Cotas e Limites de Tokens (`multigravity quota`)
+
+Consulte o consumo de tokens de IA em tempo real, porcentagem de uso, fração restante e contagem regressiva exata para o reset entre perfis do Antigravity em execução:
+
+```bash
+# Consulta cotas de todos os perfis ativos
+multigravity quota
+
+# Consulta cota de um perfil específico
+multigravity quota trabalho
+multigravity ai quota trabalho
+```
+
+---
+
+## Gateway de IA Multi-Contas e Auto-Failover
+
+O Multigravity inclui um Gateway local de IA em `multigravity serve` que disponibiliza endpoints compatíveis com OpenAI (`/v1/chat/completions`) e Anthropic (`/v1/messages`), alimentados pelas suas contas isoladas do Antigravity/Google.
+
+### Recursos Principais
+- **Pooling Multi-Contas e Auto-Failover:** Se um perfil ativo atingir limites de taxa (HTTP 429 ou esgotamento de cota 403), o gateway coloca o perfil em cooldown e alterna automaticamente para o próximo perfil com cota saudável sem interromper o streaming do cliente.
+- **Estratégias de Roteamento Configuráveis:**
+  - `smart` (padrão): Prioriza perfis com maior cota disponível, penaliza taxa de erros e balanceia carga dinamicamente.
+  - `round-robin`: Rotaciona requisições sequencialmente entre os perfis saudáveis.
+  - `priority`: Utiliza a ordem declarada de prioridade dos perfis.
+  - `sticky`: Mantém as requisições no mesmo perfil até que ocorra um limite de taxa.
+- **Mapeamento de Modelos:** Suporte nativo aos modelos Gemini (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-3.5-flash`) e aliases transparentes de terceiros (`claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-opus`, `gpt-4o`).
+- **Zero Custódia de Credenciais:** As chamadas utilizam os tokens em memória do Language Server local; senhas ou segredos da conta Google nunca são persistidos em texto puro.
+
+### Exemplos de Uso
+
+```bash
+# 1. Iniciar o daemon do Gateway Multigravity
+multigravity serve
+
+# 2. Requisitar via endpoint OpenAI Chat Completions (com streaming SSE)
+curl -s -N http://127.0.0.1:8989/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-pro",
+    "messages": [{"role": "user", "content": "Explique Git worktrees em uma frase."}],
+    "stream": true
+  }'
+
+# 3. Requisitar via endpoint Anthropic Messages
+curl -s http://127.0.0.1:8989/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-7-sonnet",
+    "messages": [{"role": "user", "content": "Olá Claude!"}],
+    "max_tokens": 100
+  }'
+
+# 4. Apontar o Claude Code CLI para o Gateway do Multigravity
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8989"
+claude
+
+# 5. Apontar Aider / OpenCode / Continue para o Gateway do Multigravity
+export OPENAI_BASE_URL="http://127.0.0.1:8989/v1"
+aider --model gpt-4o
+```
+
+---
+
+## Orquestrador de Agentes Autônomos e Despacho de Tarefas
+
+O Multigravity coordena agentes autônomos de desenvolvimento (Claude Code, Aider, OpenCode, Agy) em tarefas de background ou pseudoterminais interativos (PTY), isolados em perfis dedicados e Git worktrees efêmeros.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    multigravity dispatch                    │
+│                                                             │
+│   ┌────────────────┐   ┌────────────────┐   ┌───────────┐   │
+│   │ Autenticação   │   │ Git Worktree   │   │ Terminal  │   │
+│   │ e Pool de Cota │ + │ Efêmero        │ + │ Virtual   │   │
+│   │ (~/Antigravity)│   │ (.multigravity)│   │ PTY (TTY) │   │
+│   └────────────────┘   └────────────────┘   └───────────┘   │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+            ┌──────────────────┴──────────────────┐
+            ▼                                     ▼
+     Logs e Streaming                     Visualizador Web de Diffs
+  (multigravity dispatch logs)         (http://localhost:8989/ui/tasks)
+```
+
+### Despachando Tarefas com Git Worktrees Efêmeros
+
+```bash
+# Despachar tarefa em um worktree isolado sem afetar a branch atual
+multigravity dispatch run --profile trabalho --worktree --prompt "Refatorar autenticação em auth.go"
+
+# Acompanhar logs de execução em tempo real
+multigravity dispatch logs <task-id> -f
+
+# Inspecionar diff estruturado gerado pelo agente no terminal
+multigravity dispatch diff <task-id> --structured
+
+# Abrir visualizador gráfico interativo de diffs no navegador
+multigravity dispatch diff <task-id> --web
+# Ou acesse o painel diretamente: http://127.0.0.1:8989/ui/tasks
+```
+
+### Sessões Interativas de PTY
+
+Para agentes CLI que exigem confirmações interativas no terminal (`[y/n]`, concessão de ferramentas, ANSI rico):
+
+```bash
+# Executa Claude Code ou Aider dentro de sessão PTY isolada
+multigravity agent run trabalho -- claude
+
+# Lista e reconecta a sessões ativas de agentes em PTY
+multigravity agent list
+multigravity agent attach <session-id>
+```
+
+---
+
+## Inteligência de Workspaces e Repositórios
+
+Rastreie quais projetos pertencem a cada perfil do Antigravity, descubra repositórios ativos e saiba onde você está sem sair do terminal:
+
+```bash
+# Mostra qual perfil e workspace detêm o diretório atual
+multigravity workspace current
+
+# Lista todos os workspaces mapeados com status Git (branch, clean/dirty)
+multigravity workspace list
+
+# Filtra apenas workspaces abertos em instâncias ativas da IDE
+multigravity workspace active
+
+# Exibe detalhes de um workspace específico
+multigravity workspace show trabalho backend-api
 ```
 
 ---

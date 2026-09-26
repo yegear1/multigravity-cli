@@ -2,9 +2,9 @@
 
 # Multigravity
 
-**Run multiple Antigravity (and `agy`) IDE profiles simultaneously — each with its own accounts, extensions, settings, and AI conversations.**
+**The Agentic Development Platform & Multi-Account AI Gateway for Google Antigravity (and `agy`).**
 
-No more logging in and out. Launch as many profiles as you need, all at once.
+Orchestrate autonomous coding agents, pool and failover AI quotas automatically across Google accounts, manage isolated IDE profiles, and execute tasks in ephemeral Git worktrees.
 
 **English** | [Português](README.pt-br.md)
 
@@ -65,12 +65,17 @@ Each profile gets an automatic clickable desktop launcher:
 
 ## Key Features
 
+- **Multi-Account AI Gateway:** Local OpenAI-compatible (`/v1/chat/completions`) and Anthropic-compatible (`/v1/messages`) endpoints with transparent auto-failover (HTTP 429/403) and smart multi-account load balancing.
+- **Autonomous Agent Orchestrator:** Dispatch coding agents (Claude Code, Aider, OpenCode) with interactive PTY terminal multiplexing, profile environment isolation, and live log streaming (`multigravity dispatch`).
+- **Ephemeral Git Worktrees:** Provision isolated branches and working directories per agent task in `.multigravity/worktrees/`, automatically excluded from host Git tracking (`multigravity worktree`).
+- **Embedded Web Diff Visualizer:** Built-in web dashboard (`/ui/tasks`) and side-by-side/unified diff viewer (`/ui/tasks/:id/diff`) packaged directly into the Go binary with zero external dependencies.
+- **Workspace & Repository Intelligence:** Auto-detects mapped projects, active Git branches, and running profile associations (`multigravity workspace`).
 - **Interactive TUI:** Run `multigravity` without arguments in an interactive terminal for a quick-select menu with live status indicators.
-- **Antigravity 2.0 (`agy`) Ready:** Seamlessly detects both `antigravity` and `agy` binaries.
+- **Antigravity 2.0 (`agy`) Ready:** Seamlessly detects both `antigravity` and `agy` binaries across Linux, macOS, and Windows.
+- **Auth-Only Lean Profiles:** Create profiles in seconds with shared host extensions and settings for just ~2 MB disk footprint (`--auth-only` / `--shared`).
 - **Visual Window Theming:** Assign distinctive window/workbench colors per profile (`--color` or `multigravity color`) so you never confuse work and personal windows.
 - **Dev Dotfiles Symlinked:** Host `.gitconfig` and `~/.ssh` keys are linked into isolated profiles by default, ensuring Git commits and SSH authentication work out of the box (with `--isolated-dotfiles` opt-out).
 - **Graceful Lifecycle Management:** `stop` and `restart` profiles cleanly, with concurrency locks preventing accidental deletion or renaming while a profile is running.
-- **Cache Cleaning & Lean Backups:** `multigravity clean` reclaims gigabytes of volatile Electron/Chromium cache, and `export` strips caches automatically for fast, lightweight archives.
 - **Granular AI Session Migration:** `multigravity ai export` / `import` allows moving AI conversation databases and brain artifacts between profiles or machines with zero exposure of OAuth tokens or credentials.
 
 ---
@@ -128,6 +133,44 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity prime [name] [opt]` | Automatically prime weekly token cycles upon reset (dual bucket, jitter, cron/systemd) |
 | `multigravity ai prime [name] [opt]` | Alias for `multigravity prime` |
 
+### Autonomous Agents & Task Dispatch
+
+| Command | Description |
+|---------|-------------|
+| `multigravity dispatch run <cmd> [flags]` | Dispatch an autonomous agent task with profile isolation and optional worktree (alias: `dp run`) |
+| `multigravity dispatch list [--json]` | List dispatched tasks with status, duration, and metadata (alias: `dp list`) |
+| `multigravity dispatch status <task-id> [--json]` | Show detailed execution state and manifest of a task |
+| `multigravity dispatch logs <task-id> [-f\|--tail N]` | Stream or inspect real-time execution logs |
+| `multigravity dispatch diff <task-id> [--web\|--structured\|--json]` | Inspect task Git diff in terminal, structured table, JSON, or open web visualizer |
+| `multigravity dispatch dashboard [--json]` | Executive summary dashboard of running, completed, and failed tasks |
+| `multigravity dispatch cancel <task-id> [--force]` | Cancel a running task gracefully (or force kill) |
+| `multigravity dispatch delete <task-id> [--worktree]` | Delete task record and optionally clean its worktree |
+| `multigravity dispatch prune [--max-age <dur>]` | Prune finished tasks older than retention threshold |
+| `multigravity agent run <profile> [--] <cmd>` | Run an interactive CLI agent (Claude Code, Aider, OpenCode) in a dedicated PTY (alias: `ag run`) |
+| `multigravity agent list [--json]` | List active PTY agent sessions |
+| `multigravity agent attach <id>` | Attach terminal directly to a running PTY agent session |
+| `multigravity agent stop <id>` | Stop a PTY agent session gracefully |
+
+### Ephemeral Git Worktrees
+
+| Command | Description |
+|---------|-------------|
+| `multigravity worktree list [--repo <path>] [--json]` | List active git worktrees tracked by Multigravity (alias: `wt list`) |
+| `multigravity worktree create <name> [--branch <b>] [--json]` | Create an ephemeral worktree in `.multigravity/worktrees/` |
+| `multigravity worktree status <name> [--json]` | Check git status, modified and untracked files inside worktree |
+| `multigravity worktree diff <name> [--stat] [--json]` | Show diff generated within worktree compared to base branch |
+| `multigravity worktree remove <name> [--force]` | Clean up and remove an ephemeral worktree |
+| `multigravity worktree prune` | Prune stale or orphaned worktree records |
+
+### Workspaces & Repositories
+
+| Command | Description |
+|---------|-------------|
+| `multigravity workspace list [--active] [--json]` | List mapped workspaces and Git status across profiles (alias: `ws list`) |
+| `multigravity workspace active [--json]` | List workspaces currently open in running IDE instances |
+| `multigravity workspace current [--json]` | Detect which profile and workspace own the current working directory (alias: `ws here`) |
+| `multigravity workspace show <profile> <ws> [--json]` | Show detailed repository status, active branch, and policies |
+
 ### Templates
 
 | Command | Description |
@@ -143,13 +186,13 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity export <name> [path] [--include-cache]` | Archive a profile to `.tar.gz` (`.zip` on Windows), lean by default |
 | `multigravity import <archive> [name]` | Restore a profile from an archive |
 
-### Utilities
+### Server & AI Gateway
 
 | Command | Description |
 |---------|-------------|
-| `multigravity serve [--port <p>] [--host <h>]` | Start local HTTP REST & SSE streaming server (`127.0.0.1:8989`) |
-| `multigravity stats` | Show disk usage per profile |
-| `multigravity doctor` | Diagnose environment setup, paths, and binary detection |
+| `multigravity serve [--port <p>] [--host <h>]` | Start local HTTP daemon with REST API, SSE streaming, AI Gateway (`/v1/chat/completions`, `/v1/messages`), and Web UI (`/ui/tasks`) |
+| `multigravity stats [--json]` | Show disk usage per profile |
+| `multigravity doctor [--json]` | Diagnose environment setup, paths, and binary detection |
 | `multigravity update` | Update Multigravity to the latest version |
 | `multigravity completion` | Set up shell tab-completion |
 | `multigravity version` | Show multigravity version |
@@ -268,6 +311,129 @@ multigravity quota
 # Check quota for a specific profile
 multigravity quota work
 multigravity ai quota work
+```
+
+---
+
+## Multi-Account AI Gateway & Auto-Failover
+
+Multigravity includes a local AI Gateway in `multigravity serve` that exposes OpenAI-compatible (`/v1/chat/completions`) and Anthropic-compatible (`/v1/messages`) endpoints, backed by your isolated Antigravity/Google accounts.
+
+### Key Capabilities
+- **Multi-Account Pooling & Auto-Failover:** If an active profile hits rate limits (HTTP 429 or 403 quota exhaustion), the gateway automatically places it in cooldown and seamlessly fails over to the next healthy profile without dropping the client stream.
+- **Pluggable Routing Strategies:**
+  - `smart` (default): Prioritizes profiles with higher remaining quota fractions, penalizes error rates, and balances load dynamically.
+  - `round-robin`: Rotates requests sequentially through healthy profiles.
+  - `priority`: Uses declared profile priority order.
+  - `sticky`: Keeps requests on the current profile until a rate limit occurs.
+- **Model Aliases:** Supports native Gemini models (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-3.5-flash`) and transparent 3P aliases (`claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-opus`, `gpt-4o`).
+- **Zero Credential Custody:** Requests use the local Antigravity Language Server tokens; no raw Google passwords or secrets are ever persisted.
+
+### Usage Examples
+
+```bash
+# 1. Start the Multigravity Gateway daemon
+multigravity serve
+
+# 2. Query via OpenAI Chat Completions endpoint (streaming supported)
+curl -s -N http://127.0.0.1:8989/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-pro",
+    "messages": [{"role": "user", "content": "Explain Git worktrees in one sentence."}],
+    "stream": true
+  }'
+
+# 3. Query via Anthropic Messages endpoint
+curl -s http://127.0.0.1:8989/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-7-sonnet",
+    "messages": [{"role": "user", "content": "Hello Claude!"}],
+    "max_tokens": 100
+  }'
+
+# 4. Point Claude Code CLI to Multigravity Gateway
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8989"
+claude
+
+# 5. Point Aider / OpenCode / Continue to Multigravity Gateway
+export OPENAI_BASE_URL="http://127.0.0.1:8989/v1"
+aider --model gpt-4o
+```
+
+---
+
+## Autonomous Agent Orchestration & Task Dispatcher
+
+Multigravity can coordinate autonomous coding agents (Claude Code, Aider, OpenCode, Agy) in background tasks or interactive pseudo-terminals (PTY), isolated in dedicated profiles and ephemeral Git worktrees.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    multigravity dispatch                    │
+│                                                             │
+│   ┌────────────────┐   ┌────────────────┐   ┌───────────┐   │
+│   │ Profile Auth   │   │ Ephemeral Git  │   │ PTY TTY   │   │
+│   │ & Quota Pool   │ + │ Worktree       │ + │ Terminal  │   │
+│   │ (~/Antigravity)│   │ (.multigravity)│   │ Multiplex │   │
+│   └────────────────┘   └────────────────┘   └───────────┘   │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+            ┌──────────────────┴──────────────────┐
+            ▼                                     ▼
+   Terminal Stream & Logs                Web Diff Visualizer
+  (multigravity dispatch logs)         (http://localhost:8989/ui/tasks)
+```
+
+### Dispatching Tasks with Ephemeral Git Worktrees
+
+```bash
+# Dispatch a task to run in a fresh ephemeral Git worktree
+multigravity dispatch run --profile work --worktree --prompt "Refactor user authentication in auth.go"
+
+# Stream task execution logs in real time
+multigravity dispatch logs <task-id> -f
+
+# Review the structured Git diff generated by the agent
+multigravity dispatch diff <task-id> --structured
+
+# Open the interactive visual web diff viewer in your browser
+multigravity dispatch diff <task-id> --web
+# Or visit the embedded dashboard directly: http://127.0.0.1:8989/ui/tasks
+```
+
+### Interactive PTY Sessions
+
+For agent CLI tools that require interactive terminal prompts (`[y/n]`, tool approvals, ANSI styling):
+
+```bash
+# Run Claude Code or Aider inside an isolated PTY session
+multigravity agent run work -- claude
+
+# List and attach to active agent PTY sessions
+multigravity agent list
+multigravity agent attach <session-id>
+```
+
+---
+
+## Workspace & Active Repository Intelligence
+
+Track which projects belong to which Antigravity profile, detect open workspaces, and find your profile context without leaving the terminal:
+
+```bash
+# Show which profile and workspace own the current directory
+multigravity workspace current
+
+# List all mapped workspaces across profiles with Git status (branch, clean/dirty)
+multigravity workspace list
+
+# List only workspaces open in currently running IDE instances
+multigravity workspace active
+
+# Show details of a specific workspace
+multigravity workspace show work backend-api
 ```
 
 ---

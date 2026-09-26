@@ -19,6 +19,19 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 11.6] Alinhamento Estratégico de Posicionamento, Documentação e Catálogo da Plataforma
+
+- **Contexto:** Com a evolução rápida da arquitetura Go v2.0 nos Épicos 07, 08, 14 e 15, o `multigravity-cli` deixou de ser um simples launcher/gerenciador de perfis da IDE e tornou-se uma Plataforma de Desenvolvimento Agêntico (ADE) e Gateway de IA Multi-Contas. A documentação voltada a humanos (`README.md`, `README.pt-br.md`, `CHANGELOG.md`) estava defasada, omitindo recursos críticos de gateway, orquestração de tarefas, worktrees efêmeros e visualizador de diffs web.
+- **Decisões Técnicas e de Posicionamento:**
+  - **Identidade e Preservação de Marca:** A marca canônica e o nome do binário `multigravity` foram preservados integralmente para honrar os invariantes de compatibilidade (atalhos do SO, links simbólicos, scripts de instalação).
+  - **Tagline e Posicionamento:** Atualizados para *"The Agentic Development Platform & Multi-Account AI Gateway for Google Antigravity (and `agy`)"*, destacando o tripé: Isolamento de Perfis, Gateway de IA Multi-Contas com Failover e Orquestração de Agentes Autônomos com Worktrees.
+  - **Documentação de Recursos Críticos:**
+    - Catálogo completo de comandos adicionado nas tabelas do README: `dispatch`, `agent`, `worktree`, `workspace`.
+    - Seções práticas detalhadas com exemplos de consumo via `curl`, Cursor, Aider e Claude Code para os gateways `/v1/chat/completions` e `/v1/messages`.
+    - Documentação dos Git Worktrees efêmeros (`.multigravity/worktrees/`) e do visualizador gráfico de diffs embutido (`/ui/tasks`).
+    - Paridade 100% de conteúdo e exemplos entre `README.md` (EN) e `README.pt-br.md` (PT-BR).
+  - **Atualização do Changelog:** Seção `[Unreleased]` do `CHANGELOG.md` preenchida com todas as entregas concluídas pós-v2.0.0.
+
 ### 2026-09-26 [Task 08.2] Invocação e Gestão de Agentes Headless em Background com Isolamento de Identidade
 
 - **Contexto:** Agentes headless, pipelines automatizados, orquestradores externos (Cursor, Claude Code, Aider, agregadores REST) e rotinas de cota exigem acesso persistente ou sob demanda ao `language_server` do Antigravity e à CLI `agy` sem abrir a pesada interface gráfica Electron da IDE. Anteriormente, invocações efêmeras recriavam o processo a cada chamada sofrendo cold-start de 1.5–3.0s. Além disso, a execução de prompts de agentes headless necessitava de isolamento estrito de identidade e contratos estruturados em JSON.

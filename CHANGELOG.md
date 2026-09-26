@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Autonomous Task Dispatcher (`internal/dispatch`):** Added `multigravity dispatch` (alias `dp`) to coordinate agent executions with profile isolation, ephemeral Git worktrees, structured diff parsing, and real-time log capture (`run`, `list`, `status`, `logs`, `diff`, `dashboard`, `cancel`, `delete`, `prune`).
+- **Interactive Web Diff Visualizer & Task Dashboard:** Embedded HTML5 web UI (`/ui/tasks` and `/ui/tasks/:id/diff`) packaged directly into the Go binary (`//go:embed`) providing unified diff view, additions/deletions statistics, file tree navigation, and live SSE event updates.
+- **PTY Terminal Multiplexer (`internal/agent`):** Added `multigravity agent` (alias `ag`) with real pseudo-terminal support (`creack/pty`) for interactive CLI tools (Claude Code, Aider, OpenCode), raw mode terminal attachment, and dedicated environment construction.
+- **Ephemeral Git Worktrees (`internal/worktree`):** Added `multigravity worktree` (alias `wt`) to provision isolated branches and working trees per task in `.multigravity/worktrees/`, automatically excluded from host Git tracking via `.git/info/exclude`.
+- **OpenAI & Anthropic Compatible AI Gateway (`internal/gateway`):** Added local `/v1/chat/completions` and `/v1/messages` HTTP streaming endpoints in `multigravity serve`, translating requests to CloudCode upstream streaming with support for Gemini and 3P Claude/GPT aliases.
+- **Multi-Account Router with Auto-Failover:** Built-in multi-profile load balancing with `smart`, `round-robin`, `priority`, and `sticky` strategies, automatically placing profiles in cooldown and failing over upon HTTP 429 or 403 quota exhaustion without dropping client streams.
+- **Workspace & Active Repository Detection (`internal/workspace`):** Added `multigravity workspace` (alias `ws`) to map project directories, active branches, and identify which profile owns a directory (`list`, `active`, `current`, `show`).
+- **Proactive Quota Heuristic & 5-Hour Renewal:** Added mathematical classification between sliding 5-hour and weekly quota windows (`Window5h` vs `WindowWeekly`) and `--warm-5h` flag in `multigravity prime` to trigger early rolling renewal.
+- **Auth-Only Lean Profiles (`--auth-only` / `--shared`):** Support for lightweight ~2 MB profiles that symlink host extensions and editor settings while keeping account credentials strictly isolated.
+- **REST API Lifecycle & Sharing Mutations:** Added full profile mutation endpoints (`POST /api/v1/profiles`, `DELETE`, `launch`, `stop`, `restart`, `rename`) and dynamic resource sharing toggles (`/api/v1/profiles/:name/sharing/:resource`) with real-time SSE broadcasts.
+- **Embedded Desktop Icons:** Packaged `.ico`, `.icns`, and `.png` icons into the binary via `//go:embed` for zero-configuration desktop shortcut generation.
+
 ## [2.0.0] - 2026-09-24
 
 ### Added

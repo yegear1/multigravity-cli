@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [11.6] | Alinhamento Estratégico de Posicionamento, Documentação (README, README.pt-br, CHANGELOG) e Catálogo de Recursos da Plataforma | docs(platform): align branding, readme, and changelog with agentic development and ai gateway architecture | 2026-09-26 |
 | [08.2] | Invocação e Gestão de Agentes Headless em Background com Isolamento de Identidade | feat(headless): add background headless instance manager, agent prompt runner, and rest endpoints | 2026-09-26 |
 | [08.1] | Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil | feat(workspace): add workspace mapping, active repository detection, and rest endpoints | 2026-09-26 |
 | [15.4] | Visualizador e API de Diffs / Status de Execução de Tarefas no `multigravity serve` para futura GUI Desktop (Tauri/Wails) | feat(dispatch): add structured diff parser, execution dashboard, and web visualizer for desktop guis | 2026-09-25 |
