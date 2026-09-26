@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-26
+
 ### Added
+- **MCP and Skills Catalog (`multigravity catalog`):** Read-only inventory of MCP servers, skills, and plugins, with the same sharing mode as `mcp status` and `skills status`. `GET /api/v1/catalog` returns the same report. Environment values, headers, arguments, and URL credentials stay out of the text and the JSON.
+- **IDE Log Stream (`multigravity logs`):** Tail and follow the graphical IDE `main.log`, also exposed at `GET /api/v1/profiles/{name}/ide/logs`. Spawn lines redact `--csrf_token` and `--host_bridge_token`.
 - **Profile Snapshots (`multigravity snapshot`):** Restore points for a profile and its AI conversations (`create`, `list`, `rollback`, `delete`). Archives live under `$MULTIGRAVITY_HOME/.snapshots/` and omit auth tokens and credential trees. Create and rollback refuse while the profile is running. `GET/POST /api/v1/profiles/{name}/snapshots` and `POST .../snapshots/{id}/rollback` expose the same contract.
 - **Quota and Orphan Alerts (`multigravity alerts`):** Reports buckets at or below the existing 5% remaining-quota line, drops of at least 5 points between the two latest quota-history snapshots, and headless processes reaped by the background manager. `GET /api/v1/alerts` returns the same report, and `multigravity serve` pushes an `alerts` SSE event when the set changes.
 - **Quota and Token Time Series:** `multigravity quota history` and `GET /api/v1/quota/history` store per-profile remaining-quota snapshots and token counts from the gateway and headless runs. Live `quota` reads stay instantaneous and append a point only when the fractions change.

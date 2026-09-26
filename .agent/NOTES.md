@@ -445,10 +445,9 @@
 - **Aplicabilidade Futura:**
   - Permite verificar a identidade ativa de um perfil e a validade de sua sessão diretamente via HTTP, sem precisar inicializar o pesado processo do `language_server` do Antigravity.
 
-#### 5. Mapeamento do Ecossistema Comunitário Legado (`cockpit-tools`)
-- **Descoberta:** O `accounts.py` implementa migração a partir de `~/.antigravity_cockpit/accounts/*.json` (ferramenta comunitária anterior em Rust).
-- **Aplicabilidade Futura:**
-  - Caso seja necessário oferecer retrocompatibilidade ou migração para usuários vindos do `cockpit-tools` ou de ferramentas antigas, o diretório e formato JSON dos dados já estão identificados.
+#### 5. Migração de `cockpit-tools` — descartada (2026-09-26)
+- O diretório `~/.antigravity_cockpit/accounts/*.json` pertence a outra ferramenta, que guarda contas num JSON compartilhado e alterna o keyring global.
+- O Multigravity autentica com `multigravity login` no cofre isolado do perfil. Não haverá importador desse layout. O épico [13.3] foi removido do backlog.
 
 ### 2026-09-25 [Task 07.2] Mutação de Compartilhamento Dinâmico via API (Toggle de MCP, Skills, Config, Git/GitHub)
 
