@@ -129,6 +129,12 @@ The agent MUST NOT activate this skill when:
    ```bash
    multigravity ai sync <src_profile> <dest_profile>
    ```
+4. Save or restore a profile-and-conversation restore point (tokens stay out of the archive; create and rollback refuse a running profile):
+   ```bash
+   multigravity snapshot create <profile>
+   multigravity snapshot list <profile>
+   multigravity snapshot rollback <profile> <id>
+   ```
 
 ### Step 5: Profile Maintenance & Lifecycle
 1. Safely stop or restart a profile:

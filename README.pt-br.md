@@ -190,6 +190,9 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | Comando | Descrição |
 |---------|-----------|
 | `multigravity export <nome> [caminho] [--include-cache]` | Compacta um perfil em `.tar.gz` (`.zip` no Windows), enxuto por padrão |
+| `multigravity snapshot create <nome>` | Grava um ponto de restauração do perfil e das conversas (sem tokens; recusa se o perfil estiver em execução) |
+| `multigravity snapshot list <nome> [--json]` | Lista os pontos de restauração do perfil |
+| `multigravity snapshot rollback <nome> <id>` | Restaura o perfil e as conversas; os tokens locais permanecem |
 | `multigravity import <arquivo> [nome]` | Restaura um perfil a partir de um arquivo compactado |
 
 ### Servidor e Gateway de IA

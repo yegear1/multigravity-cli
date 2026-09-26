@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -195,6 +196,15 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("POST /api/profiles/{name}/clean", s.handleCleanProfile)
 	s.mux.HandleFunc("POST /api/v1/profiles/{name}/rename", s.handleRenameProfile)
 	s.mux.HandleFunc("POST /api/profiles/{name}/rename", s.handleRenameProfile)
+
+	s.mux.HandleFunc("GET /api/v1/profiles/{name}/snapshots", s.handleListSnapshots)
+	s.mux.HandleFunc("GET /api/profiles/{name}/snapshots", s.handleListSnapshots)
+	s.mux.HandleFunc("POST /api/v1/profiles/{name}/snapshots", s.handleCreateSnapshot)
+	s.mux.HandleFunc("POST /api/profiles/{name}/snapshots", s.handleCreateSnapshot)
+	s.mux.HandleFunc("POST /api/v1/profiles/{name}/snapshots/{id}/rollback", s.handleRollbackSnapshot)
+	s.mux.HandleFunc("POST /api/profiles/{name}/snapshots/{id}/rollback", s.handleRollbackSnapshot)
+	s.mux.HandleFunc("DELETE /api/v1/profiles/{name}/snapshots/{id}", s.handleDeleteSnapshot)
+	s.mux.HandleFunc("DELETE /api/profiles/{name}/snapshots/{id}", s.handleDeleteSnapshot)
 
 	// Sharing (Query & Mutation)
 	s.mux.HandleFunc("GET /api/v1/profiles/{name}/sharing", s.handleGetAllSharing)
@@ -2597,5 +2607,98 @@ func (s *Server) handleGetHeadlessLogs(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"profile": profileName,
 		"logs":    logs,
+	})
+}
+
+func (s *Server) writeSnapshotError(w http.ResponseWriter, err error) {
+	var busy *profile.ProfileBusyError
+	var missing *profile.SnapshotNotFoundError
+	switch {
+	case errors.As(err, &busy):
+		s.writeError(w, http.StatusConflict, err.Error())
+	case errors.As(err, &missing):
+		s.writeError(w, http.StatusNotFound, err.Error())
+	case strings.Contains(err.Error(), "does not exist"):
+		s.writeError(w, http.StatusNotFound, err.Error())
+	case strings.Contains(err.Error(), "invalid"):
+		s.writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	snaps, err := profile.ListSnapshots(name)
+	if err != nil {
+		s.writeSnapshotError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, snaps)
+}
+
+func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var req struct {
+		Note string `json:"note"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+	}
+	snap, err := profile.CreateSnapshot(name, req.Note)
+	if err != nil {
+		s.writeSnapshotError(w, err)
+		return
+	}
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":  "snapshot",
+				"profile": name,
+				"id":      snap.ID,
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	s.writeJSON(w, http.StatusCreated, snap)
+}
+
+func (s *Server) handleRollbackSnapshot(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	id := r.PathValue("id")
+	snap, err := profile.RollbackSnapshot(name, id)
+	if err != nil {
+		s.writeSnapshotError(w, err)
+		return
+	}
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":  "rollback",
+				"profile": name,
+				"id":      snap.ID,
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	s.writeJSON(w, http.StatusOK, snap)
+}
+
+func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	id := r.PathValue("id")
+	if err := profile.DeleteSnapshot(name, id); err != nil {
+		s.writeSnapshotError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]string{
+		"profile": name,
+		"id":      id,
+		"status":  "deleted",
 	})
 }

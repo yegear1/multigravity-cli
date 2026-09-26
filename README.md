@@ -190,6 +190,9 @@ Each profile gets an automatic clickable desktop launcher:
 | Command | Description |
 |---------|-------------|
 | `multigravity export <name> [path] [--include-cache]` | Archive a profile to `.tar.gz` (`.zip` on Windows), lean by default |
+| `multigravity snapshot create <name>` | Save a restore point of the profile and its conversations (tokens omitted; refused while running) |
+| `multigravity snapshot list <name> [--json]` | List restore points for a profile |
+| `multigravity snapshot rollback <name> <id>` | Restore the profile and conversations; local tokens stay in place |
 | `multigravity import <archive> [name]` | Restore a profile from an archive |
 
 ### Server & AI Gateway

@@ -19,6 +19,15 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 08.3] Snapshot e rollback de perfil e conversas
+
+- **Contexto:** `export` / `import` movem um perfil inteiro (e o export atual pode carregar tokens). `ai export` / `import` / `sync` movem só conversas, com merge não destrutivo. Faltava um ponto de restauração do perfil e das conversas no mesmo perfil.
+- **Decisões Técnicas:**
+  - O pacote fica em `$MULTIGRAVITY_HOME/.snapshots/<perfil>/<id>.tar.gz` (fora da árvore do perfil; `ListProfiles` ignora diretórios com ponto). Manifesto JSON irmão, modo `0600`.
+  - `create` e `rollback` recusam com perfil em execução (`IsProfileRunning`), para não gravar SQLite sem flush e para não substituir a árvore com a IDE aberta. `delete` de um ponto antigo não escreve no perfil.
+  - Fora do pacote: caches, nomes com `token` / `oauth` / `credential` / `installation_id` / `auth` (exceto o sentinela `.auth_only` e nomes que só casam `auth` por causa de `antigravity`), e as árvores `.ssh`, `.gnupg`, `.config/gh` e `AppData/Roaming/GitHub CLI`. No rollback essas árvores locais são copiadas de volta por cima do ponto restaurado.
+  - Rollback substitui a árvore (conversa criada depois do ponto sai). Não é o merge do `ai import`.
+
 ### 2026-09-26 [Task 09.3] Alertas de cota crítica, queda e processo órfão
 
 - **Contexto:** O dashboard e o `serve` precisam avisar cota no limiar, queda recente e headless que morreu deixando estado. O limiar de 5% já existe no warm-up, a série está em `[09.1]` e o reap de PID morto já vive no manager headless.
