@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [13.2] | Despacho Concorrente de Tarefas e Subagentes (`multigravity exec [profile\|--all] "<prompt>"`) com pooling paralelo de cotas | feat(headless): fan out one prompt across isolated profiles | 2026-09-26 |
 | [13.1] | Autenticação Direta Headless via CLI (`multigravity login` com Google OAuth2 PKCE e callback HTTP efêmero) | feat(auth): add headless OAuth2 PKCE login into the profile vault | 2026-09-26 |
 | [11.6] | Alinhamento Estratégico de Posicionamento, Documentação (README, README.pt-br, CHANGELOG) e Catálogo de Recursos da Plataforma | docs(platform): align branding, readme, and changelog with agentic development and ai gateway architecture | 2026-09-26 |
 | [08.2] | Invocação e Gestão de Agentes Headless em Background com Isolamento de Identidade | feat(headless): add background headless instance manager, agent prompt runner, and rest endpoints | 2026-09-26 |
@@ -78,7 +79,7 @@
 - [ ] **[12.1]** Extensão Companion In-Editor para Antigravity IDE: Monitor de Cotas na StatusBar e Painel Visual via Daemon Local (`multigravity serve`)
   - *Diretriz de Execução:* **Desenvolver e testar obrigatoriamente em branch dedicada** (ex: `feat/in-editor-companion` ou `experiment/in-editor-companion`), mantendo a branch principal (`main`) livre de dependências de tooling TypeScript/VSIX até validação funcional completa.
 - [x] **[13.1]** Autenticação Direta Headless via CLI (`multigravity login <profile>` com Google OAuth2 PKCE e callback HTTP efêmero)
-- [ ] **[13.2]** Despacho Concorrente de Tarefas e Subagentes (`multigravity exec [profile|--all] "<prompt>"`) com pooling paralelo de cotas
+- [x] **[13.2]** Despacho Concorrente de Tarefas e Subagentes (`multigravity exec [profile|--all] "<prompt>"`) com pooling paralelo de cotas
 - [ ] **[13.3]** Importador e Migração de Ferramentas Comunitárias Legadas (`cockpit-tools` em `~/.antigravity_cockpit/accounts/`)
 - [ ] **[99.1]** Preparar Release (Tag Git) e Sanitizar Contexto (Apenas executar com permissão explícita do usuário)
 

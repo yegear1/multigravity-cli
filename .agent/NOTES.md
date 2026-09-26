@@ -19,6 +19,15 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 13.2] Despacho concorrente via fan-out do headless run
+
+- **Contexto:** `multigravity exec [perfil|--all] "<prompt>"` precisa queimar cotas isoladas em paralelo. O isolamento de `HOME` e do cofre por perfil já permite concorrência real, ao contrário de ferramentas que alternam o keyring global.
+- **Decisões Técnicas:**
+  - O fan-out vive em `headless.Manager.Exec` e só chama `RunAgentPrompt`. Não há pacote novo, worktree, PTY nem roteamento de gateway.
+  - Pool de workers (default: um em voo por perfil selecionado; `--workers` limita). O relatório JSON (`results`, `succeeded`, `failed`, `total_tokens`) preserva a ordem dos perfis.
+  - Falha de um perfil entra no agregado; o CLI imprime o relatório e sai com código diferente de zero. `POST /api/v1/exec` devolve HTTP 200 com o mesmo relatório.
+  - Duplicatas na lista de perfis são removidas. Prompt vazio, perfil inexistente ou `--all` sem perfis abortam antes de disparar o runner.
+
 ### 2026-09-26 [Task 13.1] Autenticação Direta Headless via CLI com OAuth2 PKCE
 
 - **Contexto:** Perfis headless precisavam de login Google sem abrir a IDE e sem gravar o refresh token no chaveiro global do sistema (invariante de isolamento: o keyring do SO é compartilhado e não pode ser alternado entre contas).

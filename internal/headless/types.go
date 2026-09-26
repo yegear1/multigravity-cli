@@ -52,3 +52,26 @@ type AgentRunResult struct {
 	ExitCode        int     `json:"exit_code"`
 	Error           string  `json:"error,omitempty"`
 }
+
+// ExecOptions selects profiles for a parallel fan-out of RunAgentPrompt.
+// All, Profiles, and Profile are mutually resolved in that order.
+type ExecOptions struct {
+	Profile                    string
+	Profiles                   []string
+	All                        bool
+	Prompt                     string
+	Timeout                    time.Duration
+	Workers                    int
+	DangerouslySkipPermissions bool
+}
+
+// ExecReport is the aggregated machine-readable result of a parallel headless fan-out.
+type ExecReport struct {
+	Prompt          string           `json:"prompt"`
+	Workers         int              `json:"workers"`
+	Results         []AgentRunResult `json:"results"`
+	Succeeded       int              `json:"succeeded"`
+	Failed          int              `json:"failed"`
+	TotalTokens     int              `json:"total_tokens"`
+	DurationSeconds float64          `json:"duration_seconds"`
+}

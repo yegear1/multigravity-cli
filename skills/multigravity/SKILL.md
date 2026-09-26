@@ -344,6 +344,9 @@ multigravity headless stop <profile>
 
 # Execute a headless agent prompt with strict identity isolation (via agy CLI or cascade RPC)
 multigravity headless run <profile> "Audit security dependencies" --json
+
+# Fan the same prompt out across every profile (existing headless runner, worker pool, aggregated JSON)
+multigravity exec --all "Audit security dependencies" --workers 4 --json
 ```
 
 ## 6. Contrast Pairs

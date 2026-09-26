@@ -153,6 +153,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity agent list [--json]` | List active PTY agent sessions |
 | `multigravity agent attach <id>` | Attach terminal directly to a running PTY agent session |
 | `multigravity agent stop <id>` | Stop a PTY agent session gracefully |
+| `multigravity exec [profile\|--all] "<prompt>" [--json]` | Fan out one prompt across a profile or every profile via the existing headless runner, with a worker pool and an aggregated JSON report |
 
 ### Ephemeral Git Worktrees
 
@@ -497,6 +498,19 @@ multigravity login work
 multigravity login status work --json
 multigravity login logout work
 ```
+
+---
+
+## Parallel headless prompts (`multigravity exec`)
+
+`multigravity exec` runs one prompt through the existing headless runner (`agy`, or the language-server cascade when `agy` is not on `PATH`). Each profile keeps its own `HOME` and credential vault. A worker pool caps how many runs are in flight. The command does not start an agent engine beside `dispatch` or the AI gateway.
+
+```bash
+multigravity exec work "Summarize the TODOs in this repository" --json
+multigravity exec --all "Summarize the TODOs in this repository" --workers 4 --json
+```
+
+The JSON report aggregates `results`, `succeeded`, `failed`, and `total_tokens`. If any profile fails, the process exits non-zero after printing the report. The same contract is available as `POST /api/v1/exec` with `{"all": true, "prompt": "...", "workers": 4}`.
 
 ---
 

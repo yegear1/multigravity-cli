@@ -153,6 +153,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity agent list [--json]` | Lista sessões ativas de agentes em PTY |
 | `multigravity agent attach <id>` | Conecta o terminal diretamente a uma sessão de agente em PTY |
 | `multigravity agent stop <id>` | Encerra uma sessão PTY de agente graciosamente |
+| `multigravity exec [perfil\|--all] "<prompt>" [--json]` | Despacha o mesmo prompt em um perfil ou em todos, pelo runner headless existente, com pool de workers e relatório JSON agregado |
 
 ### Git Worktrees Efêmeros
 
@@ -497,6 +498,19 @@ multigravity login trabalho
 multigravity login status trabalho --json
 multigravity login logout trabalho
 ```
+
+---
+
+## Despacho paralelo de prompts (`multigravity exec`)
+
+`multigravity exec` repete o mesmo prompt no runner headless que já existe (`agy`, ou o cascade do language server quando o `agy` não está no PATH). Cada perfil usa o próprio `HOME` e o próprio cofre. Um pool de workers limita quantas execuções ficam em voo. O comando não cria um motor ao lado de `dispatch` nem do gateway.
+
+```bash
+multigravity exec trabalho "Resuma os TODOs deste repositório" --json
+multigravity exec --all "Resuma os TODOs deste repositório" --workers 4 --json
+```
+
+O JSON agrega `results`, `succeeded`, `failed` e `total_tokens`. Se algum perfil falhar, o processo sai com código diferente de zero depois de imprimir o relatório. O mesmo contrato está em `POST /api/v1/exec` com corpo `{"all": true, "prompt": "...", "workers": 4}`.
 
 ---
 

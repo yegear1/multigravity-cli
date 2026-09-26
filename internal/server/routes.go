@@ -344,6 +344,8 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("POST /api/headless/{profile}/run", s.handleRunHeadlessPrompt)
 	s.mux.HandleFunc("GET /api/v1/headless/{profile}/logs", s.handleGetHeadlessLogs)
 	s.mux.HandleFunc("GET /api/headless/{profile}/logs", s.handleGetHeadlessLogs)
+	s.mux.HandleFunc("POST /api/v1/exec", s.handleExecPrompts)
+	s.mux.HandleFunc("POST /api/exec", s.handleExecPrompts)
 
 	// Web UI Visualizer (HTML for Tauri/Wails/Browser)
 	s.mux.HandleFunc("GET /ui/tasks", s.handleUITasksDashboard)
@@ -1061,10 +1063,10 @@ func (s *Server) handleCleanProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, http.StatusOK, map[string]any{
-		"profile":      name,
-		"status":       "cleaned",
-		"size_before":  before,
-		"size_after":   after,
+		"profile":     name,
+		"status":      "cleaned",
+		"size_before": before,
+		"size_after":  after,
 	})
 }
 
@@ -2422,6 +2424,73 @@ func (s *Server) handleRunHeadlessPrompt(w http.ResponseWriter, r *http.Request)
 	s.writeJSON(w, http.StatusOK, result)
 }
 
+type execPromptsRequest struct {
+	Profile                    string   `json:"profile,omitempty"`
+	Profiles                   []string `json:"profiles,omitempty"`
+	All                        bool     `json:"all,omitempty"`
+	Prompt                     string   `json:"prompt"`
+	Timeout                    string   `json:"timeout,omitempty"`
+	Workers                    int      `json:"workers,omitempty"`
+	DangerouslySkipPermissions *bool    `json:"dangerously_skip_permissions,omitempty"`
+}
+
+func (s *Server) handleExecPrompts(w http.ResponseWriter, r *http.Request) {
+	var req execPromptsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		s.writeError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+
+	timeout := 120 * time.Second
+	if req.Timeout != "" {
+		d, err := time.ParseDuration(req.Timeout)
+		if err != nil || d <= 0 {
+			s.writeError(w, http.StatusBadRequest, "timeout must be a positive duration")
+			return
+		}
+		timeout = d
+	}
+
+	skip := true
+	if req.DangerouslySkipPermissions != nil {
+		skip = *req.DangerouslySkipPermissions
+	}
+
+	mgr := headless.GetDefaultManager()
+	report, err := mgr.Exec(headless.ExecOptions{
+		Profile:                    req.Profile,
+		Profiles:                   req.Profiles,
+		All:                        req.All,
+		Prompt:                     req.Prompt,
+		Timeout:                    timeout,
+		Workers:                    req.Workers,
+		DangerouslySkipPermissions: skip,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Data: map[string]any{
+				"action":    "exec",
+				"succeeded": report.Succeeded,
+				"failed":    report.Failed,
+				"workers":   report.Workers,
+			},
+			Time: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, report)
+}
+
 func (s *Server) handleGetHeadlessLogs(w http.ResponseWriter, r *http.Request) {
 	profileName := r.PathValue("profile")
 	if profileName == "" {
@@ -2448,5 +2517,3 @@ func (s *Server) handleGetHeadlessLogs(w http.ResponseWriter, r *http.Request) {
 		"logs":    logs,
 	})
 }
-
-
