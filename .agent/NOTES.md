@@ -19,6 +19,33 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-25 [Task 15.4] Visualizador e API de Diffs / Status de Execução de Tarefas no multigravity serve para futura GUI Desktop (Tauri/Wails)
+
+- **Contexto:** Com o motor de despacho (`internal/dispatch`), terminais virtuais PTY (`internal/agent`) e Git Worktrees (`internal/worktree`) ativos, interfaces gráficas desktop (Tauri v2 / Wails v2 / web companions) e desenvolvedores em terminal necessitam de contratos de dados estruturados de diff (arquivos modificados, hunks, contadores `+`/`-`, detecção binária), endpoint consolidado de telemetria/dashboard de tarefas e visualizador web embutido diretamente no binário (`//go:embed`).
+- **Decisões Técnicas:**
+  - **Parser de Unified Git Diff (`internal/dispatch/diff_parser.go`):**
+    - `ParseUnifiedDiff(raw string) *StructuredDiff`: parser puro em Go capaz de processar diffs unificados gerados pelo Git, extraindo cabeçalhos `diff --git`, caminhos de arquivos antigos/novos, status (`modified`, `added`, `deleted`, `renamed`), detecção de binários (`Binary files ... differ`), e hunks completos (`@@ -old,lines +new,lines @@`) com linhas tipadas (`context`, `addition`, `deletion`, `header`) e contadores numéricos de linha preservados.
+    - Contratos estruturados em `types.go`: `StructuredDiff`, `DiffSummary` (`files_changed`, `additions`, `deletions`), `DiffFile`, `DiffHunk`, `DiffLine`, e `TaskDashboardSummary`.
+  - **Métodos Desacoplados no `TaskManager` (`internal/dispatch/manager.go`):**
+    - `GetTaskStructuredDiff(repoPath, id string)`: converte diff do worktree da tarefa em `StructuredDiff` (retornando estrutura vazia em tarefas sem worktree em vez de erro abrupto).
+    - `GetTaskFiles(repoPath, id string)`: retorna a lista resumida de `DiffFile` para árvores laterais rápidas na UI.
+    - `GetDashboardSummary(repoPath string)`: consolida contadores de tarefas (`total`, `running`, `completed`, `failed`, `cancelled`), tarefas ativas e até 15 tarefas mais recentes.
+  - **Endpoints REST & UI no Servidor HTTP (`internal/server`):**
+    - `GET /api/v1/dispatch/tasks/{id}/diff`: suporta `?format=structured` ou `?structured=true`, retornando o objeto aditivo `structured` no payload JSON mantendo 100% de retrocompatibilidade com clientes existentes.
+    - `GET /api/v1/dispatch/tasks/{id}/files`: listagem simplificada de arquivos e contadores.
+    - `GET /api/v1/dispatch/dashboard`: dados consolidados do dashboard.
+    - `GET /ui/tasks`: painel web moderno com estatísticas executivas, tabela de tarefas, badges em tempo real e atualização automática via eventos SSE (`/events`).
+    - `GET /ui/tasks/{id}/diff`: visualizador interativo embutido de diff com barra de estatísticas (`files changed`, `+N additions`, `-N deletions`), árvore de navegação de arquivos lateral e realce de código/linhas unificado.
+    - Empacotamento hermético via `//go:embed` em `internal/server/ui/assets/` (`diff.html` e `tasks.html`), garantindo zero dependências de Node.js ou runtime externo.
+  - **CLI `multigravity dispatch` (`internal/cmd/dispatch.go`):**
+    - `multigravity dispatch diff <task-id>`:
+      - `--structured`: exibe resumo tabular de arquivos alterados e contadores de linha no terminal.
+      - `--json`: inclui o schema completo `structured` no payload de saída.
+      - `-w, --web`: imprime a URL local pronta para visualização no navegador ou webview.
+    - `multigravity dispatch dashboard` (alias `dash`): visualizador de terminal e contrato `--json` com métricas consolidadas de tarefas.
+  - **Correção de Concorrência em PTY (`internal/agent/session.go`):**
+    - Identificada condição de corrida onde `cmd.Wait()` retornava no encerramento do processo e `s.ptyDev.Close()` era executado imediatamente pelo `waitLoop`, antes de o `readLoop` drenar os últimos bytes presentes no buffer de kernel do PTY. Adicionado canal de sincronização `readDone` permitindo esvaziamento completo da saída antes do teardown do descritor de terminal.
+
 ### 2026-09-25 [Task 15.3] Motor de Despacho de Tarefas (multigravity dispatch) com Associação de Perfil, Worktree e Captura de Logs
 
 - **Contexto:** Orquestração de agentes autônomos de desenvolvimento e tarefas isoladas requer um motor central (`internal/dispatch`) capaz de coordenar o provisionamento de Git Worktrees efêmeros (`internal/worktree`), isolamento de perfil e identidade com variáveis de ambiente dedicadas (`internal/profile`), e execução em terminais interativos virtuais PTY (`internal/agent`), persistindo logs de execução (`run.log`) e metadados (`task.json`).

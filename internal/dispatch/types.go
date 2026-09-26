@@ -76,3 +76,78 @@ type TaskManifest struct {
 	Version int             `json:"version"`
 	Tasks   map[string]Task `json:"tasks"`
 }
+
+// DiffLineType categorizes a line in a unified diff chunk.
+type DiffLineType string
+
+const (
+	DiffLineContext  DiffLineType = "context"
+	DiffLineAddition DiffLineType = "addition"
+	DiffLineDeletion DiffLineType = "deletion"
+	DiffLineHeader   DiffLineType = "header"
+)
+
+// DiffLine represents a single line inside a diff hunk with its type and line numbers.
+type DiffLine struct {
+	Type      DiffLineType `json:"type"`
+	Content   string       `json:"content"`
+	OldLineNo int          `json:"old_line_no,omitempty"`
+	NewLineNo int          `json:"new_line_no,omitempty"`
+}
+
+// DiffHunk models a chunk of modifications within a file diff.
+type DiffHunk struct {
+	Header   string     `json:"header"`
+	OldStart int        `json:"old_start"`
+	OldLines int        `json:"old_lines"`
+	NewStart int        `json:"new_start"`
+	NewLines int        `json:"new_lines"`
+	Lines    []DiffLine `json:"lines"`
+}
+
+// DiffFileStatus indicates how a file was changed.
+type DiffFileStatus string
+
+const (
+	DiffFileModified DiffFileStatus = "modified"
+	DiffFileAdded    DiffFileStatus = "added"
+	DiffFileDeleted  DiffFileStatus = "deleted"
+	DiffFileRenamed  DiffFileStatus = "renamed"
+)
+
+// DiffFile holds the structured diff for a single file including hunks and stats.
+type DiffFile struct {
+	OldPath   string         `json:"old_path,omitempty"`
+	NewPath   string         `json:"new_path"`
+	Status    DiffFileStatus `json:"status"`
+	Binary    bool           `json:"binary,omitempty"`
+	Additions int            `json:"additions"`
+	Deletions int            `json:"deletions"`
+	Hunks     []DiffHunk     `json:"hunks,omitempty"`
+}
+
+// DiffSummary consolidates changes across all files in a diff.
+type DiffSummary struct {
+	FilesChanged int `json:"files_changed"`
+	Additions    int `json:"additions"`
+	Deletions    int `json:"deletions"`
+}
+
+// StructuredDiff represents a complete parsed unified git diff.
+type StructuredDiff struct {
+	Summary DiffSummary `json:"summary"`
+	Files   []DiffFile  `json:"files"`
+	Raw     string      `json:"raw,omitempty"`
+}
+
+// TaskDashboardSummary models aggregated execution statistics for UI dashboards.
+type TaskDashboardSummary struct {
+	Total        int       `json:"total"`
+	Running      int       `json:"running"`
+	Completed    int       `json:"completed"`
+	Failed       int       `json:"failed"`
+	Cancelled    int       `json:"cancelled"`
+	RecentTasks  []Task    `json:"recent_tasks"`
+	ActiveTasks  []Task    `json:"active_tasks"`
+	GeneratedAt  time.Time `json:"generated_at"`
+}

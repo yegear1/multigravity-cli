@@ -261,3 +261,85 @@ func TestDispatchCLICancelAndPrune(t *testing.T) {
 		t.Errorf("expected at least 1 task pruned, got %v", pruneRes["pruned"])
 	}
 }
+
+func TestDispatchCLIDiffAndDashboard(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfileForCmd(t, "dev")
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newDispatchCmd()
+
+	// 1. Test Dashboard when empty
+	out, err := executeCommand(cmd, "dashboard", "--json")
+	if err != nil {
+		t.Fatalf("failed to run dispatch dashboard --json: %v", err)
+	}
+	var dash dispatch.TaskDashboardSummary
+	if err := json.Unmarshal([]byte(out), &dash); err != nil {
+		t.Fatalf("failed to decode dashboard json: %v, out: %s", err, out)
+	}
+	if dash.Total != 0 {
+		t.Errorf("expected 0 total tasks, got %d", dash.Total)
+	}
+
+	// 2. Dispatch a task with a worktree modifying a file
+	out, err = executeCommand(cmd, "run", "dev", "--new-worktree", "--detach", "--json", "--", "sh", "-c", "echo 'new line' >> README.md")
+	if err != nil {
+		t.Fatalf("failed to dispatch task with worktree: %v", err)
+	}
+	var task dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("failed to decode task json: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// 3. Test Dashboard with task present
+	out, err = executeCommand(cmd, "dashboard")
+	if err != nil {
+		t.Fatalf("failed to run dispatch dashboard: %v", err)
+	}
+	if !strings.Contains(out, "Task Execution Dashboard") {
+		t.Errorf("expected dashboard title in output: %s", out)
+	}
+
+	// 4. Test diff --json (includes structured breakdown)
+	out, err = executeCommand(cmd, "diff", task.ID, "--json")
+	if err != nil {
+		t.Fatalf("failed to run dispatch diff --json: %v", err)
+	}
+	var diffMap map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &diffMap); err != nil {
+		t.Fatalf("failed to decode diff json: %v", err)
+	}
+	if diffMap["structured"] == nil {
+		t.Errorf("expected structured key in diff JSON: %+v", diffMap)
+	}
+
+	// 5. Test diff --structured
+	out, err = executeCommand(cmd, "diff", task.ID, "--structured")
+	if err != nil {
+		t.Fatalf("failed to run dispatch diff --structured: %v", err)
+	}
+	if !strings.Contains(out, "Diff Summary") {
+		t.Errorf("expected diff summary header, got: %s", out)
+	}
+
+	// 6. Test diff --web
+	out, err = executeCommand(cmd, "diff", task.ID, "--web")
+	if err != nil {
+		t.Fatalf("failed to run dispatch diff --web: %v", err)
+	}
+	if !strings.Contains(out, "Visual Diff Viewer: http://127.0.0.1:") {
+		t.Errorf("expected web diff url, got: %s", out)
+	}
+}
+

@@ -202,7 +202,11 @@ The agent MUST NOT activate this skill when:
    | `POST` | `/api/v1/dispatch/tasks/{id}/cancel` | Cancel active task (`?force=true`) |
    | `GET` | `/api/v1/dispatch/tasks/{id}/logs` | Retrieve buffered execution logs (`?tail=100`) |
    | `GET` | `/api/v1/dispatch/tasks/{id}/stream` | Real-time SSE stream of task terminal output |
-   | `GET` | `/api/v1/dispatch/tasks/{id}/diff` | Git diff produced by the task in its worktree (`?stat=true`) |
+   | `GET` | `/api/v1/dispatch/tasks/{id}/diff` | Git diff produced by the task in its worktree (`?stat=true`, `?format=structured`) |
+   | `GET` | `/api/v1/dispatch/tasks/{id}/files` | Summary list of changed files with additions and deletions counts |
+   | `GET` | `/api/v1/dispatch/dashboard` | Aggregated execution metrics and status dashboard in JSON |
+   | `GET` | `/ui/tasks` | Embedded HTML5 web dashboard for task execution monitoring (Tauri/Wails/Browser) |
+   | `GET` | `/ui/tasks/{id}/diff` | Embedded interactive side-by-side/unified diff visualizer (Tauri/Wails/Browser) |
    | `POST` | `/api/v1/dispatch/tasks/prune` | Prune finished tasks older than max_age (`?max_age=24h`) |
 
 ## 5. Canonical Examples
@@ -273,13 +277,17 @@ multigravity clean old-experiment
 # Dispatch Claude Code with dedicated profile and git worktree
 multigravity dispatch run dev --new-worktree --prompt "implement feature X" --detach
 
-# Inspect task status and real-time execution logs
+# Inspect task status, dashboard, and real-time execution logs
 multigravity dispatch list
+multigravity dispatch dashboard
 multigravity dispatch status <task-id>
 multigravity dispatch logs <task-id> -f
 
-# Review git diff inside the isolated worktree
+# Review git diff inside the isolated worktree (terminal, structured stats, JSON, or visual web)
 multigravity dispatch diff <task-id>
+multigravity dispatch diff <task-id> --structured
+multigravity dispatch diff <task-id> --web
+multigravity dispatch diff <task-id> --json
 ```
 
 ## 6. Contrast Pairs

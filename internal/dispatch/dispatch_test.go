@@ -165,8 +165,31 @@ func TestDispatchTaskLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get task diff: %v", err)
 	}
-	// Untracked or modified file in worktree
 	_ = diff
+
+	// Verify structured diff and files
+	sd, err := taskMgr.GetTaskStructuredDiff(repoDir, "task-test-lifecycle")
+	if err != nil {
+		t.Fatalf("failed to get structured diff: %v", err)
+	}
+	if sd == nil {
+		t.Fatal("expected non-nil structured diff")
+	}
+
+	files, err := taskMgr.GetTaskFiles(repoDir, "task-test-lifecycle")
+	if err != nil {
+		t.Fatalf("failed to get task files: %v", err)
+	}
+	_ = files
+
+	// Verify Dashboard Summary
+	dashboard, err := taskMgr.GetDashboardSummary(repoDir)
+	if err != nil {
+		t.Fatalf("failed to get dashboard summary: %v", err)
+	}
+	if dashboard.Total < 1 {
+		t.Errorf("expected dashboard total >= 1, got %d", dashboard.Total)
+	}
 
 	// Verify ListTasks
 	tasks, err := taskMgr.ListTasks(repoDir, TaskFilter{Profile: "dev"})

@@ -1936,6 +1936,74 @@ func TestDispatchEndpoints(t *testing.T) {
 		t.Fatalf("expected 200, got %d", streamResp.StatusCode)
 	}
 
+	// 5a. GET /api/v1/dispatch/dashboard
+	dashResp, err := http.Get(ts.URL + "/api/v1/dispatch/dashboard")
+	if err != nil {
+		t.Fatalf("failed to GET dashboard: %v", err)
+	}
+	defer dashResp.Body.Close()
+	if dashResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for dashboard, got %d", dashResp.StatusCode)
+	}
+	var dashAPIResp APIResponse
+	_ = json.NewDecoder(dashResp.Body).Decode(&dashAPIResp)
+	dashMap, _ := dashAPIResp.Data.(map[string]any)
+	if dashMap["total"] == nil {
+		t.Errorf("expected dashboard total count in response")
+	}
+
+	// 5b. GET /api/v1/dispatch/tasks/{id}/diff?format=structured
+	diffResp, err := http.Get(fmt.Sprintf("%s/api/v1/dispatch/tasks/%s/diff?format=structured", ts.URL, taskID))
+	if err != nil {
+		t.Fatalf("failed to GET structured diff: %v", err)
+	}
+	defer diffResp.Body.Close()
+	if diffResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for diff, got %d", diffResp.StatusCode)
+	}
+	var diffAPIResp APIResponse
+	_ = json.NewDecoder(diffResp.Body).Decode(&diffAPIResp)
+	diffMap, _ := diffAPIResp.Data.(map[string]any)
+	if diffMap["structured"] == nil {
+		t.Errorf("expected structured key in diff response: %+v", diffMap)
+	}
+
+	// 5c. GET /api/v1/dispatch/tasks/{id}/files
+	filesResp, err := http.Get(fmt.Sprintf("%s/api/v1/dispatch/tasks/%s/files", ts.URL, taskID))
+	if err != nil {
+		t.Fatalf("failed to GET task files: %v", err)
+	}
+	defer filesResp.Body.Close()
+	if filesResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for task files, got %d", filesResp.StatusCode)
+	}
+
+	// 5d. GET /ui/tasks (HTML)
+	uiTasksResp, err := http.Get(ts.URL + "/ui/tasks")
+	if err != nil {
+		t.Fatalf("failed to GET /ui/tasks: %v", err)
+	}
+	defer uiTasksResp.Body.Close()
+	if uiTasksResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for /ui/tasks, got %d", uiTasksResp.StatusCode)
+	}
+	if !strings.Contains(uiTasksResp.Header.Get("Content-Type"), "text/html") {
+		t.Errorf("expected text/html content-type, got %s", uiTasksResp.Header.Get("Content-Type"))
+	}
+
+	// 5e. GET /ui/tasks/{id}/diff (HTML)
+	uiDiffResp, err := http.Get(fmt.Sprintf("%s/ui/tasks/%s/diff", ts.URL, taskID))
+	if err != nil {
+		t.Fatalf("failed to GET /ui/tasks/{id}/diff: %v", err)
+	}
+	defer uiDiffResp.Body.Close()
+	if uiDiffResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for /ui/tasks/{id}/diff, got %d", uiDiffResp.StatusCode)
+	}
+	if !strings.Contains(uiDiffResp.Header.Get("Content-Type"), "text/html") {
+		t.Errorf("expected text/html content-type, got %s", uiDiffResp.Header.Get("Content-Type"))
+	}
+
 	// 6. DELETE /api/v1/dispatch/tasks/{id}
 	delReq, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/dispatch/tasks/%s", ts.URL, taskID), nil)
 	delResp, err := http.DefaultClient.Do(delReq)

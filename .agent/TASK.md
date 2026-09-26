@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [15.4] | Visualizador e API de Diffs / Status de Execução de Tarefas no `multigravity serve` para futura GUI Desktop (Tauri/Wails) | feat(dispatch): add structured diff parser, execution dashboard, and web visualizer for desktop guis | 2026-09-25 |
 | [15.3] | Motor de Despacho de Tarefas (`multigravity dispatch`) com Associação de Perfil, Worktree e Captura de Logs | feat(dispatch): add task dispatcher with profile isolation, worktrees, and log capture | 2026-09-25 |
 | [15.2] | Multiplexador de Terminais PTY e Execução Headless de Agentes CLI (Claude Code, Aider, OpenCode) com Isolamento de Identidade | feat(agent): add pty multiplexer and headless agent execution with profile isolation | 2026-09-25 |
 | [15.1] | Gerenciador de Git Worktrees Efêmeros por Agente/Tarefa (`internal/worktree`) | feat(worktree): add ephemeral git worktree manager with cli and rest endpoints | 2026-09-25 |
@@ -55,7 +56,7 @@
 - [x] **[15.1]** Gerenciador de Git Worktrees Efêmeros por Agente/Tarefa (`internal/worktree`)
 - [x] **[15.2]** Multiplexador de Terminais PTY e Execução Headless de Agentes CLI (Claude Code, Aider, OpenCode) com Isolamento de Identidade
 - [x] **[15.3]** Motor de Despacho de Tarefas (`multigravity dispatch`) com Associação de Perfil, Worktree e Captura de Logs
-- [ ] **[15.4]** Visualizador e API de Diffs / Status de Execução de Tarefas no `multigravity serve` para futura GUI Desktop (Tauri/Wails)
+- [x] **[15.4]** Visualizador e API de Diffs / Status de Execução de Tarefas no `multigravity serve` para futura GUI Desktop (Tauri/Wails)
 
 ### Backlog Geral de Evolução do Core
 - [ ] **[08.1]** Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil

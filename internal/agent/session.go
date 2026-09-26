@@ -20,6 +20,7 @@ type SessionInstance struct {
 	totalBytes  int64
 	subscribers map[chan OutputChunk]struct{}
 	exitChan    chan struct{}
+	readDone    chan struct{}
 	closed      bool
 }
 
@@ -31,6 +32,7 @@ func newSessionInstance(info Session, cmd *exec.Cmd, dev ptyDevice) *SessionInst
 		outputBuf:   make([]byte, 0, 8192),
 		subscribers: make(map[chan OutputChunk]struct{}),
 		exitChan:    make(chan struct{}),
+		readDone:    make(chan struct{}),
 	}
 
 	go inst.readLoop()
@@ -40,6 +42,7 @@ func newSessionInstance(info Session, cmd *exec.Cmd, dev ptyDevice) *SessionInst
 }
 
 func (s *SessionInstance) readLoop() {
+	defer close(s.readDone)
 	buf := make([]byte, 4096)
 	for {
 		n, err := s.ptyDev.Read(buf)
@@ -56,6 +59,12 @@ func (s *SessionInstance) readLoop() {
 
 func (s *SessionInstance) waitLoop() {
 	err := s.cmd.Wait()
+
+	// Wait up to 500ms for readLoop to drain any remaining output chunks from the PTY
+	select {
+	case <-s.readDone:
+	case <-time.After(500 * time.Millisecond):
+	}
 
 	s.mu.Lock()
 	now := time.Now()

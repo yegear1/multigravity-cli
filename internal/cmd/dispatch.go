@@ -3,7 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/fatih/color"
@@ -28,6 +31,8 @@ var (
 	dpTail        int
 	dpFollow      bool
 	dpStatOnly    bool
+	dpStructured  bool
+	dpWeb         bool
 	dpForce       bool
 	dpRmWorktree  bool
 	dpMaxAgeStr   string
@@ -124,6 +129,17 @@ with profile-isolated credentials, ephemeral git worktrees, and persistent log c
 		RunE:  runDispatchDiff,
 	}
 	diffSubCmd.Flags().BoolVar(&dpStatOnly, "stat", false, "Display diffstat summary only")
+	diffSubCmd.Flags().BoolVar(&dpStructured, "structured", false, "Display structured file-by-file changes and stats")
+	diffSubCmd.Flags().BoolVarP(&dpWeb, "web", "w", false, "Display URL or open in visual web diff viewer")
+
+	// Dashboard Subcommand
+	dashboardSubCmd := &cobra.Command{
+		Use:     "dashboard",
+		Aliases: []string{"dash"},
+		Short:   "Display aggregated task execution statistics and status dashboard",
+		Args:    cobra.NoArgs,
+		RunE:    runDispatchDashboard,
+	}
 
 	// Cancel Subcommand
 	cancelSubCmd := &cobra.Command{
@@ -156,7 +172,7 @@ with profile-isolated credentials, ephemeral git worktrees, and persistent log c
 	}
 	pruneSubCmd.Flags().StringVar(&dpMaxAgeStr, "max-age", "24h", "Maximum age of completed/cancelled tasks to preserve (e.g. 24h, 7d)")
 
-	dispatchCmd.AddCommand(runSubCmd, listSubCmd, statusSubCmd, logsSubCmd, diffSubCmd, cancelSubCmd, deleteSubCmd, pruneSubCmd)
+	dispatchCmd.AddCommand(runSubCmd, listSubCmd, statusSubCmd, logsSubCmd, diffSubCmd, dashboardSubCmd, cancelSubCmd, deleteSubCmd, pruneSubCmd)
 	return dispatchCmd
 }
 
@@ -508,6 +524,8 @@ func runDispatchLogs(cmd *cobra.Command, args []string) error {
 func runDispatchDiff(cmd *cobra.Command, args []string) error {
 	defer func() {
 		dpStatOnly = false
+		dpStructured = false
+		dpWeb = false
 		dpJSON = false
 	}()
 
@@ -518,7 +536,34 @@ func runDispatchDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	out := cmd.OutOrStdout()
+
+	if dpWeb {
+		port := 8989
+		if envPort := os.Getenv("MULTIGRAVITY_PORT"); envPort != "" {
+			if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
+				port = p
+			}
+		}
+		url := fmt.Sprintf("http://127.0.0.1:%d/ui/tasks/%s/diff", port, taskID)
+		fmt.Fprintf(out, "Visual Diff Viewer: %s\n", url)
+		return nil
+	}
+
 	if task.WorktreePath == "" {
+		if dpJSON {
+			res := map[string]interface{}{
+				"id":          taskID,
+				"worktree_id": "",
+				"branch":      "",
+				"base_commit": "",
+				"diff":        "",
+				"structured":  &dispatch.StructuredDiff{Files: []dispatch.DiffFile{}},
+			}
+			enc := json.NewEncoder(out)
+			enc.SetIndent("", "  ")
+			return enc.Encode(res)
+		}
 		return fmt.Errorf("task %q does not have an ephemeral worktree", taskID)
 	}
 
@@ -526,8 +571,6 @@ func runDispatchDiff(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to compute git diff: %w", err)
 	}
-
-	out := cmd.OutOrStdout()
 
 	if dpJSON {
 		res := map[string]interface{}{
@@ -537,9 +580,31 @@ func runDispatchDiff(cmd *cobra.Command, args []string) error {
 			"base_commit": task.BaseCommit,
 			"diff":        diff,
 		}
+		if dpStructured || dpJSON {
+			res["structured"] = dispatch.ParseUnifiedDiff(diff)
+		}
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		return enc.Encode(res)
+	}
+
+	if dpStructured {
+		sd := dispatch.ParseUnifiedDiff(diff)
+		fmt.Fprintf(out, "Diff Summary for %s:\n", dpBold(taskID))
+		fmt.Fprintf(out, "Files Changed: %d | Additions: %s | Deletions: %s\n\n",
+			sd.Summary.FilesChanged, dpGreen(fmt.Sprintf("+%d", sd.Summary.Additions)), dpRed(fmt.Sprintf("-%d", sd.Summary.Deletions)))
+		for _, f := range sd.Files {
+			p := f.NewPath
+			if p == "" {
+				p = f.OldPath
+			}
+			if f.Binary {
+				fmt.Fprintf(out, "  [%s] %s (binary)\n", strings.ToUpper(string(f.Status)), p)
+			} else {
+				fmt.Fprintf(out, "  [%s] %s (+%d, -%d)\n", strings.ToUpper(string(f.Status)), p, f.Additions, f.Deletions)
+			}
+		}
+		return nil
 	}
 
 	if strings.TrimSpace(diff) == "" {
@@ -551,6 +616,73 @@ func runDispatchDiff(cmd *cobra.Command, args []string) error {
 	if !strings.HasSuffix(diff, "\n") {
 		fmt.Fprintln(out)
 	}
+	return nil
+}
+
+func runDispatchDashboard(cmd *cobra.Command, args []string) error {
+	defer func() {
+		dpJSON = false
+	}()
+
+	mgr := dispatch.GetDefaultTaskManager()
+	summary, err := mgr.GetDashboardSummary("")
+	if err != nil {
+		return fmt.Errorf("failed to get dashboard summary: %w", err)
+	}
+
+	out := cmd.OutOrStdout()
+	if dpJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(summary)
+	}
+
+	fmt.Fprintf(out, "%s\n", dpBold("Task Execution Dashboard"))
+	fmt.Fprintf(out, "Total: %d | Running: %s | Completed: %s | Failed: %s | Cancelled: %s\n\n",
+		summary.Total,
+		dpCyan(fmt.Sprintf("%d", summary.Running)),
+		dpGreen(fmt.Sprintf("%d", summary.Completed)),
+		dpRed(fmt.Sprintf("%d", summary.Failed)),
+		dpDim(fmt.Sprintf("%d", summary.Cancelled)),
+	)
+
+	if len(summary.RecentTasks) == 0 {
+		fmt.Fprintln(out, "No dispatched tasks found.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", dpBold("TASK ID"), dpBold("PROFILE"), dpBold("STATUS"), dpBold("DURATION"), dpBold("COMMAND/PROMPT"))
+	for _, t := range summary.RecentTasks {
+		dur := "-"
+		if t.DurationSeconds > 0 {
+			dur = fmt.Sprintf("%.1fs", t.DurationSeconds)
+		} else if t.Status == dispatch.StatusRunning {
+			dur = "active"
+		}
+		cmdOrPrompt := t.Prompt
+		if cmdOrPrompt == "" {
+			cmdOrPrompt = t.Command
+		}
+		if len(cmdOrPrompt) > 40 {
+			cmdOrPrompt = cmdOrPrompt[:37] + "..."
+		}
+
+		statusStr := string(t.Status)
+		switch t.Status {
+		case dispatch.StatusRunning:
+			statusStr = dpCyan("● running")
+		case dispatch.StatusCompleted:
+			statusStr = dpGreen("✓ completed")
+		case dispatch.StatusFailed:
+			statusStr = dpRed("✗ failed")
+		case dispatch.StatusCancelled:
+			statusStr = dpDim("! cancelled")
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.Profile, statusStr, dur, cmdOrPrompt)
+	}
+	w.Flush()
 	return nil
 }
 

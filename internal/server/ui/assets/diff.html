@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diff: {{.Task.ID}} — Multigravity</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --card-border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --text-bright: #f0f6fc;
+      --accent: #58a6ff;
+      --add-bg: rgba(46, 160, 67, 0.18);
+      --add-line-bg: rgba(46, 160, 67, 0.28);
+      --add-text: #3fb950;
+      --del-bg: rgba(248, 81, 73, 0.18);
+      --del-line-bg: rgba(248, 81, 73, 0.28);
+      --del-text: #f85149;
+      --hunk-bg: #1c2128;
+      --hunk-text: #7ee787;
+      --badge-bg: #21262d;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.5;
+      padding: 24px;
+    }
+
+    header {
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text-bright);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .badge {
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge-running { background: #1f6feb; color: #fff; }
+    .badge-completed { background: #238636; color: #fff; }
+    .badge-failed { background: #da3633; color: #fff; }
+    .badge-cancelled { background: #6e7681; color: #fff; }
+    .badge-pending { background: #d29922; color: #000; }
+
+    .meta-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .meta-bar strong { color: var(--text-bright); }
+    .nav-links {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .nav-links a {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 14px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      transition: all 0.15s ease;
+    }
+    .nav-links a:hover {
+      background: var(--card-border);
+    }
+
+    /* Summary bar */
+    .summary-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .stats {
+      display: flex;
+      gap: 16px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .stat-add { color: var(--add-text); }
+    .stat-del { color: var(--del-text); }
+
+    /* Layout */
+    .container {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 860px) {
+      .container { grid-template-columns: 1fr; }
+    }
+
+    /* Sidebar / File Tree */
+    .sidebar {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 16px;
+      max-height: calc(100vh - 200px);
+      overflow-y: auto;
+      position: sticky;
+      top: 20px;
+    }
+    .sidebar-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-bright);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .file-nav-list { list-style: none; }
+    .file-nav-item {
+      margin-bottom: 6px;
+    }
+    .file-nav-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      border-radius: 6px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 13px;
+      word-break: break-all;
+      transition: background 0.15s;
+    }
+    .file-nav-link:hover {
+      background: var(--badge-bg);
+      color: var(--text-bright);
+    }
+    .file-tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 8px;
+      flex-shrink: 0;
+    }
+    .tag-modified { background: #d29922; color: #000; }
+    .tag-added { background: #238636; color: #fff; }
+    .tag-deleted { background: #da3633; color: #fff; }
+    .tag-renamed { background: #8957e5; color: #fff; }
+
+    /* Diff View */
+    .diff-list { display: flex; flex-direction: column; gap: 20px; }
+    .diff-file-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .diff-file-header {
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--card-border);
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--text-bright);
+      word-break: break-all;
+    }
+    .file-counts {
+      display: flex;
+      gap: 10px;
+      font-size: 12px;
+      font-family: var(--font-sans);
+    }
+    .diff-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+    .diff-table td {
+      padding: 2px 8px;
+      vertical-align: top;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .line-no {
+      width: 48px;
+      text-align: right;
+      color: var(--text-muted);
+      user-select: none;
+      background: var(--card-bg);
+      border-right: 1px solid var(--card-border);
+    }
+    .line-hunk {
+      background: var(--hunk-bg);
+      color: var(--hunk-text);
+      font-style: italic;
+    }
+    .line-addition {
+      background: var(--add-bg);
+      color: var(--text-bright);
+    }
+    .line-addition .line-no {
+      background: var(--add-line-bg);
+      color: var(--add-text);
+    }
+    .line-deletion {
+      background: var(--del-bg);
+      color: var(--text-bright);
+    }
+    .line-deletion .line-no {
+      background: var(--del-line-bg);
+      color: var(--del-text);
+    }
+    .line-context {
+      background: transparent;
+      color: var(--text);
+    }
+    .empty-diff {
+      padding: 40px;
+      text-align: center;
+      color: var(--text-muted);
+      background: var(--card-bg);
+      border-radius: 8px;
+      border: 1px dashed var(--card-border);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-top">
+      <h1>
+        Diff: {{.Task.ID}}
+        <span class="badge badge-{{.Task.Status}}">{{.Task.Status}}</span>
+      </h1>
+      <div class="nav-links">
+        <a href="/ui/tasks">← Back to Tasks</a>
+        <a href="/api/v1/dispatch/tasks/{{.Task.ID}}/diff?format=structured" target="_blank">Raw JSON</a>
+      </div>
+    </div>
+    <div class="meta-bar">
+      <span>Profile: <strong>{{.Task.Profile}}</strong></span>
+      {{if .Task.Branch}}<span>Branch: <strong>{{.Task.Branch}}</strong></span>{{end}}
+      {{if .Task.WorktreeID}}<span>Worktree: <strong>{{.Task.WorktreeID}}</strong></span>{{end}}
+      {{if .Task.BaseCommit}}<span>Base: <code>{{.Task.BaseCommit}}</code></span>{{end}}
+      {{if .Task.Command}}<span>Command: <code>{{.Task.Command}}</code></span>{{end}}
+    </div>
+  </header>
+
+  <div class="summary-card">
+    <div class="stats">
+      <span><strong>{{.Structured.Summary.FilesChanged}}</strong> files changed</span>
+      <span class="stat-add">+{{.Structured.Summary.Additions}} additions</span>
+      <span class="stat-del">-{{.Structured.Summary.Deletions}} deletions</span>
+    </div>
+    <div style="font-size: 13px; color: var(--text-muted);">
+      Updated at {{.GeneratedAt.Format "15:04:05 UTC"}}
+    </div>
+  </div>
+
+  {{if eq (len .Structured.Files) 0}}
+    <div class="empty-diff">
+      <h3>No changes detected</h3>
+      <p style="margin-top: 8px;">The worktree is clean or no commit diff was found relative to base.</p>
+    </div>
+  {{else}}
+    <div class="container">
+      <nav class="sidebar">
+        <div class="sidebar-title">Files Changed</div>
+        <ul class="file-nav-list">
+          {{range $i, $file := .Structured.Files}}
+            <li class="file-nav-item">
+              <a class="file-nav-link" href="#file-{{$i}}">
+                <span>{{if $file.NewPath}}{{$file.NewPath}}{{else}}{{$file.OldPath}}{{end}}</span>
+                <span class="file-tag tag-{{$file.Status}}">{{$file.Status}}</span>
+              </a>
+            </li>
+          {{end}}
+        </ul>
+      </nav>
+
+      <main class="diff-list">
+        {{range $i, $file := .Structured.Files}}
+          <article class="diff-file-card" id="file-{{$i}}">
+            <div class="diff-file-header">
+              <span>{{if $file.NewPath}}{{$file.NewPath}}{{else}}{{$file.OldPath}}{{end}}</span>
+              <div class="file-counts">
+                {{if $file.Binary}}
+                  <span class="file-tag tag-modified">BINARY</span>
+                {{else}}
+                  <span class="stat-add">+{{$file.Additions}}</span>
+                  <span class="stat-del">-{{$file.Deletions}}</span>
+                {{end}}
+              </div>
+            </div>
+
+            {{if $file.Binary}}
+              <div style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                Binary file differences not shown
+              </div>
+            {{else}}
+              <table class="diff-table">
+                <tbody>
+                  {{range $file.Hunks}}
+                    <tr class="line-hunk">
+                      <td class="line-no">...</td>
+                      <td class="line-no">...</td>
+                      <td>@@ -{{.OldStart}},{{.OldLines}} +{{.NewStart}},{{.NewLines}} @@ {{.Header}}</td>
+                    </tr>
+                    {{range .Lines}}
+                      {{if eq .Type "addition"}}
+                        <tr class="line-addition">
+                          <td class="line-no"></td>
+                          <td class="line-no">{{.NewLineNo}}</td>
+                          <td>+{{.Content}}</td>
+                        </tr>
+                      {{else if eq .Type "deletion"}}
+                        <tr class="line-deletion">
+                          <td class="line-no">{{.OldLineNo}}</td>
+                          <td class="line-no"></td>
+                          <td>-{{.Content}}</td>
+                        </tr>
+                      {{else if eq .Type "header"}}
+                        <tr class="line-hunk">
+                          <td class="line-no"></td>
+                          <td class="line-no"></td>
+                          <td>{{.Content}}</td>
+                        </tr>
+                      {{else}}
+                        <tr class="line-context">
+                          <td class="line-no">{{.OldLineNo}}</td>
+                          <td class="line-no">{{.NewLineNo}}</td>
+                          <td> {{.Content}}</td>
+                        </tr>
+                      {{end}}
+                    {{end}}
+                  {{end}}
+                </tbody>
+              </table>
+            {{end}}
+          </article>
+        {{end}}
+      </main>
+    </div>
+  {{end}}
+
+</body>
+</html>

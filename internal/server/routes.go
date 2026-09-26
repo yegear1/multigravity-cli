@@ -16,6 +16,7 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/prime"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
+	"github.com/ye-dev/multigravity-cli/internal/server/ui"
 	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
 
@@ -311,6 +312,16 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /api/dispatch/tasks/{id}/stream", s.handleStreamDispatchedTaskLogs)
 	s.mux.HandleFunc("GET /api/v1/dispatch/tasks/{id}/diff", s.handleGetDispatchedTaskDiff)
 	s.mux.HandleFunc("GET /api/dispatch/tasks/{id}/diff", s.handleGetDispatchedTaskDiff)
+	s.mux.HandleFunc("GET /api/v1/dispatch/tasks/{id}/files", s.handleGetDispatchedTaskFiles)
+	s.mux.HandleFunc("GET /api/dispatch/tasks/{id}/files", s.handleGetDispatchedTaskFiles)
+	s.mux.HandleFunc("GET /api/v1/dispatch/dashboard", s.handleGetDispatchedDashboard)
+	s.mux.HandleFunc("GET /api/dispatch/dashboard", s.handleGetDispatchedDashboard)
+
+	// Web UI Visualizer (HTML for Tauri/Wails/Browser)
+	s.mux.HandleFunc("GET /ui/tasks", s.handleUITasksDashboard)
+	s.mux.HandleFunc("GET /ui/dispatch/tasks", s.handleUITasksDashboard)
+	s.mux.HandleFunc("GET /ui/tasks/{id}/diff", s.handleUITaskDiff)
+	s.mux.HandleFunc("GET /ui/dispatch/tasks/{id}/diff", s.handleUITaskDiff)
 }
 
 func (s *Server) handleGatewayChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -1961,6 +1972,7 @@ func (s *Server) handleGetDispatchedTaskDiff(w http.ResponseWriter, r *http.Requ
 	q := r.URL.Query()
 	repoPath := q.Get("repo")
 	statOnly := q.Get("stat") == "true"
+	isStructured := q.Get("format") == "structured" || q.Get("structured") == "true"
 
 	task, err := dispatch.GetDefaultTaskManager().GetTask(repoPath, id)
 	if err != nil {
@@ -1974,13 +1986,91 @@ func (s *Server) handleGetDispatchedTaskDiff(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	s.writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"id":          id,
 		"worktree_id": task.WorktreeID,
 		"branch":      task.Branch,
 		"base_commit": task.BaseCommit,
 		"diff":        diff,
+	}
+
+	if isStructured {
+		resp["structured"] = dispatch.ParseUnifiedDiff(diff)
+	}
+
+	s.writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetDispatchedTaskFiles(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repoPath := r.URL.Query().Get("repo")
+
+	files, err := dispatch.GetDefaultTaskManager().GetTaskFiles(repoPath, id)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":    id,
+		"files": files,
+		"total": len(files),
 	})
+}
+
+func (s *Server) handleGetDispatchedDashboard(w http.ResponseWriter, r *http.Request) {
+	repoPath := r.URL.Query().Get("repo")
+	summary, err := dispatch.GetDefaultTaskManager().GetDashboardSummary(repoPath)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleUITasksDashboard(w http.ResponseWriter, r *http.Request) {
+	repoPath := r.URL.Query().Get("repo")
+	summary, err := dispatch.GetDefaultTaskManager().GetDashboardSummary(repoPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load dashboard: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := ui.DashboardPageData{
+		Summary:     summary,
+		GeneratedAt: time.Now().UTC(),
+	}
+	if err := ui.RenderDashboard(w, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleUITaskDiff(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repoPath := r.URL.Query().Get("repo")
+
+	task, err := dispatch.GetDefaultTaskManager().GetTask(repoPath, id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Task not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	sd, err := dispatch.GetDefaultTaskManager().GetTaskStructuredDiff(repoPath, id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to compute diff: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := ui.DiffPageData{
+		Task:        *task,
+		Structured:  sd,
+		GeneratedAt: time.Now().UTC(),
+	}
+	if err := ui.RenderDiff(w, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) handlePruneDispatchedTasks(w http.ResponseWriter, r *http.Request) {

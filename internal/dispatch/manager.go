@@ -682,11 +682,67 @@ func (m *TaskManager) GetTaskDiff(repoPath, id string, statOnly bool) (string, e
 	}
 
 	if task.WorktreePath == "" {
-		return "", fmt.Errorf("task %q does not have an associated worktree", id)
+		return "", nil
 	}
 
 	base := task.BaseCommit
 	return worktree.GitDiff(task.WorktreePath, base, statOnly, false)
+}
+
+// GetTaskStructuredDiff parses the git diff of the task's worktree into a structured model.
+func (m *TaskManager) GetTaskStructuredDiff(repoPath, id string) (*StructuredDiff, error) {
+	raw, err := m.GetTaskDiff(repoPath, id, false)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUnifiedDiff(raw), nil
+}
+
+// GetTaskFiles returns the list of modified files with their stats for the given task.
+func (m *TaskManager) GetTaskFiles(repoPath, id string) ([]DiffFile, error) {
+	sd, err := m.GetTaskStructuredDiff(repoPath, id)
+	if err != nil {
+		return nil, err
+	}
+	return sd.Files, nil
+}
+
+// GetDashboardSummary aggregates execution metrics, counts, and recent tasks for GUI dashboards.
+func (m *TaskManager) GetDashboardSummary(repoPath string) (*TaskDashboardSummary, error) {
+	tasks, err := m.ListTasks(repoPath, TaskFilter{})
+	if err != nil {
+		return nil, err
+	}
+
+	summary := &TaskDashboardSummary{
+		Total:       len(tasks),
+		RecentTasks: make([]Task, 0),
+		ActiveTasks: make([]Task, 0),
+		GeneratedAt: time.Now().UTC(),
+	}
+
+	for _, t := range tasks {
+		switch t.Status {
+		case StatusRunning:
+			summary.Running++
+			summary.ActiveTasks = append(summary.ActiveTasks, t)
+		case StatusCompleted:
+			summary.Completed++
+		case StatusFailed:
+			summary.Failed++
+		case StatusCancelled:
+			summary.Cancelled++
+		}
+	}
+
+	// Limit RecentTasks to up to 15 newest
+	limit := 15
+	if len(tasks) < limit {
+		limit = len(tasks)
+	}
+	summary.RecentTasks = tasks[:limit]
+
+	return summary, nil
 }
 
 // PruneTasks removes completed/failed/cancelled tasks older than maxAge.
