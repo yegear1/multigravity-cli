@@ -19,6 +19,14 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 09.2] Stream de log só da IDE gráfica
+
+- **Contexto:** `headless logs --follow` já cobre o language server gerenciado. `dispatch logs --follow` já cobre a saída das tarefas. O processo Electron da IDE grava à parte.
+- **Decisões Técnicas:**
+  - O arquivo é `<user-data-dir>/logs/main.log`. `language_server.log` no mesmo diretório fica de fora.
+  - `multigravity logs <perfil> [--tail N] [--follow] [--json]` e `GET /api/v1/profiles/{name}/ide/logs` (`tail`, `follow=true` em SSE). Sem `--follow`, JSON devolve o tail sanitizado. Com `--follow --json`, a CLI emite NDJSON `{"chunk":"..."}`.
+  - `main.log` inclui `--csrf_token` e `--host_bridge_token` na linha de spawn. A leitura exposta redige esses valores para `[redacted]`.
+
 ### 2026-09-26 [Task 08.3] Snapshot e rollback de perfil e conversas
 
 - **Contexto:** `export` / `import` movem um perfil inteiro (e o export atual pode carregar tokens). `ai export` / `import` / `sync` movem só conversas, com merge não destrutivo. Faltava um ponto de restauração do perfil e das conversas no mesmo perfil.

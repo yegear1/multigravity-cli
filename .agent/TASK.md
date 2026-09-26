@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [09.2] | Stream de log da IDE gráfica (`logs`, `GET /profiles/{name}/ide/logs`) | feat(logs): stream redacted IDE main.log | 2026-09-26 |
 | [08.3] | Sistema de Snapshots e Rollback Seguro de Perfis e Conversas | feat(profile): add snapshot and rollback for profiles and conversations | 2026-09-26 |
 | [09.3] | Sistema de Alertas Proativos e Notificações de Eventos (Cota Crítica, Quedas, Processos Órfãos) | feat(alert): report critical quota, drops, and reaped headless processes | 2026-09-26 |
 | [09.1] | Histórico Temporal de Consumo de Cotas e Métricas de Tokens por Perfil | feat(quota): record per-profile quota and token history | 2026-09-26 |
@@ -71,7 +72,7 @@
 - [x] **[08.2]** Invocação e Gestão de Agentes Headless em Background com Isolamento de Identidade
 - [x] **[08.3]** Sistema de Snapshots e Rollback Seguro de Perfis e Conversas
 - [x] **[09.1]** Histórico Temporal de Consumo de Cotas e Métricas de Tokens por Perfil
-- [ ] **[09.2]** Streaming de Logs em Tempo Real (Live Log Stream do Language Server e Processos da IDE)
+- [x] **[09.2]** Stream de log da IDE gráfica (`main.log`). Language server gerenciado e tarefas continuam em `headless logs --follow` e `dispatch logs --follow`
 - [x] **[09.3]** Sistema de Alertas Proativos e Notificações de Eventos (Cota Crítica, Quedas, Processos Órfãos)
 - [ ] **[10.1]** Catálogo Centralizado e Diagnóstico de Saúde de Ferramentas (MCP Hub e Skills Registry)
 

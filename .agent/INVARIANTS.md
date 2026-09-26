@@ -107,3 +107,11 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
 - **Cofre de arquivo do perfil (`multigravity login`):** A autenticação headless grava o refresh token apenas em `<perfil>/.gemini/antigravity-cli/antigravity-oauth-token` e na cópia `<perfil>/.gemini/jetski-standalone-oauth-token` (modo `0600`). O comando não chama CredWrite, Keychain nem Secret Service do host. Quando esse arquivo existe, o ambiente isolado do perfil exporta `GEMINI_FORCE_FILE_STORAGE=true` para o `agy` ler o cofre do perfil.
 - **`multigravity exec` não é um motor novo:** O fan-out concorrente só chama o runner headless já existente (`RunAgentPrompt`) por perfil, com pool de workers. Não alterna o keyring do host, não provisiona worktree e não fala com o gateway. Despacho com worktree/PTY continua em `dispatch`; completions continuam no gateway.
 
+---
+
+## 10. Log da IDE gráfica
+
+- O processo Electron grava em `<user-data-dir>/logs/main.log` (`Electron Logs` no próprio arquivo). O language server embutido na IDE grava o vizinho `language_server.log`.
+- `multigravity logs` e `GET /api/v1/profiles/{name}/ide/logs` leem somente `main.log`. O language server gerenciado continua em `headless logs`; a saída de tarefa continua em `dispatch logs`.
+- A linha de spawn em `main.log` contém `--csrf_token` e `--host_bridge_token`. Qualquer leitura exposta pela CLI ou pela API redige esses valores. Não copiar o arquivo cru para stdout, JSON ou SSE.
+

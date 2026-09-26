@@ -2238,10 +2238,3 @@ func TestHeadlessServerEndpoints(t *testing.T) {
 		t.Fatalf("expected 200 on stop, got %d", recStop.Code)
 	}
 }
-
-
-
-
-
-
-
