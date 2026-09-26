@@ -132,6 +132,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity gh share <nome>` | Compartilha as credenciais do GitHub CLI (`~/.config/gh` ou `%APPDATA%\GitHub CLI`) |
 | `multigravity gh isolate <nome>` | Isola o perfil com cópia local independente do GitHub CLI |
 | `multigravity quota [nome]` | Exibe limites de tokens, porcentagem de uso e contagem regressiva para o reset |
+| `multigravity alerts [nome]` | Reporta cota crítica, queda recente de cota e processos headless recolhidos (`--json`) |
 | `multigravity quota history [nome]` | Exibe a série temporal de cota e tokens (`--since 24h`, `--source`, `--json`) |
 | `multigravity ai quota [nome]` | Alias para `multigravity quota` |
 | `multigravity prime [nome] [opt]` | Prime automático dos ciclos semanais de tokens no reset (dual-bucket, jitter, cron/systemd) |
@@ -319,7 +320,13 @@ multigravity ai quota trabalho
 
 # Série temporal de cota restante e tokens (gateway, headless e snapshots ao vivo)
 multigravity quota history trabalho --since 24h --json
+
+# Cota crítica (<= 5% restante), queda de pelo menos 5 pontos desde o snapshot anterior e processos headless recolhidos
+multigravity alerts
+multigravity alerts trabalho --json
 ```
+
+`alerts` lê o histórico de cota. A linha de 5% é a mesma guarda usada antes de um aquecimento de 5 horas. Um arquivo de estado headless cujo processo já encerrou é removido pelo reap existente e reportado uma vez como órfão.
 
 ---
 

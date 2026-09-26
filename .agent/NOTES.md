@@ -19,6 +19,15 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 09.3] Alertas de cota crítica, queda e processo órfão
+
+- **Contexto:** O dashboard e o `serve` precisam avisar cota no limiar, queda recente e headless que morreu deixando estado. O limiar de 5% já existe no warm-up, a série está em `[09.1]` e o reap de PID morto já vive no manager headless.
+- **Decisões Técnicas:**
+  - `quota.MinRemainingFraction` (0.05) é a mesma guarda do prime de 5h e dos alertas. Cota crítica: fração restante do último snapshot `source=quota` `<=` esse valor. Queda: diferença absoluta entre os dois últimos snapshots do mesmo bucket `>=` esse valor.
+  - O alerta não consulta o language server. Sem dois pontos de histórico não há queda.
+  - Órfão chama `headless.Manager.ReapStale`, o mesmo `reapDeadState` de `GetStatus`. Processo vivo não é morto. O alerta sai uma vez, porque o arquivo de estado sai junto.
+  - `multigravity alerts [perfil] [--json]` sai com código zero quando a avaliação funciona, com ou sem alertas. `GET /api/v1/alerts` devolve o mesmo relatório. O broker SSE emite `alerts` só quando o conjunto muda e há clientes conectados.
+
 ### 2026-09-26 [Task 09.1] Histórico temporal de cota e tokens por perfil
 
 - **Contexto:** `multigravity quota` e `GET /api/v1/quota` devolvem só a leitura instantânea do language server. O gateway e o dashboard precisam da série de fração restante e de tokens.

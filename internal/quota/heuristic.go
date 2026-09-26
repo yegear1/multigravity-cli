@@ -10,6 +10,9 @@ const (
 	WindowWeekly        = "weekly"
 	WindowUnknown       = "unknown"
 	MinWeeklyResetHours = 12.0 // Optimal threshold: resets > 12h are guaranteed weekly; <= 12h are 5h rolling windows
+	// MinRemainingFraction is the depleted-quota guard. Warm-up refuses a 5h prime
+	// at or below this fraction, and quota alerts use the same line.
+	MinRemainingFraction = 0.05
 )
 
 // ClassifyWindow determines if a bucket represents a 5-hour rolling window or a weekly window
@@ -87,7 +90,7 @@ func CanWarm5hWindow(b QuotaBucket, parentWeekly *QuotaBucket, now time.Time) bo
 	}
 
 	// Safety Guard: weekly parent quota must have remaining budget (> 5%)
-	if parentWeekly != nil && parentWeekly.RemainingFraction <= 0.05 {
+	if parentWeekly != nil && parentWeekly.RemainingFraction <= MinRemainingFraction {
 		return false
 	}
 

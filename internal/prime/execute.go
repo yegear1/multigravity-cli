@@ -163,7 +163,7 @@ func ExecutePrime(opts PrimeOptions, cb ProgressCallback) (*ProfilePrimeResult, 
 		if cfg.ParentKey != "" {
 			parentB, hasParent := buckets[cfg.ParentKey+"-weekly"]
 			if hasParent {
-				if parentB.RemainingFraction <= 0.05 && !opts.Force {
+				if parentB.RemainingFraction <= quota.MinRemainingFraction && !opts.Force {
 					msg := fmt.Sprintf("Skipping 5h prime for %s: weekly quota is exhausted (%.1f%% remaining).", cfg.Name, parentB.RemainingFraction*100)
 					emit("skipped", cfg.Key, cfg.BucketID, msg, map[string]any{"reason": "weekly_exhausted", "window_type": wType})
 					result.Buckets = append(result.Buckets, BucketPrimeResult{

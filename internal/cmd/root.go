@@ -110,6 +110,7 @@ func init() {
 	colorCmd.ValidArgsFunction = profileArgsCompletion
 	statusCmd.ValidArgsFunction = profileArgsCompletion
 	quotaCmd.ValidArgsFunction = profileArgsCompletion
+	alertsCmd.ValidArgsFunction = profileArgsCompletion
 	primeCmd.ValidArgsFunction = profileArgsCompletion
 
 	cleanCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

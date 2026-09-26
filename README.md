@@ -132,6 +132,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity gh share <name>` | Share host GitHub CLI credentials (`~/.config/gh` or `%APPDATA%\GitHub CLI`) |
 | `multigravity gh isolate <name>` | Isolate profile with a private copy of GitHub CLI credentials |
 | `multigravity quota [name]` | Show live AI token limits, usage percentage, and countdown until reset |
+| `multigravity alerts [name]` | Report critical quota, recent quota drops, and reaped headless processes (`--json`) |
 | `multigravity quota history [name]` | Show the stored quota and token time series (`--since 24h`, `--source`, `--json`) |
 | `multigravity ai quota [name]` | Alias for `multigravity quota` |
 | `multigravity prime [name] [opt]` | Automatically prime weekly token cycles upon reset (dual bucket, jitter, cron/systemd) |
@@ -319,7 +320,13 @@ multigravity ai quota work
 
 # Time series of remaining quota and tokens (gateway, headless, and live snapshots)
 multigravity quota history work --since 24h --json
+
+# Critical quota (<= 5% remaining), a drop of at least 5 points since the previous snapshot, and reaped headless processes
+multigravity alerts
+multigravity alerts work --json
 ```
+
+`alerts` reads the quota history. The 5% line is the same guard used before a 5-hour warm-up. A headless state file whose process has already exited is removed by the existing headless reap and reported once as an orphan.
 
 ---
 

@@ -193,6 +193,38 @@ func TestManagerAutoReaping(t *testing.T) {
 	}
 }
 
+func TestReapStaleReportsDeadPID(t *testing.T) {
+	_, cleanupEnv := setupTestEnvironment(t)
+	defer cleanupEnv()
+
+	profName := "reap-direct"
+	if err := profile.CreateProfile(profile.CreateOptions{Name: profName}); err != nil {
+		t.Fatalf("failed to create test profile: %v", err)
+	}
+	if err := writeStateFile(profName, &InstanceInfo{
+		Profile: profName,
+		PID:     424242,
+		Port:    9,
+		Status:  StateRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	restoreHooks := SetTestHooks(nil, nil, func(int) bool { return false }, nil, nil)
+	defer restoreHooks()
+
+	reaped, err := NewManager().ReapStale(profName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reaped == nil || reaped.PID != 424242 || reaped.Status != StateStopped {
+		t.Fatalf("reaped: %+v", reaped)
+	}
+	if _, err := os.Stat(getHeadlessStatePath(profName)); !os.IsNotExist(err) {
+		t.Fatal("expected state file to be removed")
+	}
+}
+
 func TestManagerUnhealthyStatus(t *testing.T) {
 	_, cleanupEnv := setupTestEnvironment(t)
 	defer cleanupEnv()

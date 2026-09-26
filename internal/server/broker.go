@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ye-dev/multigravity-cli/internal/alert"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
 
@@ -22,6 +23,7 @@ type Broker struct {
 	stopCh            chan struct{}
 	stopped           bool
 	lastProfilesState string
+	lastAlertsState   string
 }
 
 // NewBroker initializes an SSE event broker
@@ -127,6 +129,41 @@ func (b *Broker) CheckProfilesChange() {
 	}
 }
 
+// CheckAlerts evaluates quota history and reaps stale headless processes.
+// Connected clients receive an alerts event only when that set changes.
+func (b *Broker) CheckAlerts() {
+	report, err := alert.Evaluate("")
+	if err != nil || report == nil {
+		return
+	}
+	if report.Alerts == nil {
+		report.Alerts = []alert.Alert{}
+	}
+	data, err := json.Marshal(report.Alerts)
+	if err != nil {
+		return
+	}
+	raw := string(data)
+
+	b.mu.Lock()
+	if b.lastAlertsState == "" && raw == "[]" {
+		b.lastAlertsState = raw
+		b.mu.Unlock()
+		return
+	}
+	changed := raw != b.lastAlertsState
+	b.lastAlertsState = raw
+	b.mu.Unlock()
+	if !changed {
+		return
+	}
+	b.Broadcast(SSEEvent{
+		Event: "alerts",
+		Data:  report.Alerts,
+		Time:  time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 func (b *Broker) runLoop(pollInterval time.Duration) {
 	ticker := time.NewTicker(pollInterval)
 	pingTicker := time.NewTicker(15 * time.Second)
@@ -150,6 +187,7 @@ func (b *Broker) runLoop(pollInterval time.Duration) {
 				continue
 			}
 			b.CheckProfilesChange()
+			b.CheckAlerts()
 		}
 	}
 }

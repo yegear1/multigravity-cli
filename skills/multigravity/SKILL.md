@@ -354,6 +354,13 @@ multigravity headless run <profile> "Audit security dependencies" --json
 multigravity exec --all "Audit security dependencies" --workers 4 --json
 ```
 
+### Quota and Orphan Alerts
+```bash
+# Critical quota (<= 5% remaining), a drop of at least 5 points since the previous snapshot, and reaped headless processes
+multigravity alerts --json
+multigravity alerts <profile> --json
+```
+
 ## 6. Contrast Pairs
 
 ```bash

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/agent"
+	"github.com/ye-dev/multigravity-cli/internal/alert"
 	"github.com/ye-dev/multigravity-cli/internal/chat"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/dispatch"
@@ -227,6 +228,11 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /api/quota/{profile}/history", s.handleQuotaProfileHistory)
 	s.mux.HandleFunc("GET /api/v1/quota/{profile}", s.handleQuotaProfile)
 	s.mux.HandleFunc("GET /api/quota/{profile}", s.handleQuotaProfile)
+
+	s.mux.HandleFunc("GET /api/v1/alerts", s.handleAlerts)
+	s.mux.HandleFunc("GET /api/alerts", s.handleAlerts)
+	s.mux.HandleFunc("GET /api/v1/alerts/{profile}", s.handleAlertsProfile)
+	s.mux.HandleFunc("GET /api/alerts/{profile}", s.handleAlertsProfile)
 
 	s.mux.HandleFunc("GET /api/v1/profiles/{name}/prime", s.handleGetProfilePrime)
 	s.mux.HandleFunc("GET /api/profiles/{name}/prime", s.handleGetProfilePrime)
@@ -852,6 +858,29 @@ func (s *Server) handleQuotaProfileHistory(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.writeJSON(w, http.StatusOK, series)
+}
+
+func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
+	report, err := alert.Evaluate("")
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, report)
+}
+
+func (s *Server) handleAlertsProfile(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("profile")
+	report, err := alert.Evaluate(name)
+	if err != nil {
+		if !profile.ProfileExists(name) {
+			s.writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, report)
 }
 
 func (s *Server) handleGetProfilePrime(w http.ResponseWriter, r *http.Request) {

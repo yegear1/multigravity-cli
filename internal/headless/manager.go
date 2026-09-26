@@ -141,6 +141,38 @@ func removeStateFile(profileName string) {
 	_ = os.Remove(statePath)
 }
 
+// reapDeadState removes the headless state file when its PID is no longer alive.
+// A nil result means the file is absent or the process is still running.
+func reapDeadState(profileName string) (*InstanceInfo, error) {
+	info, err := readStateFile(profileName)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if isProcessAliveHook(info.PID) {
+		return nil, nil
+	}
+	removeStateFile(profileName)
+	info.Status = StateStopped
+	info.HealthError = ""
+	return info, nil
+}
+
+// ReapStale removes a headless state file whose process has already exited.
+// Alive instances are left untouched. Callers use the returned record as the
+// orphan-process alert; GetStatus uses the same removal.
+func (m *Manager) ReapStale(profileName string) (*InstanceInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := config.ValidateProfileName(profileName); err != nil {
+		return nil, err
+	}
+	return reapDeadState(profileName)
+}
+
 // GetStatus checks and reports the status of a headless server for the given profile.
 func (m *Manager) GetStatus(profileName string) (*InstanceInfo, error) {
 	m.mu.Lock()
@@ -148,6 +180,17 @@ func (m *Manager) GetStatus(profileName string) (*InstanceInfo, error) {
 
 	if err := config.ValidateProfileName(profileName); err != nil {
 		return nil, err
+	}
+
+	reaped, err := reapDeadState(profileName)
+	if err != nil {
+		return nil, err
+	}
+	if reaped != nil {
+		return &InstanceInfo{
+			Profile: profileName,
+			Status:  StateStopped,
+		}, nil
 	}
 
 	info, err := readStateFile(profileName)
@@ -159,16 +202,6 @@ func (m *Manager) GetStatus(profileName string) (*InstanceInfo, error) {
 			}, nil
 		}
 		return nil, err
-	}
-
-	// Verify PID liveness
-	if !isProcessAliveHook(info.PID) {
-		// Process is dead: auto-reap stale state file
-		removeStateFile(profileName)
-		return &InstanceInfo{
-			Profile: profileName,
-			Status:  StateStopped,
-		}, nil
 	}
 
 	// Probe health over HTTPS
