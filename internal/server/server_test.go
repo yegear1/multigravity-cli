@@ -2026,6 +2026,98 @@ func TestDispatchEndpoints(t *testing.T) {
 	}
 }
 
+func TestWorkspaceServerEndpoints(t *testing.T) {
+	srv, tmpHome := setupTestServer(t)
+
+	profName := "srv-ws-prof"
+	profDir := filepath.Join(tmpHome, profName)
+	projDir := filepath.Join(profDir, ".gemini", "config", "projects")
+	if err := os.MkdirAll(projDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	userDataDir := filepath.Join(profDir, ".config", "Antigravity")
+	if err := os.MkdirAll(userDataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	appStorage := map[string]interface{}{
+		"new-convo-last-selected-project": "ws-srv-uuid",
+	}
+	stBytes, _ := json.Marshal(appStorage)
+	_ = os.WriteFile(filepath.Join(userDataDir, "app_storage.json"), stBytes, 0644)
+
+	raw := map[string]interface{}{
+		"id":   "ws-srv-uuid",
+		"name": "srv-project",
+		"projectResources": map[string]interface{}{
+			"resources": []map[string]interface{}{
+				{
+					"gitFolder": map[string]interface{}{
+						"folderUri":     "file:///mock/repo/srv-project",
+						"defaultBranch": "main",
+					},
+				},
+			},
+		},
+		"settings": map[string]interface{}{
+			"sandboxMode": false,
+		},
+		"isWorkspaceOnly": false,
+	}
+	rBytes, _ := json.Marshal(raw)
+	_ = os.WriteFile(filepath.Join(projDir, "ws-srv-uuid.json"), rBytes, 0644)
+
+	// 1. GET /api/v1/workspaces
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var apiResp APIResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &apiResp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !apiResp.Success {
+		t.Errorf("expected success true, got false")
+	}
+
+	// 2. GET /api/workspaces (alias)
+	reqAlias := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
+	recAlias := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recAlias, reqAlias)
+	if recAlias.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recAlias.Code)
+	}
+
+	// 3. GET /api/v1/workspaces/active
+	reqActive := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/active", nil)
+	recActive := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recActive, reqActive)
+	if recActive.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recActive.Code)
+	}
+
+	// 4. GET /api/v1/profiles/{name}/workspaces
+	reqProfWs := httptest.NewRequest(http.MethodGet, "/api/v1/profiles/"+profName+"/workspaces", nil)
+	recProfWs := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recProfWs, reqProfWs)
+	if recProfWs.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recProfWs.Code)
+	}
+
+	// 5. GET /api/v1/profiles/{name}/workspaces/active
+	reqProfActive := httptest.NewRequest(http.MethodGet, "/api/v1/profiles/"+profName+"/workspaces/active", nil)
+	recProfActive := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recProfActive, reqProfActive)
+	if recProfActive.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recProfActive.Code)
+	}
+}
+
+
 
 
 

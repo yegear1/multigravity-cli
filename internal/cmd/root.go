@@ -94,8 +94,10 @@ func init() {
 	rootCmd.AddCommand(worktreeCmd)
 	rootCmd.AddCommand(newAgentCmd())
 	rootCmd.AddCommand(newDispatchCmd())
+	rootCmd.AddCommand(workspaceCmd)
 
 	// Shell completion dynamic profile args
+	workspaceCmd.ValidArgsFunction = profileArgsCompletion
 	stopCmd.ValidArgsFunction = profileArgsCompletion
 	restartCmd.ValidArgsFunction = profileArgsCompletion
 	deleteCmd.ValidArgsFunction = profileArgsCompletion

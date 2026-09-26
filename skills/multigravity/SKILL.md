@@ -64,6 +64,12 @@ The agent MUST NOT activate this skill when:
    echo "Active Profile Directory: $HOME"
    multigravity list --json
    ```
+3. Map workspaces and active repositories:
+   ```bash
+   multigravity workspace list
+   multigravity workspace active
+   multigravity workspace current
+   ```
 
 ### Step 2: Telemetry & Quota Inspection
 1. Inspect AI quota balances and reset timestamps across all buckets:
@@ -208,6 +214,10 @@ The agent MUST NOT activate this skill when:
    | `GET` | `/ui/tasks` | Embedded HTML5 web dashboard for task execution monitoring (Tauri/Wails/Browser) |
    | `GET` | `/ui/tasks/{id}/diff` | Embedded interactive side-by-side/unified diff visualizer (Tauri/Wails/Browser) |
    | `POST` | `/api/v1/dispatch/tasks/prune` | Prune finished tasks older than max_age (`?max_age=24h`) |
+   | `GET` | `/api/v1/workspaces` | List mapped workspaces across profiles (`?profile`, `?active=true`, `?path`) |
+   | `GET` | `/api/v1/workspaces/active` | List workspaces currently active in running profiles |
+   | `GET` | `/api/v1/profiles/{name}/workspaces` | Summary and full list of workspaces for a profile |
+   | `GET` | `/api/v1/profiles/{name}/workspaces/active` | Active workspace details for a profile |
 
 ## 5. Canonical Examples
 
@@ -288,6 +298,21 @@ multigravity dispatch diff <task-id>
 multigravity dispatch diff <task-id> --structured
 multigravity dispatch diff <task-id> --web
 multigravity dispatch diff <task-id> --json
+```
+
+### Mapping Workspaces & Active Repositories
+```bash
+# Discover all workspaces and their Git status across profiles
+multigravity workspace list --json
+
+# Find which profile owns the current directory
+multigravity workspace current
+
+# List only workspaces open in running IDE instances
+multigravity workspace active
+
+# Inspect detailed telemetry of a workspace
+multigravity workspace show <profile> <workspace-name>
 ```
 
 ## 6. Contrast Pairs

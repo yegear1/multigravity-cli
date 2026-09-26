@@ -19,6 +19,33 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 08.1] Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil
+
+- **Contexto:** Perfis do Antigravity possuem workspaces e projetos associados em `.gemini/config/projects/*.json` com metadados de branches, políticas de execução de agentes (sandboxMode, autoExecutionPolicy) e links de sistema de arquivos (`file://...`). Para orquestradores de agentes, GUIs desktop (Tauri/Wails) e desenvolvedores em terminal, era fundamental mapear quais repositórios pertencem a cada perfil, correlacionar o diretório atual (`multigravity ws current`) e rastrear qual workspace está ativamente aberto em instâncias em execução.
+- **Decisões Técnicas:**
+  - **Módulo Desacoplado `internal/workspace`:**
+    - `types.go`: contratos estruturados `Workspace`, `GitRepoInfo` (`branch`, `remote_url`, `commit_hash`, `commit_message`, `is_clean`, `modified_files`, `untracked_files`), `WorkspaceSettings`, `ProfileWorkspacesSummary`, e schemas de parsing de projetos Antigravity.
+    - `git.go`: inspeção de telemetria Git sem mutações (`DetectGitRepoInfo`), com hook testável `SetGitRunnerFn` permitindo testes unitários 100% herméticos.
+    - `detector.go`:
+      - `FileURIToPath`: decodificação de `file://` URIs com paridade estrita Linux/macOS/Windows (tratando caminhos absolutos e letras de drive).
+      - `GetLastSelectedProject`: extração determinística do projeto selecionado a partir de `<userDataDir>/app_storage.json` (`new-convo-last-selected-project`, `lastCreatedProjectId`).
+      - `GetProfileWorkspaces`: mapeia projetos do perfil e marca `IsActive = true` quando a instância está em execução (`profile.IsProfileRunning`) e o projeto corresponde ao `app_storage.json` ou argumentos de processo.
+      - `GetAllWorkspaces`: agrega e ordena (ativos primeiro, depois por nome).
+      - `GetActiveWorkspaces`: filtra exclusivamente workspaces ativos.
+      - `GetWorkspaceByPath`: mapeia qual perfil e workspace contêm um determinado caminho de diretório local.
+      - `GetProfileSummary`: visão consolidada do perfil e workspace ativo.
+  - **CLI `multigravity workspace` (aliases `ws`, `workspaces`) (`internal/cmd/workspace.go`):**
+    - Subcomandos: `list` (alias `ls`, flags `--active`, `--json`), `active` (`--json`), `current` (aliases `here`, `pwd`, `--json`), `show <profile> <workspace>` (alias `get`, `info`, `--json`).
+    - Autocompletion dinâmico via shell completion para nomes de perfis e workspaces.
+  - **Endpoints REST HTTP (`internal/server`):**
+    - `GET /api/v1/workspaces` (e `/api/workspaces`): listagem com filtros `?profile=`, `?active=true`, `?path=`.
+    - `GET /api/v1/workspaces/active`: listagem de workspaces ativos.
+    - `GET /api/v1/profiles/{name}/workspaces`: resumo e lista de workspaces do perfil.
+    - `GET /api/v1/profiles/{name}/workspaces/active`: workspace ativo do perfil.
+  - **Testes e Validação:**
+    - 100% dos testes unitários e de integração passando em `internal/workspace`, `internal/cmd` e `internal/server`.
+
+
 ### 2026-09-25 [Task 15.4] Visualizador e API de Diffs / Status de Execução de Tarefas no multigravity serve para futura GUI Desktop (Tauri/Wails)
 
 - **Contexto:** Com o motor de despacho (`internal/dispatch`), terminais virtuais PTY (`internal/agent`) e Git Worktrees (`internal/worktree`) ativos, interfaces gráficas desktop (Tauri v2 / Wails v2 / web companions) e desenvolvedores em terminal necessitam de contratos de dados estruturados de diff (arquivos modificados, hunks, contadores `+`/`-`, detecção binária), endpoint consolidado de telemetria/dashboard de tarefas e visualizador web embutido diretamente no binário (`//go:embed`).

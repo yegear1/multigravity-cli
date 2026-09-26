@@ -17,6 +17,7 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
 	"github.com/ye-dev/multigravity-cli/internal/server/ui"
+	"github.com/ye-dev/multigravity-cli/internal/workspace"
 	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
 
@@ -316,6 +317,16 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /api/dispatch/tasks/{id}/files", s.handleGetDispatchedTaskFiles)
 	s.mux.HandleFunc("GET /api/v1/dispatch/dashboard", s.handleGetDispatchedDashboard)
 	s.mux.HandleFunc("GET /api/dispatch/dashboard", s.handleGetDispatchedDashboard)
+
+	// Workspaces & Active Repositories
+	s.mux.HandleFunc("GET /api/v1/workspaces", s.handleListWorkspaces)
+	s.mux.HandleFunc("GET /api/workspaces", s.handleListWorkspaces)
+	s.mux.HandleFunc("GET /api/v1/workspaces/active", s.handleActiveWorkspaces)
+	s.mux.HandleFunc("GET /api/workspaces/active", s.handleActiveWorkspaces)
+	s.mux.HandleFunc("GET /api/v1/profiles/{name}/workspaces", s.handleProfileWorkspaces)
+	s.mux.HandleFunc("GET /api/profiles/{name}/workspaces", s.handleProfileWorkspaces)
+	s.mux.HandleFunc("GET /api/v1/profiles/{name}/workspaces/active", s.handleProfileActiveWorkspace)
+	s.mux.HandleFunc("GET /api/profiles/{name}/workspaces/active", s.handleProfileActiveWorkspace)
 
 	// Web UI Visualizer (HTML for Tauri/Wails/Browser)
 	s.mux.HandleFunc("GET /ui/tasks", s.handleUITasksDashboard)
@@ -2093,4 +2104,97 @@ func (s *Server) handlePruneDispatchedTasks(w http.ResponseWriter, r *http.Reque
 		"pruned": pruned,
 	})
 }
+
+func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	targetProfile := q.Get("profile")
+	targetPath := q.Get("path")
+	activeOnly := q.Get("active") == "true" || q.Get("active") == "1"
+
+	var list []workspace.Workspace
+	var err error
+
+	if targetProfile != "" {
+		list, err = workspace.GetProfileWorkspaces(targetProfile)
+	} else if targetPath != "" {
+		list, err = workspace.GetWorkspaceByPath(targetPath)
+	} else {
+		list, err = workspace.GetAllWorkspaces()
+	}
+
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if activeOnly {
+		var filtered []workspace.Workspace
+		for _, ws := range list {
+			if ws.IsActive {
+				filtered = append(filtered, ws)
+			}
+		}
+		list = filtered
+	}
+
+	if list == nil {
+		list = []workspace.Workspace{}
+	}
+
+	s.writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleActiveWorkspaces(w http.ResponseWriter, r *http.Request) {
+	list, err := workspace.GetActiveWorkspaces()
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []workspace.Workspace{}
+	}
+	s.writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleProfileWorkspaces(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		s.writeError(w, http.StatusBadRequest, "profile name is required")
+		return
+	}
+
+	summary, err := workspace.GetProfileSummary(name)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleProfileActiveWorkspace(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		s.writeError(w, http.StatusBadRequest, "profile name is required")
+		return
+	}
+
+	summary, err := workspace.GetProfileSummary(name)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	if summary.ActiveWorkspace == nil {
+		s.writeJSON(w, http.StatusOK, map[string]any{
+			"profile":   name,
+			"is_active": false,
+			"workspace": nil,
+		})
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, summary.ActiveWorkspace)
+}
+
 

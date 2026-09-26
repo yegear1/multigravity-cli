@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [08.1] | Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil | feat(workspace): add workspace mapping, active repository detection, and rest endpoints | 2026-09-26 |
 | [15.4] | Visualizador e API de Diffs / Status de Execução de Tarefas no `multigravity serve` para futura GUI Desktop (Tauri/Wails) | feat(dispatch): add structured diff parser, execution dashboard, and web visualizer for desktop guis | 2026-09-25 |
 | [15.3] | Motor de Despacho de Tarefas (`multigravity dispatch`) com Associação de Perfil, Worktree e Captura de Logs | feat(dispatch): add task dispatcher with profile isolation, worktrees, and log capture | 2026-09-25 |
 | [15.2] | Multiplexador de Terminais PTY e Execução Headless de Agentes CLI (Claude Code, Aider, OpenCode) com Isolamento de Identidade | feat(agent): add pty multiplexer and headless agent execution with profile isolation | 2026-09-25 |
@@ -59,7 +60,7 @@
 - [x] **[15.4]** Visualizador e API de Diffs / Status de Execução de Tarefas no `multigravity serve` para futura GUI Desktop (Tauri/Wails)
 
 ### Backlog Geral de Evolução do Core
-- [ ] **[08.1]** Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil
+- [x] **[08.1]** Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil
 - [ ] **[08.2]** Invocação e Gestão de Agentes Headless em Background com Isolamento de Identidade
 - [ ] **[08.3]** Sistema de Snapshots e Rollback Seguro de Perfis e Conversas
 - [ ] **[09.1]** Histórico Temporal de Consumo de Cotas e Métricas de Tokens por Perfil
