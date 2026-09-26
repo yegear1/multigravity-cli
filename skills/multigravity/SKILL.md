@@ -36,7 +36,7 @@ The agent MUST activate this skill when:
 - Provisioning a new isolated developer workspace/profile (full or lightweight auth-only with shared host extensions via `--auth-only` / `--shared`) with dedicated GitHub CLI credentials, MCP servers, or custom theme colors.
 - Sharing or isolating configuration components (`mcp`, `skills`, `config.json`, `gh`) between profiles.
 - Backing up, exporting, restoring, or synchronizing AI chat histories and brains (`ai export`, `ai sync`, `ai import`).
-- Diagnosing environment health, missing dependencies, or launch blockers (`multigravity doctor`).
+- Diagnosing environment health, missing dependencies, or launch blockers (`multigravity doctor`), and MCP/skills inventory (`multigravity catalog`).
 
 The agent MUST NOT activate this skill when:
 - Executing standard git operations within a project repository (use git or `github-releases`).
@@ -57,6 +57,7 @@ The agent MUST NOT activate this skill when:
 1. Detect current profile and runtime environment:
    ```bash
    multigravity doctor --json
+   multigravity catalog --json
    multigravity status --json
    ```
 2. Verify active profile directory from `$HOME` or `$MULTIGRAVITY_HOME`:
@@ -171,6 +172,9 @@ The agent MUST NOT activate this skill when:
    # Environment health and diagnostic checks
    multigravity doctor --json
 
+   # MCP servers and skills inventory, plus health (env and headers are omitted)
+   multigravity catalog [profile] --json
+
    # AI conversations inventory
    multigravity ai list <profile> --json
 
@@ -193,6 +197,8 @@ The agent MUST NOT activate this skill when:
    | :--- | :--- | :--- |
    | `GET` | `/health` / `/api/v1/health` | Health check, version, and server uptime |
    | `GET` | `/api/v1/doctor` | Comprehensive system diagnostic report |
+   | `GET` | `/api/v1/catalog` | MCP and skills inventory and health (`?profile=` optional) |
+   | `GET` | `/api/v1/profiles/{name}/catalog` | Inventory and health as seen by one profile |
    | `GET` | `/api/v1/profiles` | List of all profiles with running state, color, and PIDs |
    | `POST` | `/api/v1/profiles` | Create new profile (`auth_only`, `color`, `from_template`, isolation flags) |
    | `GET` | `/api/v1/profiles/{name}` | Detailed information for a single profile |

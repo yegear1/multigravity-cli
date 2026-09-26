@@ -11,6 +11,7 @@ import (
 
 	"github.com/ye-dev/multigravity-cli/internal/agent"
 	"github.com/ye-dev/multigravity-cli/internal/alert"
+	"github.com/ye-dev/multigravity-cli/internal/catalog"
 	"github.com/ye-dev/multigravity-cli/internal/chat"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/dispatch"
@@ -169,6 +170,10 @@ func (s *Server) setupRoutes() {
 	// Doctor
 	s.mux.HandleFunc("GET /api/v1/doctor", s.handleDoctor)
 	s.mux.HandleFunc("GET /api/doctor", s.handleDoctor)
+	s.mux.HandleFunc("GET /api/v1/catalog", s.handleCatalog)
+	s.mux.HandleFunc("GET /api/catalog", s.handleCatalog)
+	s.mux.HandleFunc("GET /api/v1/profiles/{name}/catalog", s.handleCatalog)
+	s.mux.HandleFunc("GET /api/profiles/{name}/catalog", s.handleCatalog)
 
 	// Profiles (Query & Mutation)
 	s.mux.HandleFunc("GET /api/v1/profiles", s.handleListProfiles)
@@ -442,6 +447,23 @@ func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 	rep, err := doctor.Diagnose()
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, rep)
+}
+
+func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		name = r.URL.Query().Get("profile")
+	}
+	rep, err := catalog.Inspect(name)
+	if err != nil {
+		if strings.Contains(err.Error(), "does not exist") {
+			s.writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.writeJSON(w, http.StatusOK, rep)

@@ -95,6 +95,50 @@ func TestDoctorEndpoint(t *testing.T) {
 	}
 }
 
+func TestCatalogEndpoint(t *testing.T) {
+	srv, home := setupTestServer(t)
+	t.Setenv("REAL_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".gemini", "config", "skills", "demo"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("---\nname: demo-skill\ndescription: Catalog skill\n---\n")
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "config", "skills", "demo", "SKILL.md"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, "fake-mcp")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	mcp := []byte(`{"mcpServers":{"filesystem":{"command":"` + bin + `","env":{"TOKEN":"super-secret-value"}}}}`)
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "config", "mcp_config.json"), mcp, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/catalog", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "super-secret-value") {
+		t.Fatalf("response leaked a secret: %s", rec.Body.String())
+	}
+	var resp APIResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success: %s", rec.Body.String())
+	}
+
+	missing := httptest.NewRequest(http.MethodGet, "/api/v1/profiles/missing/catalog", nil)
+	missingRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(missingRec, missing)
+	if missingRec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", missingRec.Code)
+	}
+}
+
 func TestProfilesAndStatsEndpoints(t *testing.T) {
 	srv, _ := setupTestServer(t)
 

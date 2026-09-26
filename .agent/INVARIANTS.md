@@ -115,3 +115,9 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
 - `multigravity logs` e `GET /api/v1/profiles/{name}/ide/logs` leem somente `main.log`. O language server gerenciado continua em `headless logs`; a saída de tarefa continua em `dispatch logs`.
 - A linha de spawn em `main.log` contém `--csrf_token` e `--host_bridge_token`. Qualquer leitura exposta pela CLI ou pela API redige esses valores. Não copiar o arquivo cru para stdout, JSON ou SSE.
 
+## 11. Catálogo de MCP e skills
+
+- `multigravity catalog` e `GET /api/v1/catalog` só leem. Não alteram sentinelas, symlinks nem `mcp share` / `skills share`.
+- O relatório lista servidores, skills e plugins e repete o modo já exposto por `mcp status` / `skills status` (`shared`, `isolated`, `standalone`, `none`).
+- Campos `env`, `headers` e `args` de `mcp_config.json` ficam de fora do texto e do JSON. Query string e usuário de URL também ficam de fora. JSON inválido não é ecoado no diagnóstico.
+

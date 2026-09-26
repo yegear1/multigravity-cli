@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [10.1] | Catálogo e diagnóstico de saúde de MCP e skills (`catalog`, `GET /catalog`) | feat(catalog): inventory MCP servers and skills health | 2026-09-26 |
 | [09.2] | Stream de log da IDE gráfica (`logs`, `GET /profiles/{name}/ide/logs`) | feat(logs): stream redacted IDE main.log | 2026-09-26 |
 | [08.3] | Sistema de Snapshots e Rollback Seguro de Perfis e Conversas | feat(profile): add snapshot and rollback for profiles and conversations | 2026-09-26 |
 | [09.3] | Sistema de Alertas Proativos e Notificações de Eventos (Cota Crítica, Quedas, Processos Órfãos) | feat(alert): report critical quota, drops, and reaped headless processes | 2026-09-26 |
@@ -74,7 +75,7 @@
 - [x] **[09.1]** Histórico Temporal de Consumo de Cotas e Métricas de Tokens por Perfil
 - [x] **[09.2]** Stream de log da IDE gráfica (`main.log`). Language server gerenciado e tarefas continuam em `headless logs --follow` e `dispatch logs --follow`
 - [x] **[09.3]** Sistema de Alertas Proativos e Notificações de Eventos (Cota Crítica, Quedas, Processos Órfãos)
-- [ ] **[10.1]** Catálogo Centralizado e Diagnóstico de Saúde de Ferramentas (MCP Hub e Skills Registry)
+- [x] **[10.1]** Catálogo Centralizado e Diagnóstico de Saúde de Ferramentas (MCP Hub e Skills Registry)
 
 ---
 

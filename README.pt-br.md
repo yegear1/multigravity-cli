@@ -202,6 +202,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity serve [--port <p>] [--host <h>]` | Inicia daemon HTTP local com API REST, streaming SSE, Gateway de IA (`/v1/chat/completions`, `/v1/messages`) e UI Web (`/ui/tasks`) |
 | `multigravity stats [--json]` | Exibe o uso de disco detalhado por perfil |
 | `multigravity doctor [--json]` | Diagnostica o ambiente, caminhos e detecção de binários (`antigravity` / `agy`) |
+| `multigravity catalog [nome] [--json]` | Inventaria servidores MCP e skills e diagnostica a saúde deles |
 | `multigravity update` | Atualiza o Multigravity para a versão mais recente |
 | `multigravity completion` | Configura o autocompletar de comandos no shell |
 | `multigravity version` | Exibe a versão do Multigravity |

@@ -202,6 +202,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity serve [--port <p>] [--host <h>]` | Start local HTTP daemon with REST API, SSE streaming, AI Gateway (`/v1/chat/completions`, `/v1/messages`), and Web UI (`/ui/tasks`) |
 | `multigravity stats [--json]` | Show disk usage per profile |
 | `multigravity doctor [--json]` | Diagnose environment setup, paths, and binary detection |
+| `multigravity catalog [name] [--json]` | Inventory MCP servers and skills and diagnose their health |
 | `multigravity update` | Update Multigravity to the latest version |
 | `multigravity completion` | Set up shell tab-completion |
 | `multigravity version` | Show multigravity version |
