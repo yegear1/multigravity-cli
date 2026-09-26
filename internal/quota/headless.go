@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/app"
+	"github.com/ye-dev/multigravity-cli/internal/auth"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 )
 
@@ -99,6 +100,9 @@ func StartHeadlessServer(profileName string) (*HeadlessInstance, error) {
 			env = append(env, "USERPROFILE="+pDir)
 		} else {
 			env = append(env, "HOME="+pDir)
+		}
+		if auth.HasVault(pDir) {
+			env = append(env, "GEMINI_FORCE_FILE_STORAGE=true")
 		}
 	}
 	cmd.Env = env

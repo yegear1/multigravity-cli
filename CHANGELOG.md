@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Headless Google Sign-In (`multigravity login`):** Added OAuth2 PKCE login with an ephemeral `127.0.0.1` callback. Refresh tokens are stored only in the profile vault (`.gemini/antigravity-cli/antigravity-oauth-token` and `.gemini/jetski-standalone-oauth-token`), never in the host keyring. Profile launches that already have a vault set `GEMINI_FORCE_FILE_STORAGE=true`.
 - **Autonomous Task Dispatcher (`internal/dispatch`):** Added `multigravity dispatch` (alias `dp`) to coordinate agent executions with profile isolation, ephemeral Git worktrees, structured diff parsing, and real-time log capture (`run`, `list`, `status`, `logs`, `diff`, `dashboard`, `cancel`, `delete`, `prune`).
 - **Interactive Web Diff Visualizer & Task Dashboard:** Embedded HTML5 web UI (`/ui/tasks` and `/ui/tasks/:id/diff`) packaged directly into the Go binary (`//go:embed`) providing unified diff view, additions/deletions statistics, file tree navigation, and live SSE event updates.
 - **PTY Terminal Multiplexer (`internal/agent`):** Added `multigravity agent` (alias `ag`) with real pseudo-terminal support (`creack/pty`) for interactive CLI tools (Claude Code, Aider, OpenCode), raw mode terminal attachment, and dedicated environment construction.

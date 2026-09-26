@@ -140,6 +140,12 @@ The agent MUST NOT activate this skill when:
    ```bash
    multigravity clean <profile>
    ```
+3. Sign a profile in without opening the IDE. The refresh token stays in that profile's vault and is never written to the host keyring:
+   ```bash
+   multigravity login <profile>
+   multigravity login status <profile> --json
+   multigravity login logout <profile>
+   ```
 
 ### Step 6: Machine-Readable Telemetry & Local HTTP API (Aggregator / UI)
 1. Query machine-readable JSON contracts from CLI:
@@ -161,6 +167,9 @@ The agent MUST NOT activate this skill when:
 
    # Component sharing status
    multigravity mcp status <profile> --json
+
+   # Profile vault sign-in (email and expiry only; never prints tokens)
+   multigravity login status <profile> --json
    ```
 2. Start the local HTTP REST API server for background aggregators or UIs:
    ```bash

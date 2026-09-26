@@ -106,6 +106,9 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity clone <src> <dest>` | Copy an existing profile |
 | `multigravity rename <old> <new>` | Rename a profile (blocked if currently running) |
 | `multigravity delete <name>` | Delete a profile and all its data (blocked if currently running) |
+| `multigravity login <profile>` | Sign in with Google OAuth2 PKCE; the credential stays in that profile's vault |
+| `multigravity login status <profile> [--json]` | Show whether the profile vault holds a credential, without printing tokens |
+| `multigravity login logout <profile>` | Delete the credential stored in the profile vault |
 
 ### AI Sessions & Chats
 
@@ -478,6 +481,21 @@ multigravity new alt-account --auth-only
 
 # Create an auth-only profile with a distinct color theme
 multigravity new alt-account --auth-only --color purple
+```
+
+## Headless sign-in (`multigravity login`)
+
+`multigravity login <profile>` signs a profile in with Google OAuth2 PKCE. It listens on an ephemeral `127.0.0.1` port, opens the browser (or prints the URL with `--no-browser`), and writes the refresh token only inside that profile:
+
+- `.gemini/antigravity-cli/antigravity-oauth-token`
+- `.gemini/jetski-standalone-oauth-token`
+
+The host keyring is not modified. When that vault file exists, profile launches set `GEMINI_FORCE_FILE_STORAGE=true` so `agy` reads the profile file instead of the shared OS keyring. Email and display name are stored beside the vault in `account.json`, which contains no tokens. `login status --json` reports identity and expiry only.
+
+```bash
+multigravity login work
+multigravity login status work --json
+multigravity login logout work
 ```
 
 ---

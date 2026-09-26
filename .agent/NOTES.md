@@ -19,6 +19,16 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 13.1] Autenticação Direta Headless via CLI com OAuth2 PKCE
+
+- **Contexto:** Perfis headless precisavam de login Google sem abrir a IDE e sem gravar o refresh token no chaveiro global do sistema (invariante de isolamento: o keyring do SO é compartilhado e não pode ser alternado entre contas).
+- **Decisões Técnicas:**
+  - Pacote `internal/auth`: PKCE S256, listener efêmero só em `127.0.0.1:0` no path `/callback`, troca do authorization code e consulta de userinfo. O `state` inválido não encerra o fluxo; `error` do provedor encerra.
+  - Cofre do perfil, modo `0600`: o mesmo JSON de credencial (`token` + `auth_method: consumer`) vai para `.gemini/antigravity-cli/antigravity-oauth-token` e `.gemini/jetski-standalone-oauth-token`. E-mail e nome ficam em `account.json`, sem tokens.
+  - CLI `multigravity login` (`status`, `logout`), `--json`, `--no-browser`, `--timeout`, `--force`. A saída JSON não inclui access token nem refresh token. Login e logout abortam se o perfil estiver em execução, salvo `--force`.
+  - `GEMINI_FORCE_FILE_STORAGE=true` só é exportado no ambiente isolado quando o cofre já existe, para o `agy` ler o arquivo do perfil e não o chaveiro do host. Perfis autenticados pela IDE via keyring continuam sem essa variável.
+  - O comando não escreve no Credential Manager, Keychain nem Secret Service do host.
+
 ### 2026-09-26 [Task 11.6] Alinhamento Estratégico de Posicionamento, Documentação e Catálogo da Plataforma
 
 - **Contexto:** Com a evolução rápida da arquitetura Go v2.0 nos Épicos 07, 08, 14 e 15, o `multigravity-cli` deixou de ser um simples launcher/gerenciador de perfis da IDE e tornou-se uma Plataforma de Desenvolvimento Agêntico (ADE) e Gateway de IA Multi-Contas. A documentação voltada a humanos (`README.md`, `README.pt-br.md`, `CHANGELOG.md`) estava defasada, omitindo recursos críticos de gateway, orquestração de tarefas, worktrees efêmeros e visualizador de diffs web.

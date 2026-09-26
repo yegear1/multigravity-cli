@@ -96,6 +96,7 @@ func init() {
 	rootCmd.AddCommand(newDispatchCmd())
 	rootCmd.AddCommand(workspaceCmd)
 	rootCmd.AddCommand(newHeadlessCmd())
+	rootCmd.AddCommand(newLoginCmd())
 
 	// Shell completion dynamic profile args
 	workspaceCmd.ValidArgsFunction = profileArgsCompletion

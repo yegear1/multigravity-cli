@@ -106,6 +106,9 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity clone <origem> <destino>` | Clona um perfil existente |
 | `multigravity rename <antigo> <novo>` | Renomeia um perfil (bloqueado se estiver aberto) |
 | `multigravity delete <nome>` | Exclui um perfil e todos os seus dados (bloqueado se estiver aberto) |
+| `multigravity login <perfil>` | Autentica com Google OAuth2 PKCE; a credencial fica só no cofre desse perfil |
+| `multigravity login status <perfil> [--json]` | Mostra se o cofre do perfil tem credencial, sem imprimir tokens |
+| `multigravity login logout <perfil>` | Apaga a credencial armazenada no cofre do perfil |
 
 ### Sessões e Conversas de IA
 
@@ -478,6 +481,21 @@ multigravity new conta-secundaria --auth-only
 
 # Cria um perfil auth-only com tema de cor personalizado
 multigravity new conta-secundaria --auth-only --color purple
+```
+
+## Login headless (`multigravity login`)
+
+`multigravity login <perfil>` autentica o perfil com Google OAuth2 PKCE. O comando escuta numa porta efêmera em `127.0.0.1`, abre o navegador (ou imprime a URL com `--no-browser`) e grava o refresh token somente dentro daquele perfil:
+
+- `.gemini/antigravity-cli/antigravity-oauth-token`
+- `.gemini/jetski-standalone-oauth-token`
+
+O chaveiro do host não é alterado. Quando esse cofre existe, o lançamento do perfil define `GEMINI_FORCE_FILE_STORAGE=true` para o `agy` ler o arquivo do perfil em vez do chaveiro compartilhado do sistema. E-mail e nome ficam em `account.json`, sem tokens. `login status --json` informa identidade e expiração, nunca o segredo.
+
+```bash
+multigravity login trabalho
+multigravity login status trabalho --json
+multigravity login logout trabalho
 ```
 
 ---

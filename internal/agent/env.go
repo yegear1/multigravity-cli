@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/ye-dev/multigravity-cli/internal/auth"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 )
 
@@ -69,6 +70,9 @@ func BuildAgentEnv(opts CreateSessionOptions) ([]string, error) {
 	envMap["PATH"] = enrichedPATH
 	envMap["REAL_HOME"] = realHome
 	envMap["HOME"] = profileDir
+	if opts.Profile != "" && auth.HasVault(profileDir) {
+		envMap["GEMINI_FORCE_FILE_STORAGE"] = "true"
+	}
 
 	if runtime.GOOS == "windows" {
 		envMap["REAL_USERPROFILE"] = realHome
