@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **REST API Lifecycle & Sharing Mutations:** Added full profile mutation endpoints (`POST /api/v1/profiles`, `DELETE`, `launch`, `stop`, `restart`, `rename`) and dynamic resource sharing toggles (`/api/v1/profiles/:name/sharing/:resource`) with real-time SSE broadcasts.
 - **Embedded Desktop Icons:** Packaged `.ico`, `.icns`, and `.png` icons into the binary via `//go:embed` for zero-configuration desktop shortcut generation.
 
+### Fixed
+- **Windows builds:** Terminal resize listening no longer references `SIGWINCH` on Windows, so the release binaries compile for `windows/amd64`.
+
 ## [2.0.0] - 2026-09-24
 
 ### Added

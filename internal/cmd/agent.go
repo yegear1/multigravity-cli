@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/fatih/color"
@@ -273,7 +272,7 @@ func attachInteractive(mgr *agent.Manager, inst *agent.SessionInstance) error {
 
 	// Forward terminal resize signals
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGWINCH)
+	notifyWindowChange(sigChan)
 	defer signal.Stop(sigChan)
 
 	go func() {
