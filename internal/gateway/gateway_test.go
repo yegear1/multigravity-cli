@@ -7,10 +7,22 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "mg-gateway-home-")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("MULTIGRAVITY_HOME", dir)
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func TestNormalizeModel(t *testing.T) {
 	tests := []struct {
@@ -582,4 +594,3 @@ func TestGatewayRouterManagementEndpoints(t *testing.T) {
 		t.Errorf("expected 0 cooldown profiles after reset, got %d", router.GetStatus().CooldownProfiles)
 	}
 }
-

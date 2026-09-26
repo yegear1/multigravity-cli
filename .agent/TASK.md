@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [09.1] | Histórico Temporal de Consumo de Cotas e Métricas de Tokens por Perfil | feat(quota): record per-profile quota and token history | 2026-09-26 |
 | [13.2] | Despacho Concorrente de Tarefas e Subagentes (`multigravity exec [profile\|--all] "<prompt>"`) com pooling paralelo de cotas | feat(headless): fan out one prompt across isolated profiles | 2026-09-26 |
 | [13.1] | Autenticação Direta Headless via CLI (`multigravity login` com Google OAuth2 PKCE e callback HTTP efêmero) | feat(auth): add headless OAuth2 PKCE login into the profile vault | 2026-09-26 |
 | [11.6] | Alinhamento Estratégico de Posicionamento, Documentação (README, README.pt-br, CHANGELOG) e Catálogo de Recursos da Plataforma | docs(platform): align branding, readme, and changelog with agentic development and ai gateway architecture | 2026-09-26 |
@@ -67,7 +68,7 @@
 - [x] **[08.1]** Detecção e Mapeamento de Workspaces e Repositórios Ativos por Perfil
 - [x] **[08.2]** Invocação e Gestão de Agentes Headless em Background com Isolamento de Identidade
 - [ ] **[08.3]** Sistema de Snapshots e Rollback Seguro de Perfis e Conversas
-- [ ] **[09.1]** Histórico Temporal de Consumo de Cotas e Métricas de Tokens por Perfil
+- [x] **[09.1]** Histórico Temporal de Consumo de Cotas e Métricas de Tokens por Perfil
 - [ ] **[09.2]** Streaming de Logs em Tempo Real (Live Log Stream do Language Server e Processos da IDE)
 - [ ] **[09.3]** Sistema de Alertas Proativos e Notificações de Eventos (Cota Crítica, Quedas, Processos Órfãos)
 - [ ] **[10.1]** Catálogo Centralizado e Diagnóstico de Saúde de Ferramentas (MCP Hub e Skills Registry)

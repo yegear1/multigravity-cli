@@ -126,6 +126,7 @@ func (m *Manager) RunAgentPrompt(opts AgentRunOptions) (*AgentRunResult, error) 
 			result.Error = cmdErr.Error()
 		}
 
+		noteHeadlessTokens(result)
 		return result, nil
 	}
 
@@ -164,5 +165,13 @@ func (m *Manager) RunAgentPrompt(opts AgentRunOptions) (*AgentRunResult, error) 
 		result.Error = err.Error()
 	}
 
+	noteHeadlessTokens(result)
 	return result, nil
+}
+
+func noteHeadlessTokens(result *AgentRunResult) {
+	if result == nil || result.ExitCode != 0 || result.TotalTokens <= 0 {
+		return
+	}
+	_ = quota.RecordTokens(result.Profile, quota.SourceHeadless, "", 0, 0, result.TotalTokens, false)
 }

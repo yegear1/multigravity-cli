@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/profile"
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 	"github.com/ye-dev/multigravity-cli/internal/shortcut"
 )
 
@@ -114,6 +115,13 @@ func TestExecFanOutParallel(t *testing.T) {
 	}
 	if report.Results[0].Response != "ok-exec-a" || report.Results[1].Response != "ok-exec-b" {
 		t.Fatalf("unexpected responses: %+v", report.Results)
+	}
+	series, err := quota.LoadSeries("exec-a", quota.HistoryQuery{Source: quota.SourceHeadless, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if series.Summary.TotalTokens != 10 {
+		t.Fatalf("expected headless token sample, got %+v", series.Summary)
 	}
 }
 

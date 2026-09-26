@@ -287,7 +287,7 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		// ── Non-streaming mode ──────────────────────────────────────────────────
 		if !req.Stream {
 			var contentBuilder strings.Builder
-			callErr := g.client.StreamGenerateContent(r.Context(), cloudReq, activeToken, func(delta, finishReason string) error {
+			upstreamUsage, callErr := g.client.StreamGenerateContent(r.Context(), cloudReq, activeToken, func(delta, finishReason string) error {
 				contentBuilder.WriteString(delta)
 				return nil
 			})
@@ -308,6 +308,7 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 			// Success! Record metrics and write response
 			g.router.MarkSuccess(currentProfile)
+			usage := recordGatewayUsage(currentProfile, req.Model, upstreamUsage, cloudRequestText(cloudReq), contentBuilder.String())
 
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Profile-Used", currentProfile)
@@ -330,11 +331,7 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 						FinishReason: "stop",
 					},
 				},
-				Usage: UsageInfo{
-					PromptTokens:     0,
-					CompletionTokens: 0,
-					TotalTokens:      0,
-				},
+				Usage: usage,
 			}
 
 			_ = json.NewEncoder(w).Encode(resp)
@@ -343,8 +340,9 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 		// ── Streaming mode (SSE) with safe connection probe ─────────────────────
 		headersWritten := false
+		var contentBuilder strings.Builder
 
-		callErr := g.client.StreamGenerateContentWithConnect(
+		upstreamUsage, callErr := g.client.StreamGenerateContentWithConnect(
 			r.Context(),
 			cloudReq,
 			activeToken,
@@ -366,6 +364,7 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 				if delta == "" {
 					return nil
 				}
+				contentBuilder.WriteString(delta)
 				chunk := ChatCompletionChunk{
 					ID:      completionID,
 					Object:  "chat.completion.chunk",
@@ -420,6 +419,7 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 		// Stream completed successfully
 		g.router.MarkSuccess(currentProfile)
+		usage := recordGatewayUsage(currentProfile, req.Model, upstreamUsage, cloudRequestText(cloudReq), contentBuilder.String())
 
 		stop := "stop"
 		finalChunk := ChatCompletionChunk{
@@ -434,6 +434,7 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 					FinishReason: &stop,
 				},
 			},
+			Usage: &usage,
 		}
 		finalData, _ := json.Marshal(finalChunk)
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", finalData)

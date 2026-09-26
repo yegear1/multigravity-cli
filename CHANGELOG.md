@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Quota and Token Time Series:** `multigravity quota history` and `GET /api/v1/quota/history` store per-profile remaining-quota snapshots and token counts from the gateway and headless runs. Live `quota` reads stay instantaneous and append a point only when the fractions change.
 - **Headless Google Sign-In (`multigravity login`):** Added OAuth2 PKCE login with an ephemeral `127.0.0.1` callback. Refresh tokens are stored only in the profile vault (`.gemini/antigravity-cli/antigravity-oauth-token` and `.gemini/jetski-standalone-oauth-token`), never in the host keyring. Profile launches that already have a vault set `GEMINI_FORCE_FILE_STORAGE=true`.
 - **Parallel Headless Prompt Fan-out (`multigravity exec`):** Added `multigravity exec [profile|--all] "<prompt>"` and `POST /api/v1/exec`. The same prompt runs through the existing headless runner on each selected profile, with a worker pool and one aggregated JSON report. It does not start a second agent engine beside `dispatch` or the AI gateway.
 - **Autonomous Task Dispatcher (`internal/dispatch`):** Added `multigravity dispatch` (alias `dp`) to coordinate agent executions with profile isolation, ephemeral Git worktrees, structured diff parsing, and real-time log capture (`run`, `list`, `status`, `logs`, `diff`, `dashboard`, `cancel`, `delete`, `prune`).

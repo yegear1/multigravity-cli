@@ -120,6 +120,7 @@ type ChatCompletionChunk struct {
 	Created int64                       `json:"created"`
 	Model   string                      `json:"model"`
 	Choices []ChatCompletionChunkChoice `json:"choices"`
+	Usage   *UsageInfo                  `json:"usage,omitempty"`
 }
 
 type ChatCompletionChunkChoice struct {

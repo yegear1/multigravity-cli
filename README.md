@@ -132,6 +132,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity gh share <name>` | Share host GitHub CLI credentials (`~/.config/gh` or `%APPDATA%\GitHub CLI`) |
 | `multigravity gh isolate <name>` | Isolate profile with a private copy of GitHub CLI credentials |
 | `multigravity quota [name]` | Show live AI token limits, usage percentage, and countdown until reset |
+| `multigravity quota history [name]` | Show the stored quota and token time series (`--since 24h`, `--source`, `--json`) |
 | `multigravity ai quota [name]` | Alias for `multigravity quota` |
 | `multigravity prime [name] [opt]` | Automatically prime weekly token cycles upon reset (dual bucket, jitter, cron/systemd) |
 | `multigravity ai prime [name] [opt]` | Alias for `multigravity prime` |
@@ -315,6 +316,9 @@ multigravity quota
 # Check quota for a specific profile
 multigravity quota work
 multigravity ai quota work
+
+# Time series of remaining quota and tokens (gateway, headless, and live snapshots)
+multigravity quota history work --since 24h --json
 ```
 
 ---

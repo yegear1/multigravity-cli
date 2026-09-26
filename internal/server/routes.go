@@ -221,6 +221,10 @@ func (s *Server) setupRoutes() {
 	// Quota & Priming
 	s.mux.HandleFunc("GET /api/v1/quota", s.handleQuota)
 	s.mux.HandleFunc("GET /api/quota", s.handleQuota)
+	s.mux.HandleFunc("GET /api/v1/quota/history", s.handleQuotaHistory)
+	s.mux.HandleFunc("GET /api/quota/history", s.handleQuotaHistory)
+	s.mux.HandleFunc("GET /api/v1/quota/{profile}/history", s.handleQuotaProfileHistory)
+	s.mux.HandleFunc("GET /api/quota/{profile}/history", s.handleQuotaProfileHistory)
 	s.mux.HandleFunc("GET /api/v1/quota/{profile}", s.handleQuotaProfile)
 	s.mux.HandleFunc("GET /api/quota/{profile}", s.handleQuotaProfile)
 
@@ -785,6 +789,7 @@ func (s *Server) handleQuota(w http.ResponseWriter, r *http.Request) {
 	if servers == nil {
 		servers = []quota.ActiveServer{}
 	}
+	quota.RecordLiveSnapshots(servers)
 	s.writeJSON(w, http.StatusOK, servers)
 }
 
@@ -798,7 +803,55 @@ func (s *Server) handleQuotaProfile(w http.ResponseWriter, r *http.Request) {
 	if servers == nil {
 		servers = []quota.ActiveServer{}
 	}
+	quota.RecordLiveSnapshots(servers)
 	s.writeJSON(w, http.StatusOK, servers)
+}
+
+func (s *Server) handleQuotaHistory(w http.ResponseWriter, r *http.Request) {
+	q, err := quota.ParseHistoryQuery(
+		r.URL.Query().Get("since"),
+		r.URL.Query().Get("until"),
+		r.URL.Query().Get("source"),
+		r.URL.Query().Get("limit"),
+	)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	fleet, err := quota.LoadFleetSeries(q)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, fleet)
+}
+
+func (s *Server) handleQuotaProfileHistory(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("profile")
+	if err := config.ValidateProfileName(name); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !profile.ProfileExists(name) {
+		s.writeError(w, http.StatusNotFound, fmt.Sprintf("profile %q does not exist", name))
+		return
+	}
+	q, err := quota.ParseHistoryQuery(
+		r.URL.Query().Get("since"),
+		r.URL.Query().Get("until"),
+		r.URL.Query().Get("source"),
+		r.URL.Query().Get("limit"),
+	)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	series, err := quota.LoadSeries(name, q)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, series)
 }
 
 func (s *Server) handleGetProfilePrime(w http.ResponseWriter, r *http.Request) {

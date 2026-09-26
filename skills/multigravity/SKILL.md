@@ -156,6 +156,9 @@ The agent MUST NOT activate this skill when:
    # Quota telemetry and window reset timers
    multigravity quota [profile] --json
 
+   # Stored quota and token time series
+   multigravity quota history [profile] --since 24h --json
+
    # Storage stats and extension counts
    multigravity stats --json
 
@@ -197,6 +200,8 @@ The agent MUST NOT activate this skill when:
    | `GET` | `/api/v1/profiles/{name}/conversations` | AI conversation list and artifact counts |
    | `GET` | `/api/v1/quota` | Active Language Server quota metrics across all running profiles |
    | `GET` | `/api/v1/quota/{profile}` | Active quota metrics filtered by profile |
+   | `GET` | `/api/v1/quota/history` | Quota and token time series across profiles (`since`, `until`, `source`, `limit`) |
+   | `GET` | `/api/v1/quota/{profile}/history` | Quota and token time series for one profile |
    | `GET` | `/api/v1/profiles/{name}/prime` | Prime cycle status, watchdog schedules, and bucket telemetry |
    | `GET` | `/api/v1/prime` | Prime cycle status across all profiles |
    | `POST` | `/api/v1/profiles/{name}/prime` | Execute or check (`check: true`) quota priming with real-time SSE progress |

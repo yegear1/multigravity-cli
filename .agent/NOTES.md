@@ -19,6 +19,16 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 09.1] Histórico temporal de cota e tokens por perfil
+
+- **Contexto:** `multigravity quota` e `GET /api/v1/quota` devolvem só a leitura instantânea do language server. O gateway e o dashboard precisam da série de fração restante e de tokens.
+- **Decisões Técnicas:**
+  - A série fica em `<perfil>/.multigravity/quota-history.jsonl` (modo `0600`). Não grava prompt, resposta nem token de autenticação.
+  - Fontes: `quota` (snapshot ao vivo), `gateway` (completions OpenAI/Anthropic) e `headless` (`RunAgentPrompt`, inclusive `exec`).
+  - Snapshot de cota idêntico dentro de 1 minuto não é regravado. Amostras com mais de 30 dias, ou além das 2000 mais recentes, saem na compactação.
+  - Contagem do gateway usa `usageMetadata` do CloudCode quando o stream traz o campo. Sem isso, a amostra é uma estimativa de 4 runes por token (`estimated: true`).
+  - `GET /api/v1/quota` permanece o ponto instantâneo. A série é `GET /api/v1/quota/history` e `GET /api/v1/quota/{profile}/history` (`since`, `until`, `source`, `limit`).
+
 ### 2026-09-26 [Task 13.2] Despacho concorrente via fan-out do headless run
 
 - **Contexto:** `multigravity exec [perfil|--all] "<prompt>"` precisa queimar cotas isoladas em paralelo. O isolamento de `HOME` e do cofre por perfil já permite concorrência real, ao contrário de ferramentas que alternam o keyring global.

@@ -326,7 +326,7 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		// ── Non-streaming mode ──────────────────────────────────────────────────
 		if !req.Stream {
 			var contentBuilder strings.Builder
-			callErr := g.client.StreamGenerateContent(r.Context(), cloudReq, activeToken, func(delta, finishReason string) error {
+			upstreamUsage, callErr := g.client.StreamGenerateContent(r.Context(), cloudReq, activeToken, func(delta, finishReason string) error {
 				contentBuilder.WriteString(delta)
 				return nil
 			})
@@ -346,6 +346,7 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			}
 
 			g.router.MarkSuccess(currentProfile)
+			usage := recordGatewayUsage(currentProfile, req.Model, upstreamUsage, cloudRequestText(cloudReq), contentBuilder.String())
 
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Profile-Used", currentProfile)
@@ -367,8 +368,8 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				StopReason:   "end_turn",
 				StopSequence: nil,
 				Usage: AnthropicUsage{
-					InputTokens:  0,
-					OutputTokens: 0,
+					InputTokens:  usage.PromptTokens,
+					OutputTokens: usage.CompletionTokens,
 				},
 			}
 
@@ -378,8 +379,9 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 		// ── Streaming mode (SSE) with safe connection probe ─────────────────────
 		headersWritten := false
+		var contentBuilder strings.Builder
 
-		callErr := g.client.StreamGenerateContentWithConnect(
+		upstreamUsage, callErr := g.client.StreamGenerateContentWithConnect(
 			r.Context(),
 			cloudReq,
 			activeToken,
@@ -434,6 +436,7 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				if delta == "" {
 					return nil
 				}
+				contentBuilder.WriteString(delta)
 				deltaEvt := AnthropicContentBlockDeltaEvent{
 					Type:  "content_block_delta",
 					Index: 0,
@@ -480,6 +483,7 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 		// Stream completed successfully
 		g.router.MarkSuccess(currentProfile)
+		usage := recordGatewayUsage(currentProfile, req.Model, upstreamUsage, cloudRequestText(cloudReq), contentBuilder.String())
 
 		// 3. Emit content_block_stop
 		cbStop := AnthropicContentBlockStopEvent{
@@ -497,7 +501,7 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				StopSequence: nil,
 			},
 			Usage: AnthropicUsage{
-				OutputTokens: 0,
+				OutputTokens: usage.CompletionTokens,
 			},
 		}
 		mdData, _ := json.Marshal(msgDelta)

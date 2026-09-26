@@ -114,6 +114,20 @@ func (c *Client) BuildRequestHeaders(token string) http.Header {
 	return h
 }
 
+type googleUsageMetadata struct {
+	PromptTokenCount     int `json:"promptTokenCount"`
+	CandidatesTokenCount int `json:"candidatesTokenCount"`
+	TotalTokenCount      int `json:"totalTokenCount"`
+}
+
+// UpstreamUsage is token accounting reported by CloudCode, when the stream includes it.
+type UpstreamUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	Observed         bool
+}
+
 // GoogleSSEChunk maps the JSON structure returned inside Google CloudCode SSE lines
 type GoogleSSEChunk struct {
 	Response *struct {
@@ -125,8 +139,10 @@ type GoogleSSEChunk struct {
 			} `json:"content"`
 			FinishReason string `json:"finishReason"`
 		} `json:"candidates"`
+		UsageMetadata *googleUsageMetadata `json:"usageMetadata"`
 	} `json:"response"`
-	Error *struct {
+	UsageMetadata *googleUsageMetadata `json:"usageMetadata"`
+	Error         *struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 		Status  string `json:"status"`
@@ -136,24 +152,30 @@ type GoogleSSEChunk struct {
 // ParseGoogleSSELine extracts text deltas from a raw SSE line received from Google.
 // Returns (delta, finishReason, isDone).
 func ParseGoogleSSELine(line string) (string, string, bool) {
+	delta, finish, done, _ := parseGoogleSSELine(line)
+	return delta, finish, done
+}
+
+func parseGoogleSSELine(line string) (string, string, bool, UpstreamUsage) {
 	line = strings.TrimSpace(line)
 	if !strings.HasPrefix(line, "data:") {
-		return "", "", false
+		return "", "", false, UpstreamUsage{}
 	}
 
 	payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 	if payload == "" {
-		return "", "", false
+		return "", "", false, UpstreamUsage{}
 	}
 	if payload == "[DONE]" {
-		return "", "stop", true
+		return "", "stop", true, UpstreamUsage{}
 	}
 
 	var chunk GoogleSSEChunk
 	if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-		return "", "", false
+		return "", "", false, UpstreamUsage{}
 	}
 
+	usage := usageFromChunk(chunk)
 	if chunk.Response != nil && len(chunk.Response.Candidates) > 0 {
 		cand := chunk.Response.Candidates[0]
 		var delta string
@@ -164,10 +186,29 @@ func ParseGoogleSSELine(line string) (string, string, bool) {
 			}
 			delta = sb.String()
 		}
-		return delta, cand.FinishReason, false
+		return delta, cand.FinishReason, false, usage
 	}
 
-	return "", "", false
+	return "", "", false, usage
+}
+
+func usageFromChunk(chunk GoogleSSEChunk) UpstreamUsage {
+	meta := chunk.UsageMetadata
+	if chunk.Response != nil && chunk.Response.UsageMetadata != nil {
+		meta = chunk.Response.UsageMetadata
+	}
+	if meta == nil {
+		return UpstreamUsage{}
+	}
+	if meta.PromptTokenCount == 0 && meta.CandidatesTokenCount == 0 && meta.TotalTokenCount == 0 {
+		return UpstreamUsage{}
+	}
+	return UpstreamUsage{
+		PromptTokens:     meta.PromptTokenCount,
+		CompletionTokens: meta.CandidatesTokenCount,
+		TotalTokens:      meta.TotalTokenCount,
+		Observed:         true,
+	}
 }
 
 // StreamGenerateContent sends the request to CloudCode PA upstream and streams deltas to onChunk.
@@ -176,21 +217,22 @@ func (c *Client) StreamGenerateContent(
 	reqPayload *CloudCodeRequest,
 	token string,
 	onChunk func(delta string, finishReason string) error,
-) error {
+) (UpstreamUsage, error) {
 	return c.StreamGenerateContentWithConnect(ctx, reqPayload, token, nil, onChunk)
 }
 
 // StreamGenerateContentWithConnect sends the request to CloudCode PA upstream, triggers onConnect on HTTP 200, and streams deltas to onChunk.
+// The returned usage is the last usageMetadata observed on the stream.
 func (c *Client) StreamGenerateContentWithConnect(
 	ctx context.Context,
 	reqPayload *CloudCodeRequest,
 	token string,
 	onConnect func() error,
 	onChunk func(delta string, finishReason string) error,
-) error {
+) (UpstreamUsage, error) {
 	reqBody, err := json.Marshal(reqPayload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal cloudcode request: %w", err)
+		return UpstreamUsage{}, fmt.Errorf("failed to marshal cloudcode request: %w", err)
 	}
 
 	var lastErr error
@@ -223,31 +265,35 @@ func (c *Client) StreamGenerateContentWithConnect(
 			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden {
 				continue
 			}
-			return upstreamErr
+			return UpstreamUsage{}, upstreamErr
 		}
 
 		if onConnect != nil {
 			if err := onConnect(); err != nil {
 				_ = resp.Body.Close()
-				return err
+				return UpstreamUsage{}, err
 			}
 		}
 
 		// Read SSE stream
+		var usage UpstreamUsage
 		reader := bufio.NewReader(resp.Body)
 		for {
 			line, rErr := reader.ReadString('\n')
 			if len(line) > 0 {
-				delta, finishReason, isDone := ParseGoogleSSELine(line)
+				delta, finishReason, isDone, lineUsage := parseGoogleSSELine(line)
+				if lineUsage.Observed {
+					usage = lineUsage
+				}
 				if isDone {
 					_ = resp.Body.Close()
-					return nil
+					return usage, nil
 				}
 				if delta != "" || finishReason != "" {
 					if onChunk != nil {
 						if err := onChunk(delta, finishReason); err != nil {
 							_ = resp.Body.Close()
-							return err
+							return usage, err
 						}
 					}
 				}
@@ -255,17 +301,17 @@ func (c *Client) StreamGenerateContentWithConnect(
 			if rErr != nil {
 				_ = resp.Body.Close()
 				if rErr == io.EOF {
-					return nil
+					return usage, nil
 				}
-				return rErr
+				return usage, rErr
 			}
 		}
 	}
 
 	if lastErr != nil {
-		return lastErr
+		return UpstreamUsage{}, lastErr
 	}
-	return fmt.Errorf("no upstream endpoints available")
+	return UpstreamUsage{}, fmt.Errorf("no upstream endpoints available")
 }
 
 // UpstreamHTTPError captures HTTP error responses from Google CloudCode upstream
@@ -299,4 +345,3 @@ func IsRateLimitOrQuotaExhausted(err error) (bool, int) {
 	}
 	return false, 0
 }
-
