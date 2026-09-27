@@ -121,3 +121,10 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
 - O relatório lista servidores, skills e plugins e repete o modo já exposto por `mcp status` / `skills status` (`shared`, `isolated`, `standalone`, `none`).
 - Campos `env`, `headers` e `args` de `mcp_config.json` ficam de fora do texto e do JSON. Query string e usuário de URL também ficam de fora. JSON inválido não é ecoado no diagnóstico.
 
+## 12. Credencial do gateway e cota do roteador
+
+- O access token de uma completion sai do cofre do perfil escolhido. O arquivo do `login` (`antigravity-oauth-token`) tem prioridade. Se ele não existir, vale o `jetski-standalone-oauth-token` gravado pela IDE. `login status` usa a mesma ordem e não devolve o token.
+- Access token expirado é renovado com o refresh token e os dois arquivos são regravados em `0600`. O `Authorization` recebido pelo `serve` não é repassado ao Cloud Code.
+- Perfil sem credencial responde 401 `profile_unauthenticated` e não chama o upstream.
+- `remaining_fraction: 1` não é o estado inicial. Sem leitura do language server, `quota_known` fica falso e a fração fica 0. O `smart` só usa fração medida (semanal e 5h; vale a menor). Cota desconhecida não pontua como cheia, e cota medida 0 não volta a pontuar como 1.
+
