@@ -207,3 +207,102 @@ func TestLoginRejectsDeniedCallback(t *testing.T) {
 		t.Fatal("denied login wrote a vault")
 	}
 }
+
+func TestStatusAndAccessTokenReadJetskiVault(t *testing.T) {
+	profileDir := t.TempDir()
+	cred := credentialFile{AuthMethod: authMethodConsumer}
+	cred.Token.AccessToken = "ya29-jetski"
+	cred.Token.RefreshToken = "1//refresh"
+	cred.Token.TokenType = "Bearer"
+	cred.Token.Expiry = time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
+	raw, err := json.Marshal(cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jetski := filepath.Join(profileDir, filepath.FromSlash(JetskiRel))
+	if err := os.MkdirAll(filepath.Dir(jetski), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jetski, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := Status("ada", profileDir)
+	if err != nil || !session.Authenticated || session.Vault != JetskiRel || session.AccessExpired {
+		t.Fatalf("status %+v err %v", session, err)
+	}
+
+	called := false
+	tokenURL := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		http.Error(w, "refresh should not run", http.StatusInternalServerError)
+	}))
+	defer tokenURL.Close()
+
+	got, err := AccessToken(context.Background(), profileDir, Options{TokenURL: tokenURL.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ya29-jetski" || called {
+		t.Fatalf("token reused=%v refresh called=%v", got == "ya29-jetski", called)
+	}
+}
+
+func TestAccessTokenRefreshesExpiredJetskiCredential(t *testing.T) {
+	profileDir := t.TempDir()
+	cred := credentialFile{AuthMethod: authMethodConsumer}
+	cred.Token.AccessToken = "ya29-old"
+	cred.Token.RefreshToken = "1//refresh"
+	cred.Token.TokenType = "Bearer"
+	cred.Token.Expiry = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	raw, err := json.Marshal(cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jetski := filepath.Join(profileDir, filepath.FromSlash(JetskiRel))
+	if err := os.MkdirAll(filepath.Dir(jetski), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jetski, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tokenURL := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		values, err := url.ParseQuery(string(body))
+		if err != nil || values.Get("grant_type") != "refresh_token" || values.Get("refresh_token") != "1//refresh" {
+			http.Error(w, "bad refresh", http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "ya29-new",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+	}))
+	defer tokenURL.Close()
+
+	got, err := AccessToken(context.Background(), profileDir, Options{TokenURL: tokenURL.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ya29-new" {
+		t.Fatal("refreshed access token was not returned")
+	}
+	for _, path := range []string{VaultPath(profileDir), jetski} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0077 != 0 {
+			t.Fatalf("%s mode %v", path, info.Mode().Perm())
+		}
+		stored, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(stored), "ya29-new") || !strings.Contains(string(stored), "1//refresh") {
+			t.Fatal("refreshed credential was not stored in both files")
+		}
+	}
+}

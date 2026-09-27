@@ -177,6 +177,85 @@ func (o Options) userInfoURL() string {
 	return UserInfoEndpoint
 }
 
+func refreshAccessToken(ctx context.Context, endpoint, refreshToken string) (tokenResponse, error) {
+	form := url.Values{}
+	form.Set("client_id", ClientID)
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", refreshToken)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return tokenResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return tokenResponse{}, fmt.Errorf("token refresh failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return tokenResponse{}, fmt.Errorf("token refresh failed: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return tokenResponse{}, fmt.Errorf("token refresh failed: HTTP %d", resp.StatusCode)
+	}
+	var tok tokenResponse
+	if err := json.Unmarshal(body, &tok); err != nil {
+		return tokenResponse{}, fmt.Errorf("token refresh returned invalid JSON")
+	}
+	if tok.Error != "" || tok.AccessToken == "" {
+		return tokenResponse{}, fmt.Errorf("token refresh did not return an access token")
+	}
+	if tok.ExpiresIn <= 0 {
+		tok.ExpiresIn = 3600
+	}
+	return tok, nil
+}
+
+// AccessToken returns the profile access token. It reads the login vault and
+// falls back to the IDE jetski file. An expired access token is refreshed and
+// both credential files are rewritten. The token is not included in errors.
+func AccessToken(ctx context.Context, profileDir string, opts Options) (string, error) {
+	cred, _, err := loadCredential(profileDir)
+	if err != nil {
+		return "", err
+	}
+	if cred.Token.AccessToken != "" && !accessExpired(cred.Token.Expiry, time.Now().Add(time.Minute)) {
+		return cred.Token.AccessToken, nil
+	}
+	if cred.Token.RefreshToken == "" {
+		if cred.Token.AccessToken != "" {
+			return cred.Token.AccessToken, nil
+		}
+		return "", ErrNotAuthenticated
+	}
+
+	tok, err := refreshAccessToken(ctx, opts.tokenURL(), cred.Token.RefreshToken)
+	if err != nil {
+		return "", err
+	}
+	cred.Token.AccessToken = tok.AccessToken
+	if tok.TokenType != "" {
+		cred.Token.TokenType = tok.TokenType
+	}
+	if cred.Token.TokenType == "" {
+		cred.Token.TokenType = "Bearer"
+	}
+	if tok.RefreshToken != "" {
+		cred.Token.RefreshToken = tok.RefreshToken
+	}
+	if cred.AuthMethod == "" {
+		cred.AuthMethod = authMethodConsumer
+	}
+	cred.Token.Expiry = time.Now().UTC().Add(time.Duration(tok.ExpiresIn) * time.Second).Format(time.RFC3339Nano)
+	if err := writeCredentialTokens(profileDir, cred); err != nil {
+		return "", fmt.Errorf("failed to store refreshed profile credential: %w", err)
+	}
+	return cred.Token.AccessToken, nil
+}
+
 func exchangeCode(ctx context.Context, endpoint, code, verifier, redirectURI string) (tokenResponse, error) {
 	form := url.Values{}
 	form.Set("client_id", ClientID)

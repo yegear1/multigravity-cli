@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -116,29 +117,21 @@ func writePrivateFile(path string, data []byte) error {
 	return nil
 }
 
-// Status reads the profile vault without returning secrets.
+// Status reads the profile credential without returning secrets.
+// The login vault wins; the IDE jetski file counts when the vault is absent.
 func Status(profileName, profileDir string) (Session, error) {
-	session := Session{Profile: profileName, Vault: VaultRel}
-	if !HasVault(profileDir) {
-		session.Vault = ""
+	session := Session{Profile: profileName}
+	cred, rel, err := loadCredential(profileDir)
+	if errors.Is(err, ErrNotAuthenticated) {
 		return session, nil
 	}
-	session.Authenticated = true
-
-	raw, err := os.ReadFile(VaultPath(profileDir))
 	if err != nil {
 		return Session{}, err
 	}
-	var cred credentialFile
-	if err := json.Unmarshal(raw, &cred); err != nil {
-		return Session{}, fmt.Errorf("profile vault is not valid credential JSON")
-	}
+	session.Authenticated = true
+	session.Vault = rel
 	session.Expiry = cred.Token.Expiry
-	if exp, err := time.Parse(time.RFC3339Nano, cred.Token.Expiry); err == nil {
-		session.AccessExpired = time.Now().After(exp)
-	} else if exp, err := time.Parse(time.RFC3339, cred.Token.Expiry); err == nil {
-		session.AccessExpired = time.Now().After(exp)
-	}
+	session.AccessExpired = accessExpired(cred.Token.Expiry, time.Now())
 
 	accountPath := filepath.Join(profileDir, filepath.FromSlash(AccountRel))
 	if metaRaw, err := os.ReadFile(accountPath); err == nil {
@@ -179,3 +172,62 @@ func Logout(profileDir string) error {
 
 // ErrNotAuthenticated is returned when logout finds no profile credential.
 var ErrNotAuthenticated = errors.New("profile is not authenticated")
+
+func loadCredential(profileDir string) (credentialFile, string, error) {
+	var invalid bool
+	for _, rel := range []string{VaultRel, JetskiRel} {
+		path := filepath.Join(profileDir, filepath.FromSlash(rel))
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return credentialFile{}, "", err
+		}
+		var cred credentialFile
+		if err := json.Unmarshal(raw, &cred); err != nil {
+			invalid = true
+			continue
+		}
+		if cred.Token.AccessToken == "" && cred.Token.RefreshToken == "" {
+			continue
+		}
+		return cred, rel, nil
+	}
+	if invalid {
+		return credentialFile{}, "", fmt.Errorf("profile credential is not valid JSON")
+	}
+	return credentialFile{}, "", ErrNotAuthenticated
+}
+
+func accessExpired(expiry string, now time.Time) bool {
+	if strings.TrimSpace(expiry) == "" {
+		return false
+	}
+	exp, err := time.Parse(time.RFC3339Nano, expiry)
+	if err != nil {
+		exp, err = time.Parse(time.RFC3339, expiry)
+	}
+	if err != nil {
+		return false
+	}
+	return !now.Before(exp)
+}
+
+func writeCredentialTokens(profileDir string, cred credentialFile) error {
+	payload, err := json.Marshal(cred)
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	vault := VaultPath(profileDir)
+	jetski := filepath.Join(profileDir, filepath.FromSlash(JetskiRel))
+	if err := writePrivateFile(vault, payload); err != nil {
+		return err
+	}
+	if err := writePrivateFile(jetski, payload); err != nil {
+		_ = os.Remove(vault)
+		return err
+	}
+	return nil
+}
