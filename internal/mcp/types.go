@@ -78,6 +78,7 @@ type PropertySchema struct {
 	Default     any                       `json:"default,omitempty"`
 	Items       *PropertySchema           `json:"items,omitempty"`
 	Properties  map[string]PropertySchema `json:"properties,omitempty"`
+	Required    []string                  `json:"required,omitempty"`
 }
 
 // ToolInputSchema defines the input argument contract for an MCP tool

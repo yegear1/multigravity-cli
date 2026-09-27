@@ -93,6 +93,7 @@ func TestToolsList(t *testing.T) {
 
 	expectedTools := []string{
 		"dispatch_task",
+		"dispatch_plan",
 		"dispatch_list",
 		"dispatch_status",
 		"dispatch_cancel",
@@ -183,6 +184,25 @@ func TestToolsCall(t *testing.T) {
 	resUnknown, ok := respUnknown.Result.(*CallToolResult)
 	if !ok || !resUnknown.IsError {
 		t.Fatalf("expected isError: true for unknown tool call, got %+v", resUnknown)
+	}
+
+	// 4. Call dispatch_plan with empty subtasks
+	reqPlanEmpty := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      13,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"dispatch_plan","arguments":{"subtasks":[]}}`),
+	}
+	respPlanEmpty := srv.HandleRequest(context.Background(), reqPlanEmpty)
+	if respPlanEmpty == nil {
+		t.Fatalf("expected response for dispatch_plan call")
+	}
+	resPlanEmpty, ok := respPlanEmpty.Result.(*CallToolResult)
+	if !ok || !resPlanEmpty.IsError {
+		t.Fatalf("expected isError: true for empty subtasks, got %+v", resPlanEmpty)
+	}
+	if !strings.Contains(resPlanEmpty.Content[0].Text, "subtasks list cannot be empty") {
+		t.Errorf("unexpected error message: %s", resPlanEmpty.Content[0].Text)
 	}
 }
 

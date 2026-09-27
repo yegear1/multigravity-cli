@@ -178,6 +178,130 @@ func RegisterDefaultTools(s *Server) {
 	})
 
 	s.RegisterTool(Tool{
+		Name:        "dispatch_plan",
+		Description: "Execute a multi-agent execution plan with concurrent subtasks across isolated Git worktrees, aggregating diffs and validating disjoint scopes.",
+		InputSchema: ToolInputSchema{
+			Type: "object",
+			Properties: map[string]PropertySchema{
+				"plan_id": {
+					Type:        "string",
+					Description: "Optional custom plan identifier. Auto-generated if omitted.",
+				},
+				"repo": {
+					Type:        "string",
+					Description: "Path to target Git repository. Defaults to current working directory.",
+				},
+				"base_branch": {
+					Type:        "string",
+					Description: "Base branch to fork ephemeral worktrees from.",
+				},
+				"base_commit": {
+					Type:        "string",
+					Description: "Base commit hash to fork ephemeral worktrees from.",
+				},
+				"timeout": {
+					Type:        "string",
+					Description: "Global plan execution timeout (e.g., '10m', '30m').",
+				},
+				"workers": {
+					Type:        "integer",
+					Description: "Maximum number of concurrent worker tasks executing simultaneously (default 4).",
+				},
+				"subtasks": {
+					Type:        "array",
+					Description: "List of subtask specifications to execute in parallel worktrees.",
+					Items: &PropertySchema{
+						Type: "object",
+						Properties: map[string]PropertySchema{
+							"id": {
+								Type:        "string",
+								Description: "Unique subtask identifier.",
+							},
+							"profile": {
+								Type:        "string",
+								Description: "Target Antigravity profile for identity, quota, and credential isolation.",
+							},
+							"prompt": {
+								Type:        "string",
+								Description: "Prompt instruction for the worker agent.",
+							},
+							"agent_type": {
+								Type:        "string",
+								Description: "Agent runner type (e.g., 'claude', 'aider', 'opencode', 'agy').",
+							},
+							"command": {
+								Type:        "string",
+								Description: "Custom command or script to execute inside the worktree.",
+							},
+							"args": {
+								Type:        "array",
+								Description: "Command arguments array.",
+								Items:       &PropertySchema{Type: "string"},
+							},
+							"branch": {
+								Type:        "string",
+								Description: "Custom branch name for this subtask's worktree.",
+							},
+							"env": {
+								Type:        "object",
+								Description: "Environment variables map for this subtask.",
+							},
+						},
+						Required: []string{"profile"},
+					},
+				},
+			},
+			Required: []string{"subtasks"},
+		},
+	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
+		repo := getString(args, "repo")
+		if repo == "" {
+			repo = getString(args, "repo_path")
+		}
+		if repo == "" {
+			var err error
+			repo, err = os.Getwd()
+			if err != nil {
+				return nil, fmt.Errorf("failed to determine repository path: %w", err)
+			}
+		}
+
+		var req dispatch.PlanRequest
+		b, err := json.Marshal(args)
+		if err == nil {
+			_ = json.Unmarshal(b, &req)
+		}
+		req.RepoPath = repo
+		if req.Workers <= 0 {
+			req.Workers = getInt(args, "workers", 4)
+		}
+		if req.PlanID == "" {
+			req.PlanID = getString(args, "plan_id")
+		}
+		if req.BaseBranch == "" {
+			req.BaseBranch = getString(args, "base_branch")
+		}
+		if req.BaseCommit == "" {
+			req.BaseCommit = getString(args, "base_commit")
+		}
+		if req.Timeout == "" {
+			req.Timeout = getString(args, "timeout")
+		}
+
+		if len(req.Subtasks) == 0 && len(req.Tasks) == 0 {
+			return nil, fmt.Errorf("subtasks list cannot be empty")
+		}
+
+		mgr := dispatch.GetDefaultTaskManager()
+		result, err := mgr.ExecutePlan(ctx, req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute plan: %w", err)
+		}
+
+		return toJSONText(result)
+	})
+
+	s.RegisterTool(Tool{
 		Name:        "dispatch_list",
 		Description: "List dispatched tasks with optional filters by status, profile, or repository.",
 		InputSchema: ToolInputSchema{
