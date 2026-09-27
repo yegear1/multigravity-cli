@@ -152,6 +152,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity dispatch dashboard [--json]` | Dashboard executivo com contadores de tarefas em execução, concluídas e com falha |
 | `multigravity dispatch cancel <task-id> [--force]` | Cancela uma tarefa em execução graciosamente (ou forçado) |
 | `multigravity dispatch delete <task-id> [--worktree]` | Exclui registro da tarefa e limpa opcionalmente seu worktree |
+| `multigravity dispatch plan <plan.json> [--json]` | Despacha plano de subtarefas concorrentemente em worktrees e agrega diffs |
 | `multigravity dispatch prune [--max-age <dur>]` | Remove tarefas concluídas anteriores ao limite de retenção |
 | `multigravity agent run <perfil> [--] <cmd>` | Executa agente CLI interativo (Claude Code, Aider, OpenCode) em PTY dedicado (alias: `ag run`) |
 | `multigravity agent list [--json]` | Lista sessões ativas de agentes em PTY |

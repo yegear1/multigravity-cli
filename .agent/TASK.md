@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [04.3] | Endpoint de Subtask Aggregator na API REST (/api/v1/dispatch/plans) | cbbbd40 | 2026-09-27 |
 | [04.2] | Skill de Orquestração Multi-Agente (skills/multigravity-orchestrator) | fd8117c | 2026-09-27 |
 | [04.1] | Servidor MCP nativo stdio/HTTP e catálogo de ferramentas | c4de524 | 2026-09-27 |
 | [03.4] | Skill e READMEs registram o contrato de modelo do gateway | 750b514 | 2026-09-27 |

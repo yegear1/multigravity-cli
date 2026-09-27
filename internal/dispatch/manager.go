@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -34,6 +35,9 @@ type TaskManager struct {
 	tasks    map[string]*Task
 	mu       sync.RWMutex
 	onEvent  func(event string, task *Task)
+
+	waitMu  sync.Mutex
+	waiters map[string][]chan struct{}
 }
 
 // GetDefaultTaskManager returns the process-wide TaskManager singleton.
@@ -52,6 +56,7 @@ func NewTaskManager(agentMgr *agent.Manager) *TaskManager {
 	return &TaskManager{
 		agentMgr: agentMgr,
 		tasks:    make(map[string]*Task),
+		waiters:  make(map[string][]chan struct{}),
 	}
 }
 
@@ -68,6 +73,20 @@ func (m *TaskManager) emitEvent(event string, task *Task) {
 	m.mu.RUnlock()
 	if cb != nil {
 		cb(event, task)
+	}
+}
+
+func (m *TaskManager) notifyWaiters(taskID string) {
+	m.waitMu.Lock()
+	defer m.waitMu.Unlock()
+	if m.waiters == nil {
+		return
+	}
+	if chs, ok := m.waiters[taskID]; ok {
+		for _, ch := range chs {
+			close(ch)
+		}
+		delete(m.waiters, taskID)
 	}
 }
 
@@ -382,6 +401,7 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		taskMu.Unlock()
 
 		m.emitEvent("failed", task)
+		m.notifyWaiters(taskID)
 		return task, fmt.Errorf("failed to start agent session: %w", err)
 	}
 
@@ -465,6 +485,52 @@ func (m *TaskManager) watchSession(inst *agent.SessionInstance, task *Task, task
 	taskMu.Unlock()
 
 	m.emitEvent(string(task.Status), task)
+	m.notifyWaiters(task.ID)
+}
+
+// WaitForTask blocks until the task reaches a terminal status (completed, failed, cancelled) or ctx is done.
+func (m *TaskManager) WaitForTask(ctx context.Context, repoPath, id string) (*Task, error) {
+	if err := ValidateTaskID(id); err != nil {
+		return nil, err
+	}
+
+	m.waitMu.Lock()
+	t, err := m.GetTask(repoPath, id)
+	if err != nil {
+		m.waitMu.Unlock()
+		return nil, err
+	}
+	if t.Status == StatusCompleted || t.Status == StatusFailed || t.Status == StatusCancelled {
+		m.waitMu.Unlock()
+		return t, nil
+	}
+
+	ch := make(chan struct{})
+	m.waiters[id] = append(m.waiters[id], ch)
+	m.waitMu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		// Clean up waiter
+		m.waitMu.Lock()
+		if list, ok := m.waiters[id]; ok {
+			filtered := make([]chan struct{}, 0, len(list))
+			for _, item := range list {
+				if item != ch {
+					filtered = append(filtered, item)
+				}
+			}
+			if len(filtered) > 0 {
+				m.waiters[id] = filtered
+			} else {
+				delete(m.waiters, id)
+			}
+		}
+		m.waitMu.Unlock()
+		return m.GetTask(repoPath, id)
+	case <-ch:
+		return m.GetTask(repoPath, id)
+	}
 }
 
 // GetTask retrieves a task by ID from memory, task directory, or manifest.
@@ -635,6 +701,7 @@ func (m *TaskManager) CancelTask(repoPath, id string, force bool) error {
 	taskMu.Unlock()
 
 	m.emitEvent("cancelled", task)
+	m.notifyWaiters(id)
 	return nil
 }
 

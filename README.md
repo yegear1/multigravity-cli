@@ -152,6 +152,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity dispatch dashboard [--json]` | Executive summary dashboard of running, completed, and failed tasks |
 | `multigravity dispatch cancel <task-id> [--force]` | Cancel a running task gracefully (or force kill) |
 | `multigravity dispatch delete <task-id> [--worktree]` | Delete task record and optionally clean its worktree |
+| `multigravity dispatch plan <plan.json> [--json]` | Dispatch multi-subtask plan concurrently across worktrees and aggregate diffs |
 | `multigravity dispatch prune [--max-age <dur>]` | Prune finished tasks older than retention threshold |
 | `multigravity agent run <profile> [--] <cmd>` | Run an interactive CLI agent (Claude Code, Aider, OpenCode) in a dedicated PTY (alias: `ag run`) |
 | `multigravity agent list [--json]` | List active PTY agent sessions |

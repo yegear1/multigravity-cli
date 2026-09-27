@@ -57,6 +57,19 @@ func setupTestProfileForCmd(t *testing.T, name string) string {
 	return profDir
 }
 
+func setupTestProfilesForCmd(t *testing.T, names ...string) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", home)
+	for _, name := range names {
+		profDir := filepath.Join(home, name)
+		if err := os.MkdirAll(profDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return home
+}
+
 func TestDispatchCLIRunAndList(t *testing.T) {
 	repoDir := setupTestGitRepoForCmd(t)
 	setupTestProfileForCmd(t, "dev")
@@ -342,4 +355,77 @@ func TestDispatchCLIDiffAndDashboard(t *testing.T) {
 		t.Errorf("expected web diff url, got: %s", out)
 	}
 }
+
+func TestDispatchCLIPlan(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfilesForCmd(t, "dev-plan-1", "dev-plan-2")
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatal(err)
+	}
+
+	planFile := filepath.Join(repoDir, "test-plan.json")
+	planJSON := `{
+		"plan_id": "cli-plan-test",
+		"workers": 2,
+		"subtasks": [
+			{
+				"id": "sub-1",
+				"profile": "dev-plan-1",
+				"command": "sh",
+				"args": ["-c", "mkdir -p mod1 && echo 'module 1' > mod1/mod1.go && git add -A"]
+			},
+			{
+				"id": "sub-2",
+				"profile": "dev-plan-2",
+				"command": "sh",
+				"args": ["-c", "mkdir -p mod2 && echo 'module 2' > mod2/mod2.go && git add -A"]
+			}
+		]
+	}`
+	if err := os.WriteFile(planFile, []byte(planJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newDispatchCmd()
+
+	// 1. Test dispatch plan --json
+	out, err := executeCommand(cmd, "plan", planFile, "--json")
+	if err != nil {
+		t.Fatalf("failed to run dispatch plan --json: %v", err)
+	}
+
+	var planRes dispatch.PlanResult
+	if err := json.Unmarshal([]byte(out), &planRes); err != nil {
+		t.Fatalf("failed to decode plan JSON: %v, out: %s", err, out)
+	}
+	if planRes.PlanID != "cli-plan-test" || planRes.Succeeded != 2 {
+		t.Errorf("unexpected plan result: %+v", planRes)
+	}
+	if !planRes.UnifiedSummary.DisjointScopesClean {
+		t.Errorf("expected DisjointScopesClean to be true")
+	}
+
+	// 2. Test dispatch plan terminal output
+	planFile2 := filepath.Join(repoDir, "test-plan-2.json")
+	planJSON2 := strings.Replace(planJSON, "cli-plan-test", "cli-plan-test-2", 1)
+	if err := os.WriteFile(planFile2, []byte(planJSON2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd2 := newDispatchCmd()
+	outText, err := executeCommand(cmd2, "plan", planFile2)
+	if err != nil {
+		t.Fatalf("failed to run dispatch plan terminal: %v", err)
+	}
+	if !strings.Contains(outText, "Plan Execution") || !strings.Contains(outText, "Unified Diff Summary") {
+		t.Errorf("expected plan output headers, got:\n%s", outText)
+	}
+}
+
 

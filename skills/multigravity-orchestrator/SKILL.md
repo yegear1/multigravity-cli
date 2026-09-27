@@ -139,8 +139,13 @@ multigravity alerts --json
      --branch "task/frontend-api" \
      --prompt "Implement client SDK types in pkg/client matching docs/schema.json" \
      --detach
+
+   # OR: Dispatch entire DAG stage atomically via Subtask Aggregator
+   multigravity dispatch plan plan.json --json
+   # Or via REST API:
+   # POST /api/v1/dispatch/plans with {"subtasks": [...], "workers": 4}
    ```
-   *Note: Using `--new-worktree` creates an ephemeral directory under `.multigravity/worktrees/<task-id>` without modifying `.gitignore` (tracked safely via `.git/info/exclude`).*
+   *Note: Using `--new-worktree` or `dispatch plan` creates ephemeral directories under `.multigravity/worktrees/<task-id>` without modifying `.gitignore` (tracked safely via `.git/info/exclude`). The plan aggregator synchronizes execution across all worktrees and returns a unified summary of diffs, additions/deletions, and checks disjoint scopes automatically.*
 
 ### Phase 4: Monitoring, Progress Tracking & Circuit Breaker
 1. Track running tasks and session status:

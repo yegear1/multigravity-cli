@@ -19,6 +19,22 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-27 [Task 04.3] Subtask Plan Aggregator na API REST (/api/v1/dispatch/plans)
+
+- **Contexto:** Orquestradores multi-agente e clientes HTTP necessitam despachar batches de $N$ subtarefas concorrentemente em Git Worktrees efêmeros isolados por perfil, sincronizar seu término sob timeout controlado e consolidar um relatório estruturado unificado contendo o status de cada subtarefa, diffs (raw e estruturados), contadores de adições/deleções e detecção de colisões de arquivos (regra de escopos disjuntos).
+- **Decisões Técnicas:**
+  - **Módulo `internal/dispatch`:**
+    - `plan.go`: contratos `PlanRequest`, `SubtaskSpec`, `SubtaskResult`, `UnifiedDiffSummary` e `PlanResult`.
+    - `ExecutePlan`: pool de workers com concorrência configurável (`workers`), despacho com `NewWorktree: true` e branches dedicadas (`multigravity/<plan_id>/<subtask_id>`).
+    - Sincronização via `WaitForTask`: canais de notificação gerenciados por `waitMu` e `waiters map[string][]chan struct{}` no `TaskManager`, com resolução imediata para estados terminais.
+    - Análise e consolidação de `UnifiedDiffSummary`: cálculo de arquivos únicos modificados, total de adições/deleções, diff combinado e verificação automatizada de escopos disjuntos (`DisjointScopesClean: bool` e `ConflictingFiles: []string`).
+    - Persistência de planos em `.multigravity/plans/<plan_id>.json` e métodos de consulta `GetPlan` e `ListPlans`.
+  - **Servidor HTTP (`internal/server`):**
+    - Rotas `POST /api/v1/dispatch/plans` e alias `/api/dispatch/plans` integradas com propagação de eventos SSE (`action: "plan_dispatch"`).
+    - Rotas de consulta `GET /api/v1/dispatch/plans` e `GET /api/v1/dispatch/plans/{id}`.
+  - **CLI `multigravity dispatch plan <plan.json>`:**
+    - Suporte a leitura de arquivo JSON ou stdin (`-`), flags `--workers`, `--timeout`, `--repo`, saída tabular rica no terminal e contrato estruturado via `--json`.
+
 ### 2026-09-27 [Task 04.2] Skill de Orquestração Multi-Agente (skills/multigravity-orchestrator)
 
 - **Contexto:** Agentes de IA autônomos (Antigravity IDE, Cursor, Claude Code, Aider) precisavam de um playbook formal e falsificável para decompor objetivos complexos de engenharia em DAGs de subtarefas, alocar perfis com base em cotas medidas e coordenar o ciclo de vida e merge seguro de Git worktrees efêmeros.

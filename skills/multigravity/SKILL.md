@@ -249,6 +249,9 @@ The agent MUST NOT activate this skill when:
    | `GET` | `/api/v1/dispatch/dashboard` | Aggregated execution metrics and status dashboard in JSON |
    | `GET` | `/ui/tasks` | Embedded HTML5 web dashboard for task execution monitoring (Tauri/Wails/Browser) |
    | `GET` | `/ui/tasks/{id}/diff` | Embedded interactive side-by-side/unified diff visualizer (Tauri/Wails/Browser) |
+   | `POST` | `/api/v1/dispatch/plans` | Dispatch $N$ subtasks concurrently across worktrees and aggregate diffs |
+   | `GET` | `/api/v1/dispatch/plans` | List executed subtask aggregation plans (`?repo=`) |
+   | `GET` | `/api/v1/dispatch/plans/{id}` | Retrieve plan execution results, subtask status, and unified diff summary |
    | `POST` | `/api/v1/dispatch/tasks/prune` | Prune finished tasks older than max_age (`?max_age=24h`) |
    | `GET` | `/api/v1/workspaces` | List mapped workspaces across profiles (`?profile`, `?active=true`, `?path`) |
    | `GET` | `/api/v1/workspaces/active` | List workspaces currently active in running profiles |

@@ -346,6 +346,12 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /api/dispatch/tasks/{id}/files", s.handleGetDispatchedTaskFiles)
 	s.mux.HandleFunc("GET /api/v1/dispatch/dashboard", s.handleGetDispatchedDashboard)
 	s.mux.HandleFunc("GET /api/dispatch/dashboard", s.handleGetDispatchedDashboard)
+	s.mux.HandleFunc("POST /api/v1/dispatch/plans", s.handleDispatchPlan)
+	s.mux.HandleFunc("POST /api/dispatch/plans", s.handleDispatchPlan)
+	s.mux.HandleFunc("GET /api/v1/dispatch/plans", s.handleListDispatchPlans)
+	s.mux.HandleFunc("GET /api/dispatch/plans", s.handleListDispatchPlans)
+	s.mux.HandleFunc("GET /api/v1/dispatch/plans/{id}", s.handleGetDispatchPlan)
+	s.mux.HandleFunc("GET /api/dispatch/plans/{id}", s.handleGetDispatchPlan)
 
 	// Workspaces & Active Repositories
 	s.mux.HandleFunc("GET /api/v1/workspaces", s.handleListWorkspaces)
@@ -2208,6 +2214,66 @@ func (s *Server) handleGetDispatchedDashboard(w http.ResponseWriter, r *http.Req
 		return
 	}
 	s.writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleDispatchPlan(w http.ResponseWriter, r *http.Request) {
+	var req dispatch.PlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid plan payload: %v", err))
+		return
+	}
+
+	// Override timeout or repo from query param if provided and empty in body
+	if qRepo := r.URL.Query().Get("repo"); qRepo != "" && req.RepoPath == "" {
+		req.RepoPath = qRepo
+	}
+	if qTimeout := r.URL.Query().Get("timeout"); qTimeout != "" && req.Timeout == "" {
+		req.Timeout = qTimeout
+	}
+
+	result, err := dispatch.GetDefaultTaskManager().ExecutePlan(r.Context(), req)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if s.broker != nil {
+		s.broker.Broadcast(SSEEvent{
+			Event: "action",
+			Time:  time.Now().UTC().Format(time.RFC3339),
+			Data: map[string]any{
+				"action":         "plan_dispatch",
+				"status":         result.Status,
+				"plan_id":        result.PlanID,
+				"total_subtasks": result.TotalSubtasks,
+				"succeeded":      result.Succeeded,
+				"failed":         result.Failed,
+			},
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleListDispatchPlans(w http.ResponseWriter, r *http.Request) {
+	repoPath := r.URL.Query().Get("repo")
+	plans, err := dispatch.GetDefaultTaskManager().ListPlans(repoPath)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, plans)
+}
+
+func (s *Server) handleGetDispatchPlan(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repoPath := r.URL.Query().Get("repo")
+	plan, err := dispatch.GetDefaultTaskManager().GetPlan(repoPath, id)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, plan)
 }
 
 func (s *Server) handleUITasksDashboard(w http.ResponseWriter, r *http.Request) {
