@@ -19,6 +19,20 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-27 [Task 04.2] Skill de Orquestração Multi-Agente (skills/multigravity-orchestrator)
+
+- **Contexto:** Agentes de IA autônomos (Antigravity IDE, Cursor, Claude Code, Aider) precisavam de um playbook formal e falsificável para decompor objetivos complexos de engenharia em DAGs de subtarefas, alocar perfis com base em cotas medidas e coordenar o ciclo de vida e merge seguro de Git worktrees efêmeros.
+- **Decisões Técnicas:**
+  - **Especificação Canônica (`skills/multigravity-orchestrator/SKILL.md`):**
+    - Estrutura aderente aos padrões `agent-skills` e `agent-doc-refactor` (verbos imperativos, densidade de tokens, RFC 2119, blast radius explícito).
+    - Topologia e modelo mental de DAG: regra de escopo disjunto de arquivos entre nós paralelos para garantir zero conflitos de merge; regra contract-first para dependências; barreira fail-fast.
+    - Matriz de roteamento consciente de cota: inspeção de `remaining_fraction` (descarte obrigatório $\le 0.05$ ou cooldown de rate limit), balanceamento entre janelas rotativas de 5 horas e semanais, e aquecimento prévio (`prime --warm-5h`).
+    - Protocolo operacional em 7 fases: Decomposição e DAG, Pre-flight de Cota, Provisionamento de Worktree e Despacho (`dispatch run --new-worktree`), Monitoramento e Circuit Breakers (2 falhas $\to$ parada), Verificação de Testes In-Worktree (`WT_PATH`), Merge Topológico sem force e Teardown higiênico (`dispatch delete --worktree`, `worktree prune`).
+    - Pares de contraste práticos e checklist de verificação falsificável.
+  - **Instalação e Documentação:**
+    - Detecção automática da nova skill no script de sincronização (`./scripts/install-agent-skills.sh`).
+    - Atualização dos READMEs (`README.md` e `README.pt-br.md`) com catálogo de skills canônicas.
+
 ### 2026-09-27 [Task 04.1] Servidor MCP Nativo do Multigravity (internal/mcp)
 
 - **Contexto:** Agentes externos (Claude Desktop, Cursor, Antigravity IDE, Aider) e automações locais necessitam de ferramentas MCP nativas para interagir com o ecossistema Multigravity (despacho de tarefas isoladas em worktrees, consulta de perfis e workspaces, telemetria e priming de cotas de IA, e inspeção de diffs).

@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [04.2] | Skill de Orquestração Multi-Agente (skills/multigravity-orchestrator) | fd8117c | 2026-09-27 |
 | [04.1] | Servidor MCP nativo stdio/HTTP e catálogo de ferramentas | c4de524 | 2026-09-27 |
 | [03.4] | Skill e READMEs registram o contrato de modelo do gateway | 750b514 | 2026-09-27 |
 | [03.3] | Gateway envia thinkingLevel no Flash 3.7 e 3.8 tiered | 398121f | 2026-09-27 |
