@@ -36,7 +36,7 @@
 
 ### Linux
 - **XDG Base Directory:** `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME` e `XDG_STATE_HOME` devem apontar para as respectivas subpastas dentro do perfil para não poluir o sistema.
-- **Atalhos:** Gerados em `~/.local/share/applications/multigravity-<nome>.desktop` apontando para o wrapper script em `~/.local/share/multigravity/launchers/<nome>.sh` e referenciando deterministicamente o ícone em `~/.local/share/multigravity/icon.png` (extraído dos assets embutidos via `//go:embed`).
+- **Atalhos:** Gerados em `~/.local/share/applications/multigravity-<nome>.desktop` apontando para o wrapper script em `~/.local/share/multigravity/launchers/<nome>.sh` e referenciando deterministicamente o ícone em `~/.local/share/multigravity/icon.png` (extraído dos assets embutidos via `//go:embed`). O wrapper exporta `MULTIGRAVITY_LAUNCH_WAIT=1` e remove `ELECTRON_RUN_AS_NODE` antes do `exec`: o WSL (`wslg.exe`) encerra a sessão gráfica se o processo do atalho sair na hora, e Cursor/VS Code exportam `ELECTRON_RUN_AS_NODE=1`, o que faz o binário Electron recusar `--user-data-dir`. Atalhos do Windows criados pelo WSLg não podem usar `--cd "~"`: o WSL atual responde `Wsl/E_INVALIDARG`. O diretório tem de ser absoluto (`/home/<user>`).
 
 ### Windows
 - **Variáveis de Usuário:** `$env:USERPROFILE`, `$env:APPDATA` e `$env:LOCALAPPDATA` devem ser apontados para as subpastas correspondentes dentro de `$PROFILE_DIR`.

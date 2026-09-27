@@ -228,6 +228,8 @@ func createShortcutLinux(profile string) error {
 
 	launcherContent := fmt.Sprintf(`#!/usr/bin/env sh
 export MULTIGRAVITY_HOME=%q
+export MULTIGRAVITY_LAUNCH_WAIT=1
+unset ELECTRON_RUN_AS_NODE
 exec %q %q "$@"
 `, baseDir, launcherBin, profile)
 

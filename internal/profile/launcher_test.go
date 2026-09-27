@@ -67,6 +67,16 @@ func TestBuildLaunchCommand(t *testing.T) {
 	if envMap["HOME"] != profileDir {
 		t.Errorf("expected HOME=%s, got %s", profileDir, envMap["HOME"])
 	}
+	t.Setenv("ELECTRON_RUN_AS_NODE", "1")
+	cmd, err = BuildLaunchCommand(profileName, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range cmd.Env {
+		if strings.HasPrefix(env, "ELECTRON_RUN_AS_NODE=") {
+			t.Fatalf("nested launch must drop ELECTRON_RUN_AS_NODE, got %s", env)
+		}
+	}
 
 	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
 		expectedXDG := filepath.Join(profileDir, ".config")
@@ -153,5 +163,13 @@ func TestLaunchProfileWaitFlag(t *testing.T) {
 	}
 	if ranWait {
 		t.Errorf("expected runCmdFn to receive wait=false when no wait flag is passed")
+	}
+
+	t.Setenv("MULTIGRAVITY_LAUNCH_WAIT", "1")
+	if err := LaunchProfile(profileName, []string{"file.txt"}); err != nil {
+		t.Fatalf("LaunchProfile failed: %v", err)
+	}
+	if !ranWait {
+		t.Errorf("expected runCmdFn to receive wait=true when MULTIGRAVITY_LAUNCH_WAIT=1")
 	}
 }

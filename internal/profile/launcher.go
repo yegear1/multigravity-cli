@@ -92,6 +92,9 @@ func BuildLaunchCommand(name string, forwardArgs []string) (*exec.Cmd, error) {
 	envMap["PATH"] = enrichedPATH
 	envMap["REAL_HOME"] = realHome
 	envMap["HOME"] = profileDir
+	// Cursor, VS Code and Antigravity export this. A nested Electron
+	// process then runs as Node and rejects --user-data-dir.
+	delete(envMap, "ELECTRON_RUN_AS_NODE")
 	if auth.HasVault(profileDir) {
 		envMap["GEMINI_FORCE_FILE_STORAGE"] = "true"
 	}
@@ -125,8 +128,10 @@ func defaultLaunchProfileReal(name string, forwardArgs []string) error {
 
 	fmt.Printf("Launching Antigravity profile %q\n", name)
 
-	// Check if caller wants to wait (e.g. editor mode / git commit)
-	wait := false
+	// Check if caller wants to wait (e.g. editor mode / git commit).
+	// Desktop shortcuts set MULTIGRAVITY_LAUNCH_WAIT so WSLg keeps the
+	// session until the IDE exits. That flag is not forwarded to Electron.
+	wait := os.Getenv("MULTIGRAVITY_LAUNCH_WAIT") == "1"
 	for _, arg := range forwardArgs {
 		if arg == "--wait" || arg == "-w" {
 			wait = true
