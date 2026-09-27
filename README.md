@@ -589,9 +589,11 @@ multigravity template list
 
 ## AI Agent Skill Integration
 
-Multigravity includes an official AI Agent Skill ([`skills/multigravity/SKILL.md`](skills/multigravity/SKILL.md)) following the `agent-skills` standard, enabling AI assistants (such as Antigravity and Cursor) to autonomously and safely inspect quotas, automate prime cycles, manage profile isolation boundaries, and synchronize AI chat brains.
+Multigravity includes official AI Agent Skills following the `agent-skills` standard:
+- [`skills/multigravity/SKILL.md`](skills/multigravity/SKILL.md): Teaches AI assistants (such as Antigravity and Cursor) to autonomously and safely inspect quotas, automate prime cycles, manage profile isolation boundaries, and synchronize AI chat brains.
+- [`skills/multigravity-orchestrator/SKILL.md`](skills/multigravity-orchestrator/SKILL.md): Formal playbook for multi-agent orchestration, teaching agents to decompose complex tasks into DAGs, allocate profiles based on real-time quota telemetry, and safely govern ephemeral Git worktree lifecycles and merge pipelines.
 
-To install or sync the skill into your local AI discovery directories (`~/.gemini/config/skills` and `~/.cursor/skills`):
+To install or sync the skills into your local AI discovery directories (`~/.gemini/config/skills` and `~/.cursor/skills`):
 
 ```bash
 ./scripts/install-agent-skills.sh
