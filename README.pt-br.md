@@ -101,6 +101,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity restart <nome>` | Reinicia um perfil em execução |
 | `multigravity color <nome> [cor]` | Define, exibe ou redefine a cor do tema da janela do perfil |
 | `multigravity clean <nome\|--all>` | Remove caches voláteis do Electron/Chromium para liberar disco |
+| `multigravity logs <nome> [-f\|--follow] [--tail N] [--json]` | Exibe ou acompanha o log da IDE gráfica do perfil (sanitiza tokens e segredos) |
 | `multigravity list [--json]` | Lista todos os perfis cadastrados (ou formato JSON) |
 | `multigravity status [nome] [--json]` | Exibe status de execução, tipo, última utilização e tamanho de cada perfil (ou formato JSON) |
 | `multigravity clone <origem> <destino>` | Clona um perfil existente |
@@ -127,7 +128,8 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity config status <nome>` | Consulta o status de compartilhamento de permissões e config.json |
 | `multigravity config share <nome>` | Compartilha config.json e permissões do host (`~/.gemini/config/config.json`) |
 | `multigravity config isolate <nome>` | Isola o perfil com uma cópia independente do config.json |
-| `multigravity config seed [nome\|--all\|--host]` | Semeia permissões padrão read-only (git, posix, npm, pnpm, uv) no config.json |
+| `multigravity config seed [nome\|--all\|--host]` | Semeia permissões padrão read-only (git, posix, dev, docker) no config.json |
+| `multigravity allow-readonly [nome\|--all\|--host]` | Alias rápido para `multigravity config seed` |
 | `multigravity gh status <nome>` | Consulta o status de compartilhamento de credenciais do GitHub CLI |
 | `multigravity gh share <nome>` | Compartilha as credenciais do GitHub CLI (`~/.config/gh` ou `%APPDATA%\GitHub CLI`) |
 | `multigravity gh isolate <nome>` | Isola o perfil com cópia local independente do GitHub CLI |
@@ -155,6 +157,7 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity agent list [--json]` | Lista sessões ativas de agentes em PTY |
 | `multigravity agent attach <id>` | Conecta o terminal diretamente a uma sessão de agente em PTY |
 | `multigravity agent stop <id>` | Encerra uma sessão PTY de agente graciosamente |
+| `multigravity headless [list\|status\|start\|stop\|prompt\|logs]` | Gerencia servidores de linguagem headless em background e prompts (alias: `hl`) |
 | `multigravity exec [perfil\|--all] "<prompt>" [--json]` | Despacha o mesmo prompt em um perfil ou em todos, pelo runner headless existente, com pool de workers e relatório JSON agregado |
 
 ### Git Worktrees Efêmeros
@@ -292,13 +295,18 @@ Além disso, o multigravity **semeia automaticamente permissões padrão de leit
 - **Git:** `git status`, `git log`, `git diff`, `git show`, `git branch`, `git tag`, `git remote`, etc.
 - **POSIX e Sistema:** `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `find`, `which`, `stat`, `df`, `ps`, etc.
 - **Ferramentas Dev e Linters:** `npm test`, `npm run lint/check`, `pnpm test/lint`, `uv run pytest/ruff/pyright/mypy`, `ruff check`, `eslint`, `tsc --noEmit`, etc.
+- **Inspeção Docker (Local e Read-Only):** `docker ps`, `docker logs`, `docker inspect`, `docker stats`, `docker compose ps/logs/config`, `docker-compose ps/logs`, etc. (telemetria estritamente de leitura, zero mutação).
 
 ```bash
 # Consultar o status de compartilhamento de config/permissões de um perfil
 multigravity config status trabalho
 
-# Semear ou atualizar permissões padrão de leitura em todos os perfis
+# Semear ou atualizar permissões padrão de leitura em todos os perfis ou no host
 multigravity config seed --all
+multigravity config seed --host
+
+# Alias rápido para semear permissões padrão
+multigravity allow-readonly --all
 
 # Criar um perfil com config e permissões isoladas (semeadas automaticamente)
 multigravity new cliente-x --isolated-config
@@ -526,6 +534,40 @@ multigravity exec --all "Resuma os TODOs deste repositório" --workers 4 --json
 ```
 
 O JSON agrega `results`, `succeeded`, `failed` e `total_tokens`. Se algum perfil falhar, o processo sai com código diferente de zero depois de imprimir o relatório. O mesmo contrato está em `POST /api/v1/exec` com corpo `{"all": true, "prompt": "...", "workers": 4}`.
+
+---
+
+## Logs da IDE Gráfica (`multigravity logs`)
+
+Inspecione ou acompanhe os logs do processo principal Electron (`<user-data-dir>/logs/main.log`) de um perfil do Antigravity. Argumentos sensíveis de inicialização como `--csrf_token` e `--host_bridge_token` são sanitizados automaticamente:
+
+```bash
+# Exibe as últimas 100 linhas de log do perfil
+multigravity logs trabalho
+
+# Acompanha logs em tempo real
+multigravity logs trabalho --follow
+
+# Saída estruturada em JSON
+multigravity logs trabalho --tail 50 --json
+```
+
+---
+
+## Snapshots e Restauração de Perfis (`multigravity snapshot`)
+
+Crie pontos de restauração não-destrutivos para um perfil e suas conversas de IA. Os snapshots são armazenados em `$MULTIGRAVITY_HOME/.snapshots/` com tokens OAuth e keychains estritamente omitidos:
+
+```bash
+# Cria um snapshot antes de alterações ou execuções de agentes
+multigravity snapshot create trabalho
+
+# Lista os pontos de restauração disponíveis
+multigravity snapshot list trabalho --json
+
+# Restaura um snapshot anterior (preservando o cofre local de tokens)
+multigravity snapshot rollback trabalho <snapshot-id>
+```
 
 ---
 

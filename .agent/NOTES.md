@@ -19,6 +19,16 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 00.2] Alinhamento Completo de Documentações, Tabelas de Comandos, SKILL.md e Launchers
+
+- **Contexto:** Após as evoluções da v2.1, faltavam comandos canônicos nas tabelas de referência dos READMEs (`logs`, `headless`, `allow-readonly`), a seção de permissões não citava o Docker read-only, faltavam seções com exemplos para `multigravity logs` e `multigravity snapshot`, os endpoints REST adicionados não estavam na tabela da Skill de agente (`SKILL.md`) e os launchers/scripts mencionavam `Go (1.23+)` em vez do piso `Go 1.27.1+`.
+- **Decisões Técnicas:**
+  - Paridade 100% espelhada entre `README.md` e `README.pt-br.md` preservada cirurgicamente.
+  - Inclusão de `multigravity logs`, `multigravity headless` e `multigravity allow-readonly` nas tabelas de comandos.
+  - Novas seções dedicadas com exemplos para logs da IDE gráfica e snapshots/restore points.
+  - Atualização da tabela de rotas e exemplos no `skills/multigravity/SKILL.md`.
+  - Harmonização da mensagem de piso do Go para `Go 1.27.1+` em `multigravity`, `multigravity.ps1`, `install.sh`, `install.ps1` e `docs/index.html`.
+
 ### 2026-09-26 [Task 02.1] Expansão de Comandos Read-Only Canônicos (Linux, uv, pnpm, ruff, pyright, eslint, docker local)
 
 - **Contexto:** Agentes de desenvolvimento executando em perfis do Antigravity enfrentavam bloqueios constantes ao executar inspeções básicas do SO (diff, jq, lsof, free), checagens com `bash -n`, tooling python (`uv`, `ruff`, `pyright`), Node.js (`pnpm`, `eslint`) e status de containers (`docker ps`, `docker compose ps`).

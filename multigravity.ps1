@@ -32,5 +32,5 @@ if ($GoCmd) {
 }
 
 Write-Error "Error: multigravity binary not found in $ScriptDir\bin and Go toolchain is not available to build it."
-Write-Host "Please install Go (1.23+) or build the binary with: make build" -ForegroundColor Red
+Write-Host "Please install Go (1.27.1+) or build the binary with: make build" -ForegroundColor Red
 exit 1

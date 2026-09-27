@@ -65,7 +65,7 @@ if (!$installed) {
 
 # Option C: Abort if neither local build nor release binary was installed
 if (!$installed) {
-    Abort "Pre-compiled binary unavailable for windows-$arch and Go toolchain not found. Please install Go (1.23+) or download a binary from https://github.com/$REPO/releases"
+    Abort "Pre-compiled binary unavailable for windows-$arch and Go toolchain not found. Please install Go (1.27.1+) or download a binary from https://github.com/$REPO/releases"
 }
 
 Write-Step "Creating wrapper script..."

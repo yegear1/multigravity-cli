@@ -101,6 +101,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity restart <name>` | Restart a running profile |
 | `multigravity color <name> [color]` | Set, view, or remove profile window color theme |
 | `multigravity clean <name\|--all>` | Delete volatile Electron/Chromium caches to free disk space |
+| `multigravity logs <name> [-f\|--follow] [--tail N] [--json]` | Show or follow the graphical IDE log for a profile (sanitizes tokens & secrets) |
 | `multigravity list [--json]` | List all profiles (or JSON format) |
 | `multigravity status [name] [--json]` | Show running state, type, last used, and size per profile (or JSON format) |
 | `multigravity clone <src> <dest>` | Copy an existing profile |
@@ -127,7 +128,8 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity config status <name>` | Check config.json and permission grants sharing status |
 | `multigravity config share <name>` | Share host config.json and permissions (`~/.gemini/config/config.json`) |
 | `multigravity config isolate <name>` | Isolate profile with a private copy of config.json |
-| `multigravity config seed [name\|--all\|--host]` | Seed default read-only permissions (git, posix, npm, pnpm, uv) in config.json |
+| `multigravity config seed [name\|--all\|--host]` | Seed default read-only permissions (git, posix, dev, docker) in config.json |
+| `multigravity allow-readonly [name\|--all\|--host]` | Quick alias for `multigravity config seed` |
 | `multigravity gh status <name>` | Check GitHub CLI credentials sharing status |
 | `multigravity gh share <name>` | Share host GitHub CLI credentials (`~/.config/gh` or `%APPDATA%\GitHub CLI`) |
 | `multigravity gh isolate <name>` | Isolate profile with a private copy of GitHub CLI credentials |
@@ -155,6 +157,7 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity agent list [--json]` | List active PTY agent sessions |
 | `multigravity agent attach <id>` | Attach terminal directly to a running PTY agent session |
 | `multigravity agent stop <id>` | Stop a PTY agent session gracefully |
+| `multigravity headless [list\|status\|start\|stop\|prompt\|logs]` | Manage background headless language servers and prompts (alias: `hl`) |
 | `multigravity exec [profile\|--all] "<prompt>" [--json]` | Fan out one prompt across a profile or every profile via the existing headless runner, with a worker pool and an aggregated JSON report |
 
 ### Ephemeral Git Worktrees
@@ -292,13 +295,18 @@ In addition, multigravity **automatically seeds default read-only permissions** 
 - **Git:** `git status`, `git log`, `git diff`, `git show`, `git branch`, `git tag`, `git remote`, etc.
 - **POSIX & System:** `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `find`, `which`, `stat`, `df`, `ps`, etc.
 - **Dev Tooling & Linters:** `npm test`, `npm run lint/check`, `pnpm test/lint`, `uv run pytest/ruff/pyright/mypy`, `ruff check`, `eslint`, `tsc --noEmit`, etc.
+- **Docker Inspection (Local & Read-Only):** `docker ps`, `docker logs`, `docker inspect`, `docker stats`, `docker compose ps/logs/config`, `docker-compose ps/logs`, etc. (strictly read-only telemetry, zero mutation).
 
 ```bash
 # Check config & permissions sharing status for a profile
 multigravity config status work
 
-# Seed or refresh default read-only permissions across all profiles
+# Seed or refresh default read-only permissions across all profiles or host
 multigravity config seed --all
+multigravity config seed --host
+
+# Quick alias to seed permissions
+multigravity allow-readonly --all
 
 # Create a profile with isolated config and permissions (seeded automatically)
 multigravity new client-x --isolated-config
@@ -526,6 +534,40 @@ multigravity exec --all "Summarize the TODOs in this repository" --workers 4 --j
 ```
 
 The JSON report aggregates `results`, `succeeded`, `failed`, and `total_tokens`. If any profile fails, the process exits non-zero after printing the report. The same contract is available as `POST /api/v1/exec` with `{"all": true, "prompt": "...", "workers": 4}`.
+
+---
+
+## Graphical IDE Logs (`multigravity logs`)
+
+Inspect or follow the Electron main process logs (`<user-data-dir>/logs/main.log`) of an Antigravity profile. Sensitive launch arguments such as `--csrf_token` and `--host_bridge_token` are automatically redacted:
+
+```bash
+# View the last 100 log lines of a profile
+multigravity logs work
+
+# Follow logs in real-time
+multigravity logs work --follow
+
+# Output as JSON
+multigravity logs work --tail 50 --json
+```
+
+---
+
+## Profile & Conversation Snapshots (`multigravity snapshot`)
+
+Create non-destructive restore points for a profile and its AI conversations. Snapshots are stored in `$MULTIGRAVITY_HOME/.snapshots/` with OAuth tokens and private keychains strictly omitted:
+
+```bash
+# Create a snapshot before major changes or agent runs
+multigravity snapshot create work
+
+# List available restore points
+multigravity snapshot list work --json
+
+# Roll back to a previous snapshot (preserves local vault tokens)
+multigravity snapshot rollback work <snapshot-id>
+```
 
 ---
 

@@ -18,6 +18,7 @@
 |---|---|---|---|
 | [00.1] | Alinhar `AGENTS.md` à stack Go 1.27.1, aos pacotes da v2.1 e à identidade do repositório | 3ee2852 | 2026-09-26 |
 | [02.1] | Expandir comandos read-only canônicos (Linux, uv, pnpm, ruff, pyright, eslint, docker local) e semear perfis | 3ee2852 | 2026-09-26 |
+| [00.2] | Alinhar documentações (READMEs, SKILL.md, landing page e launchers) à v2.1 | 15a6c00 | 2026-09-26 |
 
 ---
 

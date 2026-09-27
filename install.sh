@@ -100,7 +100,7 @@ fi
 
 # Option C: Abort if neither local build nor release binary was installed
 if [ "$INSTALLED" -eq 0 ]; then
-  abort "Pre-compiled binary unavailable for ${PLATFORM}-${ARCH} and Go toolchain not found. Please install Go (1.23+) or download a binary from https://github.com/$REPO/releases"
+  abort "Pre-compiled binary unavailable for ${PLATFORM}-${ARCH} and Go toolchain not found. Please install Go (1.27.1+) or download a binary from https://github.com/$REPO/releases"
 fi
 
 # ── download macOS icon ──────────────────────────────────────────────────────

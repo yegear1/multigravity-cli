@@ -106,8 +106,10 @@ The agent MUST NOT activate this skill when:
    # Re-share global skills with a profile
    multigravity skills share <profile>
 
-   # Seed default read-only permissions (git, posix, npm, pnpm, uv) in config.json
+   # Seed default read-only permissions (git, posix, dev, docker) in config.json
    multigravity config seed <profile|--all|--host>
+   # Or use the quick alias
+   multigravity allow-readonly --all
    ```
 3. Verify presence or absence of sentinel files:
    - `.isolated_mcp`: MCP servers isolated
@@ -147,7 +149,12 @@ The agent MUST NOT activate this skill when:
    ```bash
    multigravity clean <profile>
    ```
-3. Sign a profile in without opening the IDE. The refresh token stays in that profile's vault and is never written to the host keyring:
+3. Inspect or follow graphical Electron IDE logs (redacted of secrets):
+   ```bash
+   multigravity logs <profile>
+   multigravity logs <profile> --follow
+   ```
+4. Sign a profile in without opening the IDE. The refresh token stays in that profile's vault and is never written to the host keyring:
    ```bash
    multigravity login <profile>
    multigravity login status <profile> --json
@@ -162,6 +169,9 @@ The agent MUST NOT activate this skill when:
 
    # Quota telemetry and window reset timers
    multigravity quota [profile] --json
+
+   # Critical quota alerts, drops, and reaped processes
+   multigravity alerts [profile] --json
 
    # Stored quota and token time series
    multigravity quota history [profile] --since 24h --json
@@ -244,6 +254,16 @@ The agent MUST NOT activate this skill when:
    | `GET` | `/api/v1/workspaces/active` | List workspaces currently active in running profiles |
    | `GET` | `/api/v1/profiles/{name}/workspaces` | Summary and full list of workspaces for a profile |
    | `GET` | `/api/v1/profiles/{name}/workspaces/active` | Active workspace details for a profile |
+   | `GET` | `/api/v1/alerts` | Report critical quota, drops, and reaped headless processes |
+   | `GET` | `/api/v1/profiles/{name}/ide/logs` | Tail and follow redacted graphical IDE `main.log` (`?tail=100`, `?follow=true`) |
+   | `GET` | `/api/v1/profiles/{name}/snapshots` | List restore points for a profile |
+   | `POST` | `/api/v1/profiles/{name}/snapshots` | Create a restore point of profile and conversations |
+   | `POST` | `/api/v1/profiles/{name}/snapshots/{id}/rollback` | Restore profile from snapshot (preserves vault tokens) |
+   | `DELETE` | `/api/v1/profiles/{name}/snapshots/{id}` | Delete a profile restore point |
+   | `POST` | `/api/v1/exec` | Fan out one prompt across isolated profiles via worker pool (`{"all": true, "prompt": "..."}`) |
+   | `GET` | `/api/v1/login/status` | Check profile vault credential status without printing tokens (`?profile=`) |
+   | `POST` | `/api/v1/login` | Initiate headless OAuth2 PKCE login into profile vault |
+   | `POST` | `/api/v1/login/logout` | Delete credential from profile vault |
 
 ## 5. Canonical Examples
 
