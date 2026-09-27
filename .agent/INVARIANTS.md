@@ -137,3 +137,11 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
 - Gemini 3.7 e 3.8 não têm variante `low`/`medium`/`high` nessa lista. Os ids que respondem são `gemini-3.7-flash-tiered` e `gemini-3.8-flash-tiered`. Os nomes `gemini-3.8-flash-low`, `gemini-3.8-flash-medium` e `gemini-3.8-flash-high` (e os equivalentes 3.7) são aliases: o `model` upstream continua o id tiered, e o sufixo vira `request.generationConfig.thinkingConfig.thinkingLevel` (`LOW`, `MEDIUM`, `HIGH`). O mesmo vale para `reasoning_effort` no pedido OpenAI, que tem prioridade sobre o sufixo. O id tiered sem sufixo e sem `reasoning_effort` não envia `thinkingConfig`; o padrão do modelo é `MEDIUM`. `MINIMAL` não é enviado: o Cloud Code rejeita esse nível no Flash 3.7 e 3.8. Gemini 3.6 continua com o nível no próprio id e não recebe `thinkingConfig`.
 - Claude Opus 4.6 (Thinking) no menu é `claude-opus-4-6-thinking`, não `claude-opus-4-6`.
 
+## 14. Servidor MCP Nativo (internal/mcp)
+
+- O transporte stdio (`multigravity mcp serve` / `multigravity mcp-server`) reserva `stdout` estritamente para mensagens JSON-RPC em linha única delimitadas por `\n`. Qualquer log, aviso ou banner deve ser emitido exclusivamente em `stderr`.
+- O handshake MCP segue a especificação `2024-11-05`, reportando erros de execução de ferramenta com `isError: true` no payload `CallToolResult` em vez de abortar a conexão JSON-RPC.
+- Os endpoints HTTP MCP (`POST /mcp`, `POST /api/v1/mcp`, `GET /mcp/sse`, `POST /mcp/messages`) são integrados nativamente no daemon `multigravity serve`, permitindo consumo tanto stateless via POST direto quanto stateful via Server-Sent Events (SSE).
+- Comandos legados de gerenciamento de compartilhamento (`multigravity mcp status|share|isolate <perfil>`) preservam 100% de retrocompatibilidade de comportamento e contratos (`--json`).
+
+

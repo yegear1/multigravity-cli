@@ -19,6 +19,28 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-27 [Task 04.1] Servidor MCP Nativo do Multigravity (internal/mcp)
+
+- **Contexto:** Agentes externos (Claude Desktop, Cursor, Antigravity IDE, Aider) e automações locais necessitam de ferramentas MCP nativas para interagir com o ecossistema Multigravity (despacho de tarefas isoladas em worktrees, consulta de perfis e workspaces, telemetria e priming de cotas de IA, e inspeção de diffs).
+- **Decisões Técnicas:**
+  - **Módulo `internal/mcp`:**
+    - `types.go`: tipos padronizados JSON-RPC 2.0 e MCP (especificação `2024-11-05`), esquemas JSON Schema para parâmetros e respostas de ferramentas.
+    - `server.go`: despachante JSON-RPC com suporte aos métodos `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`. Erros de ferramentas são emitidos como `CallToolResult` com `isError: true` conforme a especificação MCP.
+    - `tools.go`: catálogo de 16 ferramentas nativas agrupadas em 4 áreas:
+      - Despacho: `dispatch_task`, `dispatch_list`, `dispatch_status`, `dispatch_cancel`, `dispatch_logs`.
+      - Status e Inspeção: `profile_list`, `profile_status`, `doctor_diagnose`, `workspace_list`, `alerts_list`.
+      - Cotas e Priming: `quota_summary`, `quota_history`, `prime_status`, `prime_trigger`.
+      - Diffs: `task_diff`, `worktree_diff`.
+    - `stdio.go`: transporte de alto desempenho por stdin/stdout com mensagens JSON-RPC delimitadas por quebra de linha. Saída informativa reservada exclusivamente para `stderr` para não poluir mensagens MCP.
+    - `http.go`: suporte a transporte duplo HTTP (stateless via `POST /mcp` e stateful streaming via `GET /mcp/sse` + `POST /mcp/messages`).
+  - **Integração no Servidor Central (`internal/server`):**
+    - `NewServer` instancia o servidor MCP nativo e registra as rotas `/mcp`, `/api/v1/mcp`, `/mcp/sse` e `/mcp/messages`.
+  - **CLI `multigravity mcp serve` e `multigravity mcp-server`:**
+    - Subcomando `serve` adicionado ao `mcpCmd` e comando raiz de conveniência `mcp-server` adicionado ao `rootCmd`.
+    - Modo padrão: stdio (pronto para `mcp_config.json`). Flags opcionais `--http` e `--port` (default 8990) disparam servidor HTTP standalone.
+    - Retrocompatibilidade estrita preservada para `multigravity mcp status|share|isolate <perfil>` e contratos `--json`.
+
+
 ### 2026-09-26 [Task 00.2] Alinhamento Completo de Documentações, Tabelas de Comandos, SKILL.md e Launchers
 
 - **Contexto:** Após as evoluções da v2.1, faltavam comandos canônicos nas tabelas de referência dos READMEs (`logs`, `headless`, `allow-readonly`), a seção de permissões não citava o Docker read-only, faltavam seções com exemplos para `multigravity logs` e `multigravity snapshot`, os endpoints REST adicionados não estavam na tabela da Skill de agente (`SKILL.md`) e os launchers/scripts mencionavam `Go (1.23+)` em vez do piso `Go 1.27.1+`.
