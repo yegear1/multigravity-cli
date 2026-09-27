@@ -19,6 +19,14 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-27 [Task 06.1] Plano em outro repositório sem trocar a workspace
+
+- **Contexto:** A issue #3 aborta em `move_agent_to_root` antes de qualquer worker. Esse chamado faz `git fetch origin <branch>`. `/home/yegear/github/polyglot-terminal` não tem `origin` (commit vazio `fab85c7`). `ExecutePlan` já honra `RepoPath`, e `dispatch plan --repo` já existe.
+- **Decisões Técnicas:**
+  - **Skill (`skills/multigravity-orchestrator`):** a fase 3 resolve a raiz com `git -C`, exige worktree limpa nesse repositório e despacha com `--repo` / `repo` a partir da workspace atual. Sem `origin`, `move_agent_to_root` fica proibido. A troca de raiz da IDE só ocorre depois do plano, quando um humano vai continuar editando ali.
+  - **`dispatch run`** continua preso ao cwd do processo. O caminho entre repositórios é `dispatch plan --repo`.
+  - **Teste:** `TestDispatchCLIPlanRepoOtherThanCwd` deixa o cwd num git repo e aponta `--repo` para outro, em `main`, limpo e sem remote. O plano grava `hello.txt` só no worktree do alvo.
+
 ### 2026-09-27 [Task 04.4] Expor ferramenta dispatch_plan no MCP, registrar multigravity no mcp_config.json e instalar agy CLI
 
 - **Contexto:** Habilitar agentes de IA (Antigravity IDE e orquestradores) a invocar planos concorrentes e dividir subtarefas nativamente via MCP, além de disponibilizar a CLI oficial do Antigravity (`agy`) no sistema operacional do usuário para execução de prompts e workers em background.

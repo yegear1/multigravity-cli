@@ -45,7 +45,7 @@ The agent MUST NOT activate this skill when:
 
 - **Tools:** `multigravity` (executable in `$PATH` or `./bin/multigravity`), `git` (2.25+ with worktree support), `bash` (4.0+), optional `jq` or native MCP server (`multigravity mcp serve`).
 - **Prerequisites:**
-  - Primary git repository must have a clean working directory before provisioning worktrees (`git status --porcelain` is empty).
+  - The target git repository must have a clean working directory before provisioning worktrees (`git -C "$REPO" status --porcelain` is empty). The agent workspace may be a different repository.
   - Multigravity daemon is accessible via CLI, or HTTP API (`127.0.0.1:8989`), or MCP stdio/HTTP.
   - At least one healthy, authenticated profile with $\text{remaining\_fraction} > 0.05$.
 
@@ -119,12 +119,20 @@ multigravity alerts --json
 3. Map DAG nodes to candidate profiles ensuring balanced utilization.
 
 ### Phase 3: Ephemeral Worktree Provisioning & Worker Dispatch
-1. Ensure the main repository working tree is clean:
+1. Resolve the target repository and require a clean worktree there. Do not change the agent workspace to do this:
    ```bash
-   git status --porcelain
+   REPO=$(git -C "<target>" rev-parse --show-toplevel)
+   git -C "$REPO" status --porcelain
    ```
-   *If non-empty: Stash or commit before proceeding.*
-2. Dispatch independent worker tasks into isolated Git worktrees:
+   *If porcelain is non-empty: stash or commit inside `$REPO` before proceeding.*
+2. Stay in the current workspace and pass that absolute path as `--repo` (CLI) or `repo` (MCP `dispatch_plan`). `move_agent_to_root` runs `git fetch origin <branch>` and aborts the turn when the target has no `origin`, so no worker starts.
+   ```bash
+   if ! git -C "$REPO" remote get-url origin >/dev/null 2>&1; then
+     echo "no origin: dispatch with --repo; do not move the IDE root"
+   fi
+   ```
+   A missing `origin` forbids `move_agent_to_root`. Switch the IDE root only after the plan returns, and only when a human will keep editing that tree in the IDE.
+3. Dispatch independent worker tasks into isolated Git worktrees:
    ```bash
    # Dispatch Task A to Profile dev1
    multigravity dispatch run dev1 \
@@ -140,12 +148,13 @@ multigravity alerts --json
      --prompt "Implement client SDK types in pkg/client matching docs/schema.json" \
      --detach
 
-   # OR: Dispatch entire DAG stage atomically via Subtask Aggregator
-   multigravity dispatch plan plan.json --json
+   # OR: Dispatch entire DAG stage atomically via Subtask Aggregator.
+   # --repo keeps the agent workspace put, including a local repo with no origin.
+   multigravity dispatch plan plan.json --repo "$REPO" --json
    # Or via REST API:
    # POST /api/v1/dispatch/plans with {"subtasks": [...], "workers": 4}
    ```
-   *Note: Using `--new-worktree` or `dispatch plan` creates ephemeral directories under `.multigravity/worktrees/<task-id>` without modifying `.gitignore` (tracked safely via `.git/info/exclude`). The plan aggregator synchronizes execution across all worktrees and returns a unified summary of diffs, additions/deletions, and checks disjoint scopes automatically.*
+   *`dispatch run` provisions its worktree from the process working directory, so those two commands assume the shell is already in `$REPO`. A different local repository, including one with no `origin`, uses `dispatch plan --repo "$REPO"`. Using `--new-worktree` or `dispatch plan` creates ephemeral directories under `.multigravity/worktrees/<task-id>` without modifying `.gitignore` (tracked safely via `.git/info/exclude`). The plan aggregator synchronizes execution across all worktrees and returns a unified summary of diffs, additions/deletions, and checks disjoint scopes automatically.*
 
 ### Phase 4: Monitoring, Progress Tracking & Circuit Breaker
 1. Track running tasks and session status:
@@ -245,6 +254,17 @@ multigravity quota --json
 multigravity dispatch run worker-2 --new-worktree --prompt "Generate 50 API endpoints" --detach
 ```
 
+### Workspace and local repositories
+```bash
+# BAD: Moving the IDE root into a local repo that has no origin, then dispatching
+move_agent_to_root /home/yegear/github/polyglot-terminal
+# Result: git fetch origin aborts the turn. The empty commit stays empty. No plan runs.
+
+# GOOD: Dispatch into that repo from the current workspace
+REPO=$(git -C /home/yegear/github/polyglot-terminal rev-parse --show-toplevel)
+multigravity dispatch plan plan.json --repo "$REPO" --json
+```
+
 ### Merge Discipline
 ```bash
 # BAD: Merging worktree branch directly into main without testing in the worktree
@@ -260,7 +280,8 @@ git merge --no-ff task/feature-x -m "feat: merge verified task/feature-x"
 
 ## 8. Verification Checklist
 
-- [ ] Repository working tree is clean prior to provisioning worktrees (`git status --porcelain` is empty).
+- [ ] Target repository root resolved with `git -C <target> rev-parse --show-toplevel`, and that worktree is clean (`git -C "$REPO" status --porcelain` is empty).
+- [ ] Plan dispatched with `--repo "$REPO"` from the current workspace. `move_agent_to_root` was not used when `origin` is absent.
 - [ ] DAG nodes have mutually disjoint file sets for all concurrent stages.
 - [ ] Target profiles verified to be authenticated (`multigravity login status`) and healthy (`remaining_fraction > 0.05`).
 - [ ] Ephemeral worktrees reside under `.multigravity/worktrees/` and are tracked in `.git/info/exclude`.

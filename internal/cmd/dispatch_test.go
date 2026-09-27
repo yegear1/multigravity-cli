@@ -428,4 +428,113 @@ func TestDispatchCLIPlan(t *testing.T) {
 	}
 }
 
+func TestDispatchCLIPlanRepoOtherThanCwd(t *testing.T) {
+	cwdRepo := setupTestGitRepoForCmd(t)
+	targetRepo := setupTestGitRepoForCmd(t)
+	setupTestProfilesForCmd(t, "dev-other-repo")
+
+	renameMain := exec.Command("git", "branch", "-M", "main")
+	renameMain.Dir = targetRepo
+	if out, err := renameMain.CombinedOutput(); err != nil {
+		t.Fatalf("failed to rename target branch: %v, output: %s", err, out)
+	}
+
+	gitOut := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v in %s failed: %v, output: %s", args, dir, err, out)
+		}
+		return string(out)
+	}
+
+	if remotes := strings.TrimSpace(gitOut(targetRepo, "remote")); remotes != "" {
+		t.Fatalf("target repo must have no remotes, got: %s", remotes)
+	}
+	if porcelain := gitOut(targetRepo, "status", "--porcelain"); porcelain != "" {
+		t.Fatalf("target main worktree must be clean, got: %s", porcelain)
+	}
+	cwdHead := strings.TrimSpace(gitOut(cwdRepo, "rev-parse", "HEAD"))
+	cwdPorcelain := gitOut(cwdRepo, "status", "--porcelain")
+	targetHead := strings.TrimSpace(gitOut(targetRepo, "rev-parse", "HEAD"))
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+	if err := os.Chdir(cwdRepo); err != nil {
+		t.Fatal(err)
+	}
+
+	planFile := filepath.Join(t.TempDir(), "other-repo-plan.json")
+	planJSON := `{
+		"plan_id": "cli-plan-other-repo",
+		"workers": 1,
+		"subtasks": [
+			{
+				"id": "hello",
+				"profile": "dev-other-repo",
+				"command": "sh",
+				"args": ["-c", "echo hello > hello.txt"]
+			}
+		]
+	}`
+	if err := os.WriteFile(planFile, []byte(planJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newDispatchCmd()
+	out, err := executeCommand(cmd, "plan", planFile, "--repo", targetRepo, "--json")
+	if err != nil {
+		t.Fatalf("failed to run dispatch plan --repo: %v\n%s", err, out)
+	}
+
+	var planRes dispatch.PlanResult
+	if err := json.Unmarshal([]byte(out), &planRes); err != nil {
+		t.Fatalf("failed to decode plan JSON: %v, out: %s", err, out)
+	}
+	wantRoot, err := filepath.EvalSymlinks(targetRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotRoot, err := filepath.EvalSymlinks(planRes.RepoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotRoot != wantRoot {
+		t.Errorf("plan repo_path = %q, want %q", planRes.RepoPath, targetRepo)
+	}
+	if planRes.Status != "completed" || planRes.Succeeded != 1 {
+		t.Fatalf("unexpected plan result: status=%s succeeded=%d failed=%d err=%v", planRes.Status, planRes.Succeeded, planRes.Failed, planRes.Subtasks)
+	}
+	if len(planRes.Subtasks) != 1 || planRes.Subtasks[0].WorktreePath == "" {
+		t.Fatalf("expected a worktree path, got %+v", planRes.Subtasks)
+	}
+	helloInWorktree := filepath.Join(planRes.Subtasks[0].WorktreePath, "hello.txt")
+	if _, err := os.Stat(helloInWorktree); err != nil {
+		t.Fatalf("expected hello.txt in the target worktree: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetRepo, "hello.txt")); !os.IsNotExist(err) {
+		t.Fatalf("hello.txt must stay out of the target main checkout, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwdRepo, "hello.txt")); !os.IsNotExist(err) {
+		t.Fatalf("hello.txt must stay out of the cwd repo, stat err=%v", err)
+	}
+	if got := strings.TrimSpace(gitOut(cwdRepo, "rev-parse", "HEAD")); got != cwdHead {
+		t.Errorf("cwd HEAD changed from %s to %s", cwdHead, got)
+	}
+	if got := gitOut(cwdRepo, "status", "--porcelain"); got != cwdPorcelain {
+		t.Errorf("cwd porcelain changed: %q", got)
+	}
+	if got := strings.TrimSpace(gitOut(targetRepo, "rev-parse", "HEAD")); got != targetHead {
+		t.Errorf("target HEAD changed from %s to %s", targetHead, got)
+	}
+	if porcelain := gitOut(targetRepo, "status", "--porcelain"); porcelain != "" {
+		t.Errorf("target main worktree dirty after plan: %s", porcelain)
+	}
+}
+
 
