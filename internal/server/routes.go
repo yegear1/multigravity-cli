@@ -380,6 +380,41 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /ui/dispatch/tasks", s.handleUITasksDashboard)
 	s.mux.HandleFunc("GET /ui/tasks/{id}/diff", s.handleUITaskDiff)
 	s.mux.HandleFunc("GET /ui/dispatch/tasks/{id}/diff", s.handleUITaskDiff)
+
+	// MCP (Model Context Protocol) Server
+	s.mux.HandleFunc("POST /mcp", s.handleMCPJSONRPC)
+	s.mux.HandleFunc("POST /api/v1/mcp", s.handleMCPJSONRPC)
+	s.mux.HandleFunc("POST /api/mcp", s.handleMCPJSONRPC)
+	s.mux.HandleFunc("GET /mcp/sse", s.handleMCPSSE)
+	s.mux.HandleFunc("GET /api/v1/mcp/sse", s.handleMCPSSE)
+	s.mux.HandleFunc("GET /api/mcp/sse", s.handleMCPSSE)
+	s.mux.HandleFunc("POST /mcp/messages", s.handleMCPMessage)
+	s.mux.HandleFunc("POST /api/v1/mcp/messages", s.handleMCPMessage)
+	s.mux.HandleFunc("POST /api/mcp/messages", s.handleMCPMessage)
+}
+
+func (s *Server) handleMCPJSONRPC(w http.ResponseWriter, r *http.Request) {
+	if s.mcpHandler != nil {
+		s.mcpHandler.HandleJSONRPC(w, r)
+		return
+	}
+	s.writeError(w, http.StatusServiceUnavailable, "MCP server is not initialized")
+}
+
+func (s *Server) handleMCPSSE(w http.ResponseWriter, r *http.Request) {
+	if s.mcpHandler != nil {
+		s.mcpHandler.HandleSSE(w, r)
+		return
+	}
+	s.writeError(w, http.StatusServiceUnavailable, "MCP server is not initialized")
+}
+
+func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
+	if s.mcpHandler != nil {
+		s.mcpHandler.HandleMessage(w, r)
+		return
+	}
+	s.writeError(w, http.StatusServiceUnavailable, "MCP server is not initialized")
 }
 
 func (s *Server) handleGatewayChatCompletions(w http.ResponseWriter, r *http.Request) {

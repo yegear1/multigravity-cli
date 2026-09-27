@@ -145,6 +145,8 @@ func TestLaunchProfileWaitFlag(t *testing.T) {
 		return fakeApp, nil
 	}
 
+	t.Setenv("MULTIGRAVITY_LAUNCH_WAIT", "")
+
 	var ranWait bool
 	runCmdFn = func(c *exec.Cmd, wait bool) error {
 		ranWait = wait

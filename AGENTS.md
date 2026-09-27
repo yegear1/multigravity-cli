@@ -54,7 +54,7 @@ Não está preso à fase `99.x`. Ao publicar `vX.Y.Z`:
 
 - **Linguagens e Runtimes:**
   - **Go 1.27.1+:** Binário nativo principal (`cmd/multigravity`). Piso declarado em `go.mod`.
-  - **Negócio em `internal/`:** `profile`, `quota`, `prime`, `chat`, `config`, `doctor`, `shortcut`, `app`, `gateway`, `dispatch`, `agent`, `worktree`, `workspace`, `auth`, `headless`, `alert`, `catalog`, `idelog`.
+  - **Negócio em `internal/`:** `profile`, `quota`, `prime`, `chat`, `config`, `doctor`, `shortcut`, `app`, `gateway`, `dispatch`, `agent`, `worktree`, `workspace`, `auth`, `headless`, `alert`, `catalog`, `idelog`, `mcp`.
   - **Apresentação e borda:** `cmd` (Cobra), `tui`, `server` (HTTP de `serve` e UI embutida).
   - **Launchers Inteligentes (POSIX Bash & PowerShell):** `multigravity` e `multigravity.ps1` na raiz compilam automaticamente via `go` ou despacham para o binário compilado em `bin/`.
   - **Instalação e Automação:** `install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1` e `Makefile`.

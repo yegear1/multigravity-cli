@@ -2287,3 +2287,36 @@ func TestHeadlessServerEndpoints(t *testing.T) {
 		t.Fatalf("expected 200 on stop, got %d", recStop.Code)
 	}
 }
+
+func TestMCPEndpoints(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	// 1. POST /mcp and POST /api/v1/mcp
+	for _, path := range []string{"/mcp", "/api/v1/mcp"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("[%s] expected 200, got %d: %s", path, rec.Code, rec.Body.String())
+		}
+
+		var resp map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("[%s] failed to decode response: %v", path, err)
+		}
+		if resp["jsonrpc"] != "2.0" {
+			t.Errorf("[%s] expected jsonrpc 2.0, got %v", path, resp["jsonrpc"])
+		}
+		result, ok := resp["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("[%s] expected result object, got %T", path, resp["result"])
+		}
+		tools, ok := result["tools"].([]any)
+		if !ok || len(tools) == 0 {
+			t.Errorf("[%s] expected non-empty tools array, got %v", path, result["tools"])
+		}
+	}
+}

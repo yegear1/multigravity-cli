@@ -99,6 +99,7 @@ func init() {
 	rootCmd.AddCommand(newExecCmd())
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(newMCPServerRootCmd())
 
 	// Shell completion dynamic profile args
 	workspaceCmd.ValidArgsFunction = profileArgsCompletion

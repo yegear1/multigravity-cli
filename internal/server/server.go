@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/gateway"
+	"github.com/ye-dev/multigravity-cli/internal/mcp"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
 
@@ -27,6 +28,8 @@ type Server struct {
 	listener   net.Listener
 	broker     *Broker
 	gateway    *gateway.Gateway
+	mcpServer  *mcp.Server
+	mcpHandler *mcp.HTTPHandler
 }
 
 // NewServer creates a new HTTP server instance with configured routes
@@ -49,11 +52,16 @@ func NewServer(cfg Config) *Server {
 		gw.Router().SyncProfiles(profs)
 	}
 
+	mcpSrv := mcp.NewDefaultServer()
+	mcpH := mcp.NewHTTPHandler(mcpSrv)
+
 	s := &Server{
-		cfg:     cfg,
-		mux:     http.NewServeMux(),
-		broker:  NewBroker(),
-		gateway: gw,
+		cfg:        cfg,
+		mux:        http.NewServeMux(),
+		broker:     NewBroker(),
+		gateway:    gw,
+		mcpServer:  mcpSrv,
+		mcpHandler: mcpH,
 	}
 
 	s.broker.Start(2 * time.Second)
@@ -109,6 +117,11 @@ func (s *Server) Gateway() *gateway.Gateway {
 // SetGateway overrides the gateway instance (primarily for testing)
 func (s *Server) SetGateway(gw *gateway.Gateway) {
 	s.gateway = gw
+}
+
+// MCPServer returns the native MCP server instance
+func (s *Server) MCPServer() *mcp.Server {
+	return s.mcpServer
 }
 
 // Shutdown initiates graceful termination of the HTTP server
