@@ -41,7 +41,10 @@ func NewServer(cfg Config) *Server {
 		cfg.StartTime = time.Now()
 	}
 
-	gw := gateway.NewGateway()
+	gw := gateway.NewGateway(
+		gateway.WithTokenResolver(resolveProfileAccessToken),
+		gateway.WithQuotaRefresh(refreshProfileQuota),
+	)
 	if profs, err := profile.ListProfiles(); err == nil && len(profs) > 0 {
 		gw.Router().SyncProfiles(profs)
 	}

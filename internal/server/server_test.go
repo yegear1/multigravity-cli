@@ -1569,6 +1569,11 @@ func TestGatewayRouterInServer(t *testing.T) {
 	if status.TotalProfiles != 2 || status.Strategy != "smart" {
 		t.Errorf("unexpected router status: %+v", status)
 	}
+	for _, profile := range status.Profiles {
+		if profile.QuotaKnown || profile.RemainingFraction != 0 {
+			t.Errorf("profile %s started with a live quota: known=%v fraction=%v", profile.Name, profile.QuotaKnown, profile.RemainingFraction)
+		}
+	}
 
 	// 2. GET /api/v1/router/status (alias)
 	resp2, err := http.Get(ts.URL + "/api/v1/router/status")

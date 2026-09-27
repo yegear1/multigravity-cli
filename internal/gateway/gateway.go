@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,10 +14,14 @@ import (
 // TokenResolverFunc resolves an access token dynamically from the request or profile context
 type TokenResolverFunc func(r *http.Request, profileName string) (string, error)
 
+// QuotaRefreshFunc loads live quota into the router before a completion is routed.
+type QuotaRefreshFunc func(ctx context.Context, router *Router)
+
 // Gateway handles OpenAI-compatible endpoints with multi-account routing and auto-failover
 type Gateway struct {
 	client        *Client
 	tokenResolver TokenResolverFunc
+	quotaRefresh  QuotaRefreshFunc
 	router        *Router
 }
 
@@ -34,6 +39,12 @@ func WithGatewayClient(c *Client) GatewayOption {
 func WithTokenResolver(fn TokenResolverFunc) GatewayOption {
 	return func(g *Gateway) {
 		g.tokenResolver = fn
+	}
+}
+
+func WithQuotaRefresh(fn QuotaRefreshFunc) GatewayOption {
+	return func(g *Gateway) {
+		g.quotaRefresh = fn
 	}
 }
 
@@ -76,6 +87,29 @@ func (g *Gateway) SetRouter(r *Router) {
 	}
 }
 
+func (g *Gateway) refreshQuota(ctx context.Context) {
+	if g.quotaRefresh == nil || g.router == nil {
+		return
+	}
+	g.quotaRefresh(ctx, g.router)
+}
+
+// resolveUpstreamToken returns the bearer sent to Cloud Code.
+// With a resolver installed, the inbound Authorization header is not forwarded.
+func (g *Gateway) resolveUpstreamToken(r *http.Request, profile, headerToken string) (string, error) {
+	if g.tokenResolver == nil {
+		return headerToken, nil
+	}
+	resolved, err := g.tokenResolver(r, profile)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(resolved) == "" {
+		return "", fmt.Errorf("profile %q is not authenticated", profile)
+	}
+	return resolved, nil
+}
+
 func (g *Gateway) writeError(w http.ResponseWriter, status int, msg, errType, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -104,6 +138,7 @@ func (g *Gateway) HandleRouterStatus(w http.ResponseWriter, r *http.Request) {
 		g.writeError(w, http.StatusMethodNotAllowed, "Method not allowed", "invalid_request_error", "method_not_allowed")
 		return
 	}
+	g.refreshQuota(r.Context())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(g.router.GetStatus())
 }
@@ -242,6 +277,9 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		maxAttempts = 3
 	}
 
+	g.refreshQuota(r.Context())
+	authFailures := 0
+
 	// Pre-check flusher if streaming mode requested
 	var flusher http.Flusher
 	if req.Stream {
@@ -270,13 +308,16 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 		currentProfile := node.Name
 
-		// Resolve token for this selected profile
-		activeToken := headerToken
-		if g.tokenResolver != nil {
-			resolved, rErr := g.tokenResolver(r, currentProfile)
-			if rErr == nil && resolved != "" {
-				activeToken = resolved
+		activeToken, tokenErr := g.resolveUpstreamToken(r, currentProfile, headerToken)
+		if tokenErr != nil {
+			authFailures++
+			if failoverEnabled {
+				excluded[currentProfile] = true
+				failoverCount++
+				continue
 			}
+			g.writeError(w, http.StatusUnauthorized, tokenErr.Error(), "authentication_error", "profile_unauthenticated")
+			return
 		}
 
 		activeStrategy := strategyOverride
@@ -444,5 +485,9 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// If all attempts exhausted without successful response
+	if authFailures > 0 && authFailures >= failoverCount {
+		g.writeError(w, http.StatusUnauthorized, "profile is not authenticated", "authentication_error", "profile_unauthenticated")
+		return
+	}
 	g.writeError(w, http.StatusTooManyRequests, fmt.Sprintf("All profiles exhausted after %d attempts", failoverCount), "rate_limit_exceeded", "rate_limit_exceeded")
 }

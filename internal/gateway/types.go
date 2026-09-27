@@ -220,6 +220,7 @@ type ProfileNodeStatus struct {
 	Name              string  `json:"name"`
 	Status            string  `json:"status"` // "healthy", "cooldown", "rate_limited"
 	RemainingFraction float64 `json:"remaining_fraction"`
+	QuotaKnown        bool    `json:"quota_known"`
 	ResetTime         string  `json:"reset_time,omitempty"`
 	CooldownUntil     *string `json:"cooldown_until,omitempty"`
 	CooldownRemaining string  `json:"cooldown_remaining,omitempty"`

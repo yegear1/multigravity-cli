@@ -46,6 +46,7 @@ func ParseRoutingStrategy(s string) RoutingStrategy {
 type ProfileNode struct {
 	Name              string
 	RemainingFraction float64
+	QuotaKnown        bool
 	ResetTime         time.Time
 	CooldownUntil     time.Time
 	ConsecutiveErrors int
@@ -87,12 +88,22 @@ func (p *ProfileNode) Score(now time.Time) float64 {
 		return -1_000_000.0 // cooling down nodes heavily penalized
 	}
 
-	// Base score: 0 to 1000 from remaining fraction
-	fraction := p.RemainingFraction
-	if fraction <= 0 {
-		fraction = 1.0 // default healthy if unknown
+	// Base score: 0 to 1000 from a measured remaining fraction.
+	// Unknown quota scores just above a measured zero so a depleted profile
+	// does not look full and does not outrank an unread one.
+	var score float64
+	if p.QuotaKnown {
+		fraction := p.RemainingFraction
+		if fraction < 0 {
+			fraction = 0
+		}
+		if fraction > 1 {
+			fraction = 1
+		}
+		score = fraction * 1000.0
+	} else {
+		score = 1
 	}
-	score := fraction * 1000.0
 
 	// Penalty for recent consecutive errors
 	score -= float64(p.ConsecutiveErrors) * 100.0
@@ -208,8 +219,7 @@ func (r *Router) RegisterProfile(name string) *ProfileNode {
 	}
 
 	node := &ProfileNode{
-		Name:              name,
-		RemainingFraction: 1.0,
+		Name: name,
 	}
 	r.nodes[name] = node
 	r.profilesOrder = append(r.profilesOrder, name)
@@ -230,8 +240,7 @@ func (r *Router) SyncProfiles(names []string) {
 		currentSet[n] = true
 		if _, exists := r.nodes[n]; !exists {
 			r.nodes[n] = &ProfileNode{
-				Name:              n,
-				RemainingFraction: 1.0,
+				Name: n,
 			}
 			r.profilesOrder = append(r.profilesOrder, n)
 		}
@@ -308,7 +317,7 @@ func (r *Router) SelectProfile(
 	defer r.mu.Unlock()
 
 	if len(r.nodes) == 0 {
-		defNode := &ProfileNode{Name: "default", RemainingFraction: 1.0}
+		defNode := &ProfileNode{Name: "default"}
 		r.nodes["default"] = defNode
 		r.profilesOrder = append(r.profilesOrder, "default")
 	}
@@ -324,7 +333,7 @@ func (r *Router) SelectProfile(
 		node, exists := r.nodes[reqProf]
 		if !exists {
 			// Profile may exist on disk but not in pool yet
-			node = &ProfileNode{Name: reqProf, RemainingFraction: 1.0}
+			node = &ProfileNode{Name: reqProf}
 			r.nodes[reqProf] = node
 			r.profilesOrder = append(r.profilesOrder, reqProf)
 			sort.Strings(r.profilesOrder)
@@ -504,6 +513,7 @@ func (r *Router) UpdateQuota(name string, remainingFraction float64, resetTime t
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.RemainingFraction = remainingFraction
+	node.QuotaKnown = true
 	node.ResetTime = resetTime
 }
 
@@ -559,6 +569,7 @@ func (r *Router) GetStatus() RouterStatus {
 			Name:              node.Name,
 			Status:            nodeStatus,
 			RemainingFraction: node.RemainingFraction,
+			QuotaKnown:        node.QuotaKnown,
 			ResetTime:         resetTimeStr,
 			CooldownUntil:     cdUntilStr,
 			CooldownRemaining: cdRemaining,

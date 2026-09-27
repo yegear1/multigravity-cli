@@ -282,6 +282,9 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		maxAttempts = 3
 	}
 
+	g.refreshQuota(r.Context())
+	authFailures := 0
+
 	// Pre-check flusher if streaming mode requested
 	var flusher http.Flusher
 	if req.Stream {
@@ -310,12 +313,16 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 		currentProfile := node.Name
 
-		activeToken := headerToken
-		if g.tokenResolver != nil {
-			resolved, rErr := g.tokenResolver(r, currentProfile)
-			if rErr == nil && resolved != "" {
-				activeToken = resolved
+		activeToken, tokenErr := g.resolveUpstreamToken(r, currentProfile, headerToken)
+		if tokenErr != nil {
+			authFailures++
+			if failoverEnabled {
+				excluded[currentProfile] = true
+				failoverCount++
+				continue
 			}
+			g.writeAnthropicError(w, http.StatusUnauthorized, tokenErr.Error(), "authentication_error")
+			return
 		}
 
 		activeStrategy := strategyOverride
@@ -518,5 +525,9 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if authFailures > 0 && authFailures >= failoverCount {
+		g.writeAnthropicError(w, http.StatusUnauthorized, "profile is not authenticated", "authentication_error")
+		return
+	}
 	g.writeAnthropicError(w, http.StatusTooManyRequests, fmt.Sprintf("All profiles exhausted after %d attempts", failoverCount), "rate_limit_error")
 }

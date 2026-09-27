@@ -41,12 +41,15 @@ func TestRouterSmartStrategy(t *testing.T) {
 
 	// Register 3 profiles with different remaining quota fractions
 	p1 := router.RegisterProfile("p1-low")
+	p1.QuotaKnown = true
 	p1.RemainingFraction = 0.20
 
 	p2 := router.RegisterProfile("p2-high")
+	p2.QuotaKnown = true
 	p2.RemainingFraction = 0.95
 
 	p3 := router.RegisterProfile("p3-med")
+	p3.QuotaKnown = true
 	p3.RemainingFraction = 0.50
 
 	// 1. P2 should be chosen first because it has the highest quota fraction
@@ -228,11 +231,52 @@ func TestRouterExplicitProfileWithFailover(t *testing.T) {
 	if node2.Name != "backup" {
 		t.Errorf("expected failover to backup, got %s", node2.Name)
 	}
+}
 
-	// With failover disabled, requesting target returns error
+func TestRouterUnknownQuotaIsNotFull(t *testing.T) {
+	router := NewRouter(WithRouterStrategy(StrategySmart))
+	router.SyncProfiles([]string{"measured", "unread", "empty"})
+	router.UpdateQuota("measured", 0.2, time.Time{})
+	router.UpdateQuota("empty", 0, time.Time{})
+
+	status := router.GetStatus()
+	for _, profile := range status.Profiles {
+		switch profile.Name {
+		case "unread":
+			if profile.QuotaKnown || profile.RemainingFraction != 0 {
+				t.Fatalf("unread quota = known:%v fraction:%v", profile.QuotaKnown, profile.RemainingFraction)
+			}
+		case "measured":
+			if !profile.QuotaKnown || profile.RemainingFraction != 0.2 {
+				t.Fatalf("measured quota = known:%v fraction:%v", profile.QuotaKnown, profile.RemainingFraction)
+			}
+		}
+	}
+
+	chosen, err := router.SelectProfile(context.Background(), "gemini-2.5-flash", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chosen.Name != "measured" {
+		t.Fatalf("expected measured profile, got %s", chosen.Name)
+	}
+
+	excluded := map[string]bool{"measured": true}
+	next, err := router.SelectProfile(context.Background(), "gemini-2.5-flash", "", excluded, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Name != "unread" {
+		t.Fatalf("expected unread profile ahead of a measured zero, got %s", next.Name)
+	}
+}
+
+func TestRouterExplicitProfileWithFailoverDisabled(t *testing.T) {
+	router := NewRouter(WithFailoverEnabled(true))
+	router.SyncProfiles([]string{"target", "backup"})
+	router.MarkRateLimited("target", 429, "rate limited", 10*time.Minute)
 	router.SetFailover(false)
-	_, err = router.SelectProfile(context.Background(), "gemini-2.5-pro", "target", nil, "")
-	if err == nil {
+	if _, err := router.SelectProfile(context.Background(), "gemini-2.5-pro", "target", nil, ""); err == nil {
 		t.Errorf("expected error when failover disabled and profile is cooling down")
 	}
 }
