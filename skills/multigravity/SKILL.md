@@ -393,7 +393,19 @@ multigravity alerts --json
 multigravity alerts <profile> --json
 ```
 
-## 6. Contrast Pairs
+## 6. Gateway model and credential contract
+
+Send the Cloud Code wire id. The Antigravity docs label is not the `model` field. The valid list is `POST /v1internal:fetchAvailableModels`.
+
+- `gemini-3.6-flash-high`, `gemini-3.6-flash-medium`, and `gemini-3.6-flash-low` are distinct wire ids. The verified menu default is `gemini-3.6-flash-high`. Day-to-day calls outside `prime` SHOULD use `gemini-3.8-flash-tiered`. `prime` MUST keep `gemini-3.6-flash-low`.
+- `gemini-3.7-flash-tiered` and `gemini-3.8-flash-tiered` are the only live ids for those generations. Client names `gemini-3.8-flash-low`, `gemini-3.8-flash-medium`, `gemini-3.8-flash-high`, and the 3.7 equivalents are aliases: the upstream `model` stays the tiered id, and the suffix becomes `generationConfig.thinkingConfig.thinkingLevel` (`LOW`, `MEDIUM`, `HIGH`). OpenAI `reasoning_effort` overrides the suffix. A bare tiered id MUST NOT send `thinkingConfig`; the model default is `MEDIUM`. MUST NOT send `MINIMAL` for Flash 3.7 or 3.8. Gemini 3.6 keeps the level in the model id and MUST NOT receive `thinkingConfig`.
+- `gemini-3.1-pro-high` is retired. Send `gemini-pro-agent` (menu label Gemini 3.1 Pro High). `gemini-3.1-pro-low` stays unchanged.
+- Menu Claude Opus 4.6 (Thinking) is `claude-opus-4-6-thinking`. The 3P open model is `gpt-oss-120b-medium`.
+- An id in `SupportedModels` goes upstream unchanged. An unknown name that only contains `flash` or `pro` falls back to `gemini-2.5-flash` or `gemini-2.5-pro`.
+- A completion token comes from the selected profile vault. `antigravity-oauth-token` wins; otherwise use `jetski-standalone-oauth-token`. MUST NOT forward the `serve` `Authorization` header to Cloud Code. A profile with no credential returns 401 `profile_unauthenticated`.
+- Without a language-server quota reading, `quota_known` is false and `remaining_fraction` is 0. `smart` scores only a measured fraction and uses the lower of the weekly and 5-hour windows for that provider. MUST NOT treat an unknown fraction as full.
+
+## 7. Contrast Pairs
 
 ```bash
 # BAD: Blindly deleting or modifying a profile while processes are still running
@@ -423,11 +435,22 @@ multigravity prime --force  # Wastes API calls and may trigger provider rate lim
 multigravity prime --check --5h
 ```
 
-## 7. Verification Checklist
+```bash
+# BAD: Treating a Flash 3.8 suffix as the upstream model id
+"model": "gemini-3.8-flash-high"
+
+# GOOD: Tiered wire id; the gateway maps the suffix or reasoning_effort into thinkingConfig
+"model": "gemini-3.8-flash-tiered"
+"reasoning_effort": "high"
+```
+
+## 8. Verification Checklist
 
 - [ ] Target profile name verified against `^[a-zA-Z0-9][a-zA-Z0-9-]*$`.
 - [ ] Running state checked via `multigravity status` before any destructive or stop action.
 - [ ] Isolation sentinel files checked or updated correctly (`.isolated_mcp`, `.isolated_skills`, `.isolated_config`, `.isolated_gh`).
 - [ ] Quota checks distinguish between the 4 buckets (`gemini-weekly`, `gemini-5h`, `3p-weekly`, `3p-5h`).
+- [ ] Gateway model is a live wire id. Flash 3.7 and 3.8 levels travel in `thinkingConfig`, not in the upstream `model`.
+- [ ] Completion auth uses the profile vault. The `serve` `Authorization` header is not forwarded. Unknown quota is not scored as full.
 - [ ] AI exports and synchronizations asserted to be token-sanitized.
 - [ ] Zero unverified changes to host `$REAL_HOME` dotfiles or credentials.

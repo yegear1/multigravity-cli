@@ -349,12 +349,12 @@ O Multigravity inclui um Gateway local de IA em `multigravity serve` que disponi
 ### Recursos Principais
 - **Pooling Multi-Contas e Auto-Failover:** Se um perfil ativo atingir limites de taxa (HTTP 429 ou esgotamento de cota 403), o gateway coloca o perfil em cooldown e alterna automaticamente para o próximo perfil com cota saudável sem interromper o streaming do cliente.
 - **Estratégias de Roteamento Configuráveis:**
-  - `smart` (padrão): Prioriza perfis com maior cota disponível, penaliza taxa de erros e balanceia carga dinamicamente.
+  - `smart` (padrão): Prioriza perfis com maior fração de cota medida (a menor entre a janela semanal e a de 5 horas), penaliza taxa de erros e balanceia carga dinamicamente. Fração desconhecida não pontua como cheia.
   - `round-robin`: Rotaciona requisições sequencialmente entre os perfis saudáveis.
   - `priority`: Utiliza a ordem declarada de prioridade dos perfis.
   - `sticky`: Mantém as requisições no mesmo perfil até que ocorra um limite de taxa.
-- **Catálogo de modelos:** Identificadores de `fetchAvailableModels`, não os rótulos da página de documentação do Antigravity. Um id listado segue intacto para o upstream. Nome desconhecido que só contém `flash` ou `pro` ainda cai em `gemini-2.5-flash` / `gemini-2.5-pro`. O id aposentado `gemini-3.1-pro-high` aponta para `gemini-pro-agent`. Menu do agente na conta verificada: `gemini-3.6-flash-high` (padrão), `gemini-3.6-flash-medium`, `gemini-3.6-flash-low`, `gemini-pro-agent` (rótulo Gemini 3.1 Pro High), `gemini-3.1-pro-low`, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium`. Gemini 3.7 e 3.8 são `gemini-3.7-flash-tiered` e `gemini-3.8-flash-tiered`.
-- **Zero Custódia de Credenciais:** As chamadas utilizam os tokens em memória do Language Server local; senhas ou segredos da conta Google nunca são persistidos em texto puro.
+- **Catálogo de modelos:** Identificadores de `fetchAvailableModels`, não os rótulos da página de documentação do Antigravity. Um id listado segue intacto para o upstream. Nome desconhecido que só contém `flash` ou `pro` ainda cai em `gemini-2.5-flash` / `gemini-2.5-pro`. O id aposentado `gemini-3.1-pro-high` aponta para `gemini-pro-agent`. Menu do agente na conta verificada: `gemini-3.6-flash-high` (padrão do menu), `gemini-3.6-flash-medium`, `gemini-3.6-flash-low`, `gemini-pro-agent` (rótulo Gemini 3.1 Pro High), `gemini-3.1-pro-low`, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium`. Gemini 3.7 e 3.8 são `gemini-3.7-flash-tiered` e `gemini-3.8-flash-tiered`. Nomes como `gemini-3.8-flash-high` são aliases: o modelo upstream continua o id tiered, e o sufixo ou o `reasoning_effort` da OpenAI vira `thinkingConfig.thinkingLevel` (`LOW`, `MEDIUM`, `HIGH`). O id tiered sozinho omite `thinkingConfig`; o padrão do modelo é medium. No dia a dia, use `gemini-3.8-flash-tiered`. O `prime` permanece em `gemini-3.6-flash-low`.
+- **Cofre do perfil:** Uma completion usa a credencial do perfil escolhido. O arquivo do `login` (`antigravity-oauth-token`) tem prioridade; na ausência dele vale o `jetski-standalone-oauth-token` da IDE. O header `Authorization` recebido pelo `serve` não segue para o Cloud Code. Senhas não são armazenadas.
 
 ### Exemplos de Uso
 
@@ -366,7 +366,7 @@ multigravity serve
 curl -s -N http://127.0.0.1:8989/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3.6-flash-high",
+    "model": "gemini-3.8-flash-tiered",
     "messages": [{"role": "user", "content": "Explique Git worktrees em uma frase."}],
     "stream": true
   }'
