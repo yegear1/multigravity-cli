@@ -16,6 +16,7 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [03.4] | Skill e READMEs registram o contrato de modelo do gateway | 750b514 | 2026-09-27 |
 | [03.3] | Gateway envia thinkingLevel no Flash 3.7 e 3.8 tiered | 398121f | 2026-09-27 |
 | [03.2] | Catálogo do gateway usa os ids ao vivo do menu do agente | 2fee716 | 2026-09-27 |
 | [03.1] | Gateway usa o cofre OAuth do perfil e cota medida no roteador | f1e859e, ccc105a | 2026-09-27 |
