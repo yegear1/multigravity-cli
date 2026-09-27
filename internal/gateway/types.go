@@ -10,8 +10,9 @@ type ChatCompletionRequest struct {
 	Model       string        `json:"model"`
 	Messages    []ChatMessage `json:"messages"`
 	Stream      bool          `json:"stream,omitempty"`
-	MaxTokens   int           `json:"max_tokens,omitempty"`
-	Temperature float64       `json:"temperature,omitempty"`
+	MaxTokens       int           `json:"max_tokens,omitempty"`
+	Temperature     float64       `json:"temperature,omitempty"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
 	Profile     string        `json:"profile,omitempty"`
 	Strategy    string        `json:"strategy,omitempty"`
 	Failover    *bool         `json:"failover,omitempty"`
@@ -192,8 +193,13 @@ type CloudCodeSystemInstruction struct {
 }
 
 type CloudCodeGenerationConfig struct {
-	MaxOutputTokens int     `json:"maxOutputTokens,omitempty"`
-	Temperature     float64 `json:"temperature,omitempty"`
+	MaxOutputTokens int                      `json:"maxOutputTokens,omitempty"`
+	Temperature     float64                  `json:"temperature,omitempty"`
+	ThinkingConfig  *CloudCodeThinkingConfig `json:"thinkingConfig,omitempty"`
+}
+
+type CloudCodeThinkingConfig struct {
+	ThinkingLevel string `json:"thinkingLevel"`
 }
 
 type CloudCodeImagePart struct {

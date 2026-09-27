@@ -206,7 +206,7 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		maxTokens = 4096
 	}
 
-	modelId := NormalizeModel(req.Model)
+	modelId, thinking := UpstreamModel(req.Model, "")
 	contents, systemPrompt := CollapseAnthropicMessages(req.Messages, req.System)
 
 	cloudReq := &CloudCodeRequest{
@@ -227,10 +227,7 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	if req.Temperature != nil {
 		temp = *req.Temperature
 	}
-	cloudReq.Request.GenerationConfig = &CloudCodeGenerationConfig{
-		MaxOutputTokens: maxTokens,
-		Temperature:     temp,
-	}
+	setGenerationConfig(&cloudReq.Request, maxTokens, temp, thinking)
 
 	// 1. Resolve token from x-api-key or Authorization header
 	headerToken := ""

@@ -37,6 +37,8 @@ func TestNormalizeModel(t *testing.T) {
 		{"gemini-2.5-flash", "gemini-2.5-flash"},
 		{"gemini-3.6-flash-high", "gemini-3.6-flash-high"},
 		{"gemini-3.8-flash-tiered", "gemini-3.8-flash-tiered"},
+		{"gemini-3.8-flash-high", "gemini-3.8-flash-tiered"},
+		{"gemini-3.7-flash-low", "gemini-3.7-flash-tiered"},
 		{"gemini-3.7-flash-tiered", "gemini-3.7-flash-tiered"},
 		{"gemini-pro-agent", "gemini-pro-agent"},
 		{"gemini-3.1-pro-high", "gemini-pro-agent"},
@@ -52,6 +54,39 @@ func TestNormalizeModel(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("NormalizeModel(%q) = %q; want %q", tt.input, got, tt.expected)
 		}
+	}
+}
+
+func TestUpstreamModelThinkingLevel(t *testing.T) {
+	tests := []struct {
+		model    string
+		effort   string
+		wire     string
+		thinking string
+	}{
+		{"gemini-3.8-flash-tiered", "", "gemini-3.8-flash-tiered", ""},
+		{"gemini-3.8-flash-high", "", "gemini-3.8-flash-tiered", "HIGH"},
+		{"gemini-3.8-flash-medium", "", "gemini-3.8-flash-tiered", "MEDIUM"},
+		{"gemini-3.8-flash-low", "", "gemini-3.8-flash-tiered", "LOW"},
+		{"gemini-3.7-flash-high", "low", "gemini-3.7-flash-tiered", "LOW"},
+		{"gemini-3.6-flash-high", "", "gemini-3.6-flash-high", ""},
+		{"gemini-3.6-flash-low", "high", "gemini-3.6-flash-low", ""},
+	}
+	for _, tt := range tests {
+		wire, thinking := UpstreamModel(tt.model, tt.effort)
+		if wire != tt.wire || thinking != tt.thinking {
+			t.Errorf("UpstreamModel(%q, %q) = (%q, %q); want (%q, %q)", tt.model, tt.effort, wire, thinking, tt.wire, tt.thinking)
+		}
+	}
+
+	body := CloudCodeRequestBody{}
+	setGenerationConfig(&body, 0, 0, "HIGH")
+	raw, err := json.Marshal(body.GenerationConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"thinkingLevel":"HIGH"`) {
+		t.Fatalf("generation config = %s", raw)
 	}
 }
 

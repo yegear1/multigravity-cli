@@ -63,6 +63,14 @@ var ModelAliases = map[string]string{
 	"claude-haiku":               "gemini-3.5-flash-low",
 	// Retired wire id. The live catalog replaces it with gemini-pro-agent.
 	"gemini-3.1-pro-high": "gemini-pro-agent",
+
+	// Gemini 3.7 and 3.8 publish one wire id. The menu level is thinkingConfig.
+	"gemini-3.8-flash-low":    "gemini-3.8-flash-tiered",
+	"gemini-3.8-flash-medium": "gemini-3.8-flash-tiered",
+	"gemini-3.8-flash-high":   "gemini-3.8-flash-tiered",
+	"gemini-3.7-flash-low":    "gemini-3.7-flash-tiered",
+	"gemini-3.7-flash-medium": "gemini-3.7-flash-tiered",
+	"gemini-3.7-flash-high":   "gemini-3.7-flash-tiered",
 }
 
 // NormalizeModel resolves model aliases and ensures a valid model identifier for upstream
@@ -111,6 +119,53 @@ func NormalizeModel(model string) string {
 		return m
 	}
 	return "gemini-2.5-pro"
+}
+
+// UpstreamModel returns the Cloud Code model id and, for tiered Flash, the thinking level.
+// Gemini 3.6 keeps Low/Medium/High in the model id. Gemini 3.7 and 3.8 share one id, so the
+// suffix or reasoning_effort becomes generationConfig.thinkingConfig.thinkingLevel.
+// A bare tiered id leaves the level empty and the upstream default (medium) applies.
+func UpstreamModel(model, reasoningEffort string) (string, string) {
+	raw := strings.TrimSpace(strings.ToLower(model))
+	wire := NormalizeModel(raw)
+	if !tieredFlash(wire) {
+		return wire, ""
+	}
+	if level := thinkingLevel(reasoningEffort); level != "" {
+		return wire, level
+	}
+	return wire, thinkingLevel(raw)
+}
+
+func tieredFlash(model string) bool {
+	return model == "gemini-3.8-flash-tiered" || model == "gemini-3.7-flash-tiered"
+}
+
+func thinkingLevel(name string) string {
+	switch {
+	case strings.HasSuffix(name, "-low"), strings.EqualFold(name, "low"):
+		return "LOW"
+	case strings.HasSuffix(name, "-medium"), strings.EqualFold(name, "medium"):
+		return "MEDIUM"
+	case strings.HasSuffix(name, "-high"), strings.EqualFold(name, "high"):
+		return "HIGH"
+	default:
+		return ""
+	}
+}
+
+func setGenerationConfig(body *CloudCodeRequestBody, maxTokens int, temperature float64, thinkingLevel string) {
+	if maxTokens <= 0 && temperature <= 0 && thinkingLevel == "" {
+		return
+	}
+	cfg := &CloudCodeGenerationConfig{
+		MaxOutputTokens: maxTokens,
+		Temperature:     temperature,
+	}
+	if thinkingLevel != "" {
+		cfg.ThinkingConfig = &CloudCodeThinkingConfig{ThinkingLevel: thinkingLevel}
+	}
+	body.GenerationConfig = cfg
 }
 
 func isSupportedModel(model string) bool {

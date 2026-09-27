@@ -203,7 +203,7 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	modelId := NormalizeModel(req.Model)
+	modelId, thinking := UpstreamModel(req.Model, req.ReasoningEffort)
 	contents, systemPrompt := CollapseOpenAIMessages(req.Messages)
 
 	cloudReq := &CloudCodeRequest{
@@ -220,12 +220,7 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if req.MaxTokens > 0 || req.Temperature > 0 {
-		cloudReq.Request.GenerationConfig = &CloudCodeGenerationConfig{
-			MaxOutputTokens: req.MaxTokens,
-			Temperature:     req.Temperature,
-		}
-	}
+	setGenerationConfig(&cloudReq.Request, req.MaxTokens, req.Temperature, thinking)
 
 	// 1. Resolve initial base token from Authorization header if present
 	headerToken := ""
