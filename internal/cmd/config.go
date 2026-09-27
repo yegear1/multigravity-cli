@@ -7,14 +7,28 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
 
+var (
+	configHost bool
+	configAll  bool
+)
+
 var configCmd = &cobra.Command{
-	Use:   "config <status|share|isolate|seed> <profile|--all|--host>",
+	Use:   "config <status|share|isolate|seed> [profile|--all|--host]",
 	Short: "Manage config.json permissions and synchronization",
 	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		defer func() {
+			configHost = false
+			configAll = false
+		}()
+
 		action := args[0]
 		targetArg := ""
-		if len(args) == 2 {
+		if configHost {
+			targetArg = "--host"
+		} else if configAll {
+			targetArg = "--all"
+		} else if len(args) == 2 {
 			targetArg = args[1]
 		}
 
@@ -78,6 +92,11 @@ var allowReadonlyCmd = &cobra.Command{
 	Short: "Seed default read-only permissions in config.json (alias for config seed)",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		defer func() {
+			allowReadonlyHost = false
+			allowReadonlyAll = false
+		}()
+
 		target := ""
 		if allowReadonlyHost {
 			target = "--host"
@@ -98,6 +117,8 @@ var allowReadonlyCmd = &cobra.Command{
 }
 
 func init() {
+	configCmd.Flags().BoolVar(&configHost, "host", false, "Seed default read-only permissions in host config.json")
+	configCmd.Flags().BoolVar(&configAll, "all", false, "Seed default read-only permissions in host and all profile configs")
 	allowReadonlyCmd.Flags().BoolVar(&allowReadonlyHost, "host", false, "Seed default read-only permissions in host config.json")
 	allowReadonlyCmd.Flags().BoolVar(&allowReadonlyAll, "all", false, "Seed default read-only permissions in host and all profile configs")
 }

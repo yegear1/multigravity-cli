@@ -117,3 +117,55 @@ func TestSeedDefaultPermissionsAdditive(t *testing.T) {
 		t.Errorf("expected %d grants, got %d", len(DefaultReadOnlyCommands)*2+1, len(allowList))
 	}
 }
+
+func TestDefaultReadOnlyCommandsInventory(t *testing.T) {
+	cmdSet := make(map[string]bool)
+	for _, c := range DefaultReadOnlyCommands {
+		cmdSet[c] = true
+	}
+
+	requiredCommands := []string{
+		// Linux read-only
+		"bash -n",
+		"diff",
+		"jq",
+		"lsof",
+		"free",
+		"tar -tf",
+		// uv
+		"uv --version",
+		"uv tree",
+		"uv pip list",
+		"uv run ruff",
+		"uv run pytest",
+		"uv run pyright",
+		"uv run mypy",
+		// pnpm
+		"pnpm --version",
+		"pnpm test",
+		"pnpm eslint",
+		"pnpm run lint",
+		// ruff, pyright, eslint
+		"ruff",
+		"ruff check",
+		"pyright",
+		"eslint",
+		"npx eslint",
+		// Docker local read-only
+		"docker ps",
+		"docker images",
+		"docker logs",
+		"docker inspect",
+		"docker stats",
+		"docker compose ps",
+		"docker compose logs",
+		"docker compose config",
+	}
+
+	for _, req := range requiredCommands {
+		if !cmdSet[req] {
+			t.Errorf("expected command %q to be in DefaultReadOnlyCommands", req)
+		}
+	}
+}
+

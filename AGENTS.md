@@ -2,6 +2,16 @@
 
 Você é o(a) engenheiro(a) sênior responsável pela manutenção, evolução e diagnóstico deste projeto: **multigravity-cli**.
 
+## Identidade
+
+| Papel | Valor |
+| :--- | :--- |
+| Repositório e README | `yegear1/multigravity-cli` |
+| Módulo Go | `github.com/ye-dev/multigravity-cli` |
+| Binário | `multigravity` |
+
+Não renomear o módulo Go neste ciclo: os imports já usam `github.com/ye-dev/multigravity-cli`.
+
 > **Muro de Chesterton:** não altere nem remova código existente sem entender por que ele existe. Comportamento estranho quase sempre protege bug real ou contrato rígido.
 
 ---
@@ -40,14 +50,17 @@ Não está preso à fase `99.x`. Ao publicar `vX.Y.Z`:
 
 ---
 
-## Stack do Projeto (v2.0+)
+## Stack do Projeto (v2.1+)
 
 - **Linguagens e Runtimes:**
-  - **Go (1.23+):** Binário nativo principal (`cmd/multigravity`). Toda a lógica de negócios reside desacoplada em submódulos dentro de `internal/` (`profile`, `quota`, `prime`, `chat`, `config`, `doctor`, `shortcut`, `app`, `tui`).
+  - **Go 1.27.1+:** Binário nativo principal (`cmd/multigravity`). Piso declarado em `go.mod`.
+  - **Negócio em `internal/`:** `profile`, `quota`, `prime`, `chat`, `config`, `doctor`, `shortcut`, `app`, `gateway`, `dispatch`, `agent`, `worktree`, `workspace`, `auth`, `headless`, `alert`, `catalog`, `idelog`.
+  - **Apresentação e borda:** `cmd` (Cobra), `tui`, `server` (HTTP de `serve` e UI embutida).
   - **Launchers Inteligentes (POSIX Bash & PowerShell):** `multigravity` e `multigravity.ps1` na raiz compilam automaticamente via `go` ou despacham para o binário compilado em `bin/`.
   - **Instalação e Automação:** `install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1` e `Makefile`.
-- **Arquitetura:** CLI moderna em Go baseada em Cobra, com suporte a compilação cruzada (Linux, macOS, Windows; x86_64, arm64).
+- **Arquitetura:** CLI moderna em Go baseada em Cobra. Compilação cruzada no `Makefile`: Linux e macOS em `amd64` e `arm64`; Windows em `amd64`.
 - **Dependências Externas:** Antigravity IDE (ou `agy`), Language Server RPC gRPC/HTTPS, `curl`/`tar`/`ps`/`stat` (POSIX) e COM Objects `WScript.Shell` (Windows).
+- **Superfície v2.1:** além de perfis, cotas, chats e `doctor`, o CLI inclui `serve` (gateway OpenAI/Anthropic e API), `dispatch`, `agent`, `worktree`, `workspace`, `login`, `exec`, `snapshot`, `alerts`, `catalog` e `logs`. O detalhe de uso está no `README.md`.
 
 **Validação Local Obrigatória:**
 - Testes unitários Go: `go test -v ./...`
@@ -68,7 +81,7 @@ Não está preso à fase `99.x`. Ao publicar `vX.Y.Z`:
 6. **Desacoplamento para Agregador/UI:**
    - Pacotes em `internal/` devem manter a lógica de negócio separada da apresentação de terminal. Não misture formatação ANSI ou prompts interativos diretamente nas funções de gestão de perfis, cotas ou chats.
    - Retorne erros tipados e structs limpas para que possam ser consumidos tanto pela CLI quanto por uma futura API (REST/gRPC/WebSocket) ou interface gráfica (Tauri, Wails, Svelte).
-7. **Contratos Machine-Readable (`--json`):** Comandos de consulta e telemetria (`list`, `quota`, `stats`, `ai list`, `doctor`, `mcp status`) devem priorizar contratos estruturados em JSON para facilitar a ingestão por agregadores externos e dashboards.
+7. **Contratos Machine-Readable (`--json`):** Comandos de consulta e telemetria (`list`, `quota`, `quota history`, `stats`, `ai list`, `doctor`, `mcp status`, `catalog`, `alerts`, `workspace`, `logs`, `snapshot`, `login status`) devem priorizar contratos estruturados em JSON para facilitar a ingestão por agregadores externos e dashboards.
 8. **Invocação Headless Segura:** Ao executar o `language_server` em background/headless para priming ou automações de agentes, exporte explicitamente `$HOME` / `%USERPROFILE%` direcionado para a raiz do perfil do agente para garantir isolamento estrito de cotas e identidade.
 
 ---

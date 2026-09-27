@@ -19,6 +19,16 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-26 [Task 02.1] Expansão de Comandos Read-Only Canônicos (Linux, uv, pnpm, ruff, pyright, eslint, docker local)
+
+- **Contexto:** Agentes de desenvolvimento executando em perfis do Antigravity enfrentavam bloqueios constantes ao executar inspeções básicas do SO (diff, jq, lsof, free), checagens com `bash -n`, tooling python (`uv`, `ruff`, `pyright`), Node.js (`pnpm`, `eslint`) e status de containers (`docker ps`, `docker compose ps`).
+- **Decisões Técnicas:**
+  - `DefaultReadOnlyCommands` em `internal/profile/permissions.go` foi ampliado de forma cirúrgica.
+  - Comandos Docker foram restritos deterministicamente a consultas e telemetria local (`ps`, `logs`, `inspect`, `stats`, `top`, `port`, `diff`, `images`, `volume ls/inspect`, `network ls/inspect`, `system df/info`, `compose ps/logs/config/images`), evitando deliberadamente qualquer ação destrutiva (`run`, `exec`, `rm`, `up`, `down`).
+  - Suporte explícito a flags `--all` e `--host` em `multigravity config <seed|allow-readonly>` no Cobra, com reset em defer.
+  - Semeamento idempotente aplicado aditivamente no host e em todos os perfis existentes (`yegear`, `yegear2`, `joaoww`), preservando concessões manuais pré-existentes.
+
+
 ### 2026-09-26 [Task 09.2] Stream de log só da IDE gráfica
 
 - **Contexto:** `headless logs --follow` já cobre o language server gerenciado. `dispatch logs --follow` já cobre a saída das tarefas. O processo Electron da IDE grava à parte.
