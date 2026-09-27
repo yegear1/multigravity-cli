@@ -19,6 +19,20 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-27 [Task 04.4] Expor ferramenta dispatch_plan no MCP, registrar multigravity no mcp_config.json e instalar agy CLI
+
+- **Contexto:** Habilitar agentes de IA (Antigravity IDE e orquestradores) a invocar planos concorrentes e dividir subtarefas nativamente via MCP, além de disponibilizar a CLI oficial do Antigravity (`agy`) no sistema operacional do usuário para execução de prompts e workers em background.
+- **Decisões Técnicas:**
+  - **Servidor MCP (`internal/mcp`):**
+    - Adicionada a ferramenta `dispatch_plan` em `RegisterDefaultTools` (`tools.go`), com suporte a `plan_id`, `repo`, `base_branch`, `base_commit`, `timeout`, `workers` e o array estruturado de `subtasks`.
+    - Expandido `PropertySchema` em `types.go` com `Required []string` para validação correta de objetos aninhados no JSON Schema da especificação MCP.
+    - Testes unitários atualizados em `server_test.go` verificando presença na listagem e validação com `isError: true` em casos de payload inválido ou sem subtarefas.
+  - **Configuração Host (`~/.gemini/config/mcp_config.json`):**
+    - Registrado o servidor `multigravity` apontando para `/home/yegear/.local/bin/multigravity` com argumentos `["mcp", "serve"]`. O link simbólico existente nos perfis (`~/AntigravityProfiles/yegear2/.gemini/config/mcp_config.json`) propaga a configuração imediatamente para todos os perfis.
+  - **Instalação da CLI `agy`:**
+    - Instalada a versão 1.2.12 da CLI oficial (`https://antigravity.google/cli/install.sh`) em `~/.local/bin/agy` e verificada com `agy --version` e `multigravity doctor --json`.
+    - Binário do `multigravity` atualizado atomicamente em `~/.local/bin/multigravity`.
+
 ### 2026-09-27 [Task 04.3] Subtask Plan Aggregator na API REST (/api/v1/dispatch/plans)
 
 - **Contexto:** Orquestradores multi-agente e clientes HTTP necessitam despachar batches de $N$ subtarefas concorrentemente em Git Worktrees efêmeros isolados por perfil, sincronizar seu término sob timeout controlado e consolidar um relatório estruturado unificado contendo o status de cada subtarefa, diffs (raw e estruturados), contadores de adições/deleções e detecção de colisões de arquivos (regra de escopos disjuntos).
