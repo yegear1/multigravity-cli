@@ -174,7 +174,7 @@ NEVER merge blindly. For each completed task node:
    *Verify that no files outside the assigned disjoint scope were modified.*
 2. Identify the worktree directory path:
    ```bash
-   WT_PATH=$(multigravity worktree list --json | jq -r ".data[] | select(.task_id == \"<task-id>\") | .path")
+   WT_PATH=$(multigravity worktree list --json | jq -r '(.data // .)[] | select(.task_id == "<task-id>") | .path')
    ```
 3. Execute validation suite directly inside the worktree:
    ```bash
@@ -252,7 +252,7 @@ git merge task/feature-x
 # Result: Broken build in main branch, disrupting all concurrent agents.
 
 # GOOD: Validating inside worktree before merge
-WT_PATH=$(multigravity worktree list --json | jq -r '.data[] | select(.branch == "task/feature-x") | .path')
+WT_PATH=$(multigravity worktree list --json | jq -r '(.data // .)[] | select(.branch == "task/feature-x") | .path')
 (cd "$WT_PATH" && go test ./... && bash -n *.sh)
 # Only after 100% pass:
 git merge --no-ff task/feature-x -m "feat: merge verified task/feature-x"
