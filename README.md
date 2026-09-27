@@ -353,7 +353,7 @@ Multigravity includes a local AI Gateway in `multigravity serve` that exposes Op
   - `round-robin`: Rotates requests sequentially through healthy profiles.
   - `priority`: Uses declared profile priority order.
   - `sticky`: Keeps requests on the current profile until a rate limit occurs.
-- **Model Aliases:** Supports native Gemini models (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-3.5-flash`) and transparent 3P aliases (`claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-opus`, `gpt-4o`).
+- **Model catalog:** Wire ids from `fetchAvailableModels`, not the labels on the Antigravity docs page. Listed ids are sent upstream unchanged. Unknown names that merely contain `flash` or `pro` still fall back to `gemini-2.5-flash` / `gemini-2.5-pro`. The retired id `gemini-3.1-pro-high` aliases to `gemini-pro-agent`. Agent menu on the verified account: `gemini-3.6-flash-high` (default), `gemini-3.6-flash-medium`, `gemini-3.6-flash-low`, `gemini-pro-agent` (shown as Gemini 3.1 Pro High), `gemini-3.1-pro-low`, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium`. Gemini 3.7 and 3.8 are `gemini-3.7-flash-tiered` and `gemini-3.8-flash-tiered`.
 - **Zero Credential Custody:** Requests use the local Antigravity Language Server tokens; no raw Google passwords or secrets are ever persisted.
 
 ### Usage Examples
@@ -366,7 +366,7 @@ multigravity serve
 curl -s -N http://127.0.0.1:8989/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-2.5-pro",
+    "model": "gemini-3.6-flash-high",
     "messages": [{"role": "user", "content": "Explain Git worktrees in one sentence."}],
     "stream": true
   }'

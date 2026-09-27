@@ -128,3 +128,12 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
 - Perfil sem credencial responde 401 `profile_unauthenticated` e não chama o upstream.
 - `remaining_fraction: 1` não é o estado inicial. Sem leitura do language server, `quota_known` fica falso e a fração fica 0. O `smart` só usa fração medida (semanal e 5h; vale a menor). Cota desconhecida não pontua como cheia, e cota medida 0 não volta a pontuar como 1.
 
+## 13. Identificador de modelo do gateway
+
+- O rótulo da documentação e do seletor não é o campo `model`. A lista válida é a resposta de `POST /v1internal:fetchAvailableModels` no Cloud Code, com o token do perfil.
+- Um id presente em `SupportedModels` segue intacto para o upstream. A heurística que reduz nomes soltos com `flash` ou `pro` para `gemini-2.5-flash` / `gemini-2.5-pro` não se aplica a esses ids.
+- `gemini-3.1-pro-high` está aposentado no catálogo ao vivo. O substituto que a própria lista declara, e que responde, é `gemini-pro-agent` (rótulo Gemini 3.1 Pro High).
+- Gemini 3.6 Flash Low/Medium/High são `gemini-3.6-flash-low`, `gemini-3.6-flash-medium` e `gemini-3.6-flash-high`. O padrão do menu verificado é `gemini-3.6-flash-high`.
+- Gemini 3.7 e 3.8 não têm variante `low`/`medium`/`high` nessa lista. Os ids que respondem são `gemini-3.7-flash-tiered` e `gemini-3.8-flash-tiered`.
+- Claude Opus 4.6 (Thinking) no menu é `claude-opus-4-6-thinking`, não `claude-opus-4-6`.
+

@@ -15,9 +15,15 @@ var SupportedModels = []string{
 	"gemini-3.5-flash-medium",
 	"gemini-3.5-flash-low",
 	"gemini-3.6-flash-high",
-	"gemini-3.1-pro-high",
+	"gemini-3.6-flash-medium",
+	"gemini-3.6-flash-low",
+	"gemini-3.7-flash-tiered",
+	"gemini-3.8-flash-tiered",
+	"gemini-pro-agent",
+	"gemini-3.1-pro-low",
 	"claude-sonnet-4-6",
 	"claude-opus-4-6",
+	"claude-opus-4-6-thinking",
 	"claude-3-5-sonnet",
 	"claude-3-7-sonnet",
 	"claude-3-opus",
@@ -29,11 +35,11 @@ var SupportedModels = []string{
 // ModelAliases maps client/tool-facing aliases to internal backend model identifiers
 var ModelAliases = map[string]string{
 	// OpenAI mappings
-	"gpt-4o":                 "gemini-2.5-pro",
-	"gpt-4o-mini":            "gemini-2.5-flash",
-	"gpt-4-turbo":            "gemini-2.5-pro",
-	"gpt-4":                  "gemini-2.5-pro",
-	"gpt-3.5-turbo":          "gemini-2.5-flash",
+	"gpt-4o":        "gemini-2.5-pro",
+	"gpt-4o-mini":   "gemini-2.5-flash",
+	"gpt-4-turbo":   "gemini-2.5-pro",
+	"gpt-4":         "gemini-2.5-pro",
+	"gpt-3.5-turbo": "gemini-2.5-flash",
 
 	// Anthropic / Claude mappings
 	"claude-3-5-sonnet":          "claude-sonnet-4-6",
@@ -55,6 +61,8 @@ var ModelAliases = map[string]string{
 	"claude-sonnet":              "claude-sonnet-4-6",
 	"claude-opus":                "claude-opus-4-6",
 	"claude-haiku":               "gemini-3.5-flash-low",
+	// Retired wire id. The live catalog replaces it with gemini-pro-agent.
+	"gemini-3.1-pro-high": "gemini-pro-agent",
 }
 
 // NormalizeModel resolves model aliases and ensures a valid model identifier for upstream
@@ -62,6 +70,9 @@ func NormalizeModel(model string) string {
 	m := strings.TrimSpace(strings.ToLower(model))
 	if resolved, ok := ModelAliases[m]; ok {
 		return resolved
+	}
+	if isSupportedModel(m) {
+		return m
 	}
 
 	// Dynamic prefix / keyword heuristics
@@ -100,6 +111,15 @@ func NormalizeModel(model string) string {
 		return m
 	}
 	return "gemini-2.5-pro"
+}
+
+func isSupportedModel(model string) bool {
+	for _, id := range SupportedModels {
+		if id == model {
+			return true
+		}
+	}
+	return false
 }
 
 // ListSupportedModels returns the catalog in standard OpenAI ModelList format
