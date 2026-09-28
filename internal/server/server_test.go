@@ -2320,3 +2320,40 @@ func TestMCPEndpoints(t *testing.T) {
 		}
 	}
 }
+
+func TestQuotaEndpoints_OmitsCSRF(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	cleanup := quota.SetTestHooks(func(profile string) ([]quota.ActiveServer, error) {
+		return []quota.ActiveServer{
+			{
+				Profile: "server-prof",
+				PID:     7777,
+				Port:    8888,
+				CSRF:    "confidential-language-server-csrf",
+			},
+		}, nil
+	})
+	defer cleanup()
+
+	for _, path := range []string{"/api/v1/quota", "/api/quota", "/api/v1/quota/server-prof", "/api/quota/server-prof"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("[%s] expected 200, got %d: %s", path, rec.Code, rec.Body.String())
+		}
+
+		body := rec.Body.String()
+		if strings.Contains(body, "confidential-language-server-csrf") {
+			t.Errorf("[%s] response body contains CSRF secret: %s", path, body)
+		}
+		if strings.Contains(body, `"csrf"`) {
+			t.Errorf("[%s] response body contains 'csrf' key: %s", path, body)
+		}
+		if !strings.Contains(body, "server-prof") {
+			t.Errorf("[%s] response body missing profile name: %s", path, body)
+		}
+	}
+}

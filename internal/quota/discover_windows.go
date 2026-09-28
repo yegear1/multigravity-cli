@@ -14,7 +14,7 @@ var winCsrfRegex = regexp.MustCompile(`--csrf_token\s+([a-f0-9-]+)`)
 var winProfileRegex = regexp.MustCompile(`AntigravityProfiles[\\/]([^\\/ ]+)`)
 var winNetstatRegex = regexp.MustCompile(`TCP\s+127\.0\.0\.1:(\d+)\s+.*LISTENING\s+(\d+)`)
 
-func FindActiveServers(targetProf string) ([]ActiveServer, error) {
+func findActiveServersOS(targetProf string) ([]ActiveServer, error) {
 	// Query processes via PowerShell / Get-CimInstance
 	psScript := `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*language_server*" } | Select-Object ProcessId, ParentProcessId, CommandLine | ConvertTo-Json -Compress`
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)

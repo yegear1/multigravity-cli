@@ -1072,6 +1072,35 @@ func TestCobraPrimeJSON(t *testing.T) {
 	}
 }
 
+func TestQuotaCmdJSON_OmitsCSRF(t *testing.T) {
+	cleanup := quota.SetTestHooks(func(profile string) ([]quota.ActiveServer, error) {
+		return []quota.ActiveServer{
+			{
+				Profile: "secret-prof",
+				PID:     8888,
+				Port:    9999,
+				CSRF:    "super-confidential-csrf",
+			},
+		}, nil
+	})
+	defer cleanup()
+
+	out, err := executeCommand(rootCmd, "quota", "--json")
+	if err != nil {
+		t.Fatalf("quota --json failed: %v", err)
+	}
+
+	if strings.Contains(out, "super-confidential-csrf") {
+		t.Errorf("expected quota --json output to not contain CSRF value, got: %s", out)
+	}
+	if strings.Contains(out, `"csrf"`) {
+		t.Errorf("expected quota --json output to not contain 'csrf' key, got: %s", out)
+	}
+	if !strings.Contains(out, "secret-prof") {
+		t.Errorf("expected quota --json output to contain profile name, got: %s", out)
+	}
+}
+
 
 
 

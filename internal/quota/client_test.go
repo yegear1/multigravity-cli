@@ -164,3 +164,28 @@ func TestGenerateUUID(t *testing.T) {
 		t.Errorf("UUIDs should be distinct: %s vs %s", u1, u2)
 	}
 }
+
+func TestActiveServerJSON_OmitsCSRF(t *testing.T) {
+	srv := ActiveServer{
+		Profile: "dev-secure",
+		PID:     4321,
+		Port:    8765,
+		CSRF:    "super-secret-csrf-token",
+	}
+
+	if srv.CSRF != "super-secret-csrf-token" {
+		t.Fatalf("expected in-memory CSRF to be preserved, got %q", srv.CSRF)
+	}
+
+	data, err := json.Marshal(srv)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	raw := string(data)
+	if strings.Contains(raw, "super-secret-csrf-token") {
+		t.Errorf("expected serialized JSON to not contain CSRF secret value, got: %s", raw)
+	}
+	if strings.Contains(raw, `"csrf"`) {
+		t.Errorf("expected serialized JSON to not contain 'csrf' key, got: %s", raw)
+	}
+}

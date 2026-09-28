@@ -16,7 +16,7 @@ var profileRegex = regexp.MustCompile(`AntigravityProfiles/([^/ ]+)`)
 var listenRegex = regexp.MustCompile(`:(\d+)\s+\(LISTEN\)`)
 var ssPortRegex = regexp.MustCompile(`:(\d+)\s+`)
 
-func FindActiveServers(targetProf string) ([]ActiveServer, error) {
+func findActiveServersOS(targetProf string) ([]ActiveServer, error) {
 	cmd := exec.Command("ps", "-eo", "pid,ppid,args")
 	out, err := cmd.Output()
 	if err != nil {

@@ -27,7 +27,7 @@ type ActiveServer struct {
 	Profile string                `json:"profile"`
 	PID     int                   `json:"pid"`
 	Port    int                   `json:"port"`
-	CSRF    string                `json:"csrf,omitempty"`
+	CSRF    string                `json:"-"`
 	Data    *QuotaSummaryResponse `json:"data,omitempty"`
 }
 
