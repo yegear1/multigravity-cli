@@ -20,6 +20,7 @@ var (
 	hlTail            int
 	hlFollow          bool
 	hlSkipPermissions bool
+	hlModel           string
 
 	hlGreen  = color.New(color.FgGreen).SprintFunc()
 	hlYellow = color.New(color.FgYellow).SprintFunc()
@@ -143,6 +144,7 @@ with strict identity isolation, and execute headless agent prompts.`,
 		RunE: runHeadlessRunPrompt,
 	}
 	runSubCmd.Flags().DurationVarP(&hlTimeout, "timeout", "t", 120*time.Second, "Execution timeout")
+	runSubCmd.Flags().StringVarP(&hlModel, "model", "m", "", "Model identifier for the prompt execution")
 	runSubCmd.Flags().BoolVar(&hlSkipPermissions, "dangerously-skip-permissions", true, "Skip interactive sandbox/permission confirmations")
 
 	headlessCmd.AddCommand(listSubCmd)
@@ -370,6 +372,7 @@ func runHeadlessRunPrompt(cmd *cobra.Command, args []string) error {
 		hlJSON = false
 		hlTimeout = 120 * time.Second
 		hlSkipPermissions = true
+		hlModel = ""
 	}()
 
 	profileName := args[0]
@@ -379,6 +382,7 @@ func runHeadlessRunPrompt(cmd *cobra.Command, args []string) error {
 	result, err := mgr.RunAgentPrompt(headless.AgentRunOptions{
 		Profile:                    profileName,
 		Prompt:                     prompt,
+		Model:                      hlModel,
 		Timeout:                    hlTimeout,
 		DangerouslySkipPermissions: hlSkipPermissions,
 	})

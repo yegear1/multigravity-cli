@@ -2445,6 +2445,7 @@ type startHeadlessRequest struct {
 
 type runHeadlessRequest struct {
 	Prompt                     string `json:"prompt"`
+	Model                      string `json:"model,omitempty"`
 	Timeout                    string `json:"timeout"`
 	DangerouslySkipPermissions bool   `json:"dangerously_skip_permissions"`
 }
@@ -2631,6 +2632,7 @@ func (s *Server) handleRunHeadlessPrompt(w http.ResponseWriter, r *http.Request)
 	result, err := mgr.RunAgentPrompt(headless.AgentRunOptions{
 		Profile:                    profileName,
 		Prompt:                     req.Prompt,
+		Model:                      req.Model,
 		Timeout:                    timeout,
 		DangerouslySkipPermissions: req.DangerouslySkipPermissions,
 	})
@@ -2647,6 +2649,7 @@ type execPromptsRequest struct {
 	Profiles                   []string `json:"profiles,omitempty"`
 	All                        bool     `json:"all,omitempty"`
 	Prompt                     string   `json:"prompt"`
+	Model                      string   `json:"model,omitempty"`
 	Timeout                    string   `json:"timeout,omitempty"`
 	Workers                    int      `json:"workers,omitempty"`
 	DangerouslySkipPermissions *bool    `json:"dangerously_skip_permissions,omitempty"`
@@ -2684,6 +2687,7 @@ func (s *Server) handleExecPrompts(w http.ResponseWriter, r *http.Request) {
 		Profiles:                   req.Profiles,
 		All:                        req.All,
 		Prompt:                     req.Prompt,
+		Model:                      req.Model,
 		Timeout:                    timeout,
 		Workers:                    req.Workers,
 		DangerouslySkipPermissions: skip,

@@ -327,6 +327,55 @@ func TestRunAgentPrompt_Agy(t *testing.T) {
 	}
 }
 
+func TestRunAgentPrompt_Agy_WithModel(t *testing.T) {
+	_, cleanupEnv := setupTestEnvironment(t)
+	defer cleanupEnv()
+
+	profName := "agy-runner-model-prof"
+	if err := profile.CreateProfile(profile.CreateOptions{Name: profName}); err != nil {
+		t.Fatalf("failed to create test profile: %v", err)
+	}
+
+	mgr := NewManager()
+
+	var capturedArgs []string
+	restoreRunnerHooks := SetRunnerTestHooks(
+		func() (string, error) {
+			return "/usr/local/bin/agy", nil
+		},
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			capturedArgs = args
+			jsonResp := `{"response": "Model test completed.", "usage": {"total_tokens": 10}, "duration_seconds": 0.5}`
+			return []byte(jsonResp), 0, nil
+		},
+	)
+	defer restoreRunnerHooks()
+
+	result, err := mgr.RunAgentPrompt(AgentRunOptions{
+		Profile: profName,
+		Prompt:  "Test model flag",
+		Model:   "gemini-3.6-flash-low",
+	})
+	if err != nil {
+		t.Fatalf("failed to run agent prompt: %v", err)
+	}
+
+	if result.Response != "Model test completed." {
+		t.Fatalf("unexpected response: %q", result.Response)
+	}
+
+	modelArgFound := false
+	for i, arg := range capturedArgs {
+		if arg == "--model" && i+1 < len(capturedArgs) && capturedArgs[i+1] == "gemini-3.6-flash-low" {
+			modelArgFound = true
+			break
+		}
+	}
+	if !modelArgFound {
+		t.Fatalf("expected --model gemini-3.6-flash-low in args, got: %v", capturedArgs)
+	}
+}
+
 func TestGetLogs(t *testing.T) {
 	_, cleanupEnv := setupTestEnvironment(t)
 	defer cleanupEnv()

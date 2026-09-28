@@ -37,6 +37,7 @@ type StartOptions struct {
 type AgentRunOptions struct {
 	Profile                    string        `json:"profile"`
 	Prompt                     string        `json:"prompt"`
+	Model                      string        `json:"model,omitempty"`
 	Timeout                    time.Duration `json:"timeout,omitempty"`
 	DangerouslySkipPermissions bool          `json:"dangerously_skip_permissions,omitempty"`
 	OutputFormat               string        `json:"output_format,omitempty"`
@@ -60,6 +61,7 @@ type ExecOptions struct {
 	Profiles                   []string
 	All                        bool
 	Prompt                     string
+	Model                      string
 	Timeout                    time.Duration
 	Workers                    int
 	DangerouslySkipPermissions bool

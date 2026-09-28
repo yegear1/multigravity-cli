@@ -16,6 +16,7 @@ import (
 var (
 	execJSON            bool
 	execAll             bool
+	execModel           string
 	execTimeout         time.Duration
 	execWorkers         int
 	execSkipPermissions bool
@@ -53,6 +54,7 @@ start a separate agent engine.`,
 
 	execCmd.Flags().BoolVar(&execJSON, "json", false, "Output the aggregated report as JSON")
 	execCmd.Flags().BoolVar(&execAll, "all", false, "Run the prompt on every profile")
+	execCmd.Flags().StringVarP(&execModel, "model", "m", "", "Model identifier for the prompt execution")
 	execCmd.Flags().DurationVarP(&execTimeout, "timeout", "t", 120*time.Second, "Per-profile execution timeout")
 	execCmd.Flags().IntVarP(&execWorkers, "workers", "w", 0, "Maximum in-flight runs (default: one per selected profile)")
 	execCmd.Flags().BoolVar(&execSkipPermissions, "dangerously-skip-permissions", true, "Skip interactive sandbox/permission confirmations")
@@ -63,6 +65,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 	defer func() {
 		execJSON = false
 		execAll = false
+		execModel = ""
 		execTimeout = 120 * time.Second
 		execWorkers = 0
 		execSkipPermissions = true
@@ -90,6 +93,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 		Profile:                    profileName,
 		All:                        execAll,
 		Prompt:                     prompt,
+		Model:                      execModel,
 		Timeout:                    execTimeout,
 		Workers:                    execWorkers,
 		DangerouslySkipPermissions: execSkipPermissions,

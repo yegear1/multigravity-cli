@@ -94,6 +94,9 @@ func (m *Manager) RunAgentPrompt(opts AgentRunOptions) (*AgentRunResult, error) 
 		if opts.DangerouslySkipPermissions {
 			args = append(args, "--dangerously-skip-permissions")
 		}
+		if model := strings.TrimSpace(opts.Model); model != "" {
+			args = append(args, "--model", model)
+		}
 
 		env, err := buildHeadlessEnv(profileDir)
 		if err != nil {
@@ -149,7 +152,11 @@ func (m *Manager) RunAgentPrompt(opts AgentRunOptions) (*AgentRunResult, error) 
 		return nil, fmt.Errorf("failed to start cascade session: %w", err)
 	}
 
-	err = client.SendUserCascadeMessage(inst.Port, inst.CSRFToken, cascadeID, opts.Prompt, "MODEL_PLACEHOLDER_M73")
+	cascadeModel := "MODEL_PLACEHOLDER_M73"
+	if model := strings.TrimSpace(opts.Model); model != "" {
+		cascadeModel = model
+	}
+	err = client.SendUserCascadeMessage(inst.Port, inst.CSRFToken, cascadeID, opts.Prompt, cascadeModel)
 	duration := time.Since(start).Seconds()
 
 	result := &AgentRunResult{

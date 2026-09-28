@@ -242,3 +242,45 @@ func TestExecRecordsPerProfileFailure(t *testing.T) {
 		t.Fatalf("expected failure captured on bad-prof: %+v", report.Results[1])
 	}
 }
+
+func TestExecPropagatesModel(t *testing.T) {
+	setupExecHome(t)
+
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "model-prof"}); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	var capturedArgs []string
+	restore := SetRunnerTestHooks(
+		func() (string, error) { return "/usr/local/bin/agy", nil },
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			capturedArgs = args
+			return []byte(`{"response":"done","usage":{"total_tokens":5}}`), 0, nil
+		},
+	)
+	defer restore()
+
+	mgr := NewManager()
+	report, err := mgr.Exec(ExecOptions{
+		Profile: "model-prof",
+		Prompt:  "ping",
+		Model:   "claude-opus-4-6-thinking",
+	})
+	if err != nil {
+		t.Fatalf("exec failed: %v", err)
+	}
+	if report.Succeeded != 1 {
+		t.Fatalf("expected success, got %d", report.Succeeded)
+	}
+
+	modelArgFound := false
+	for i, arg := range capturedArgs {
+		if arg == "--model" && i+1 < len(capturedArgs) && capturedArgs[i+1] == "claude-opus-4-6-thinking" {
+			modelArgFound = true
+			break
+		}
+	}
+	if !modelArgFound {
+		t.Fatalf("expected --model claude-opus-4-6-thinking in args, got: %v", capturedArgs)
+	}
+}

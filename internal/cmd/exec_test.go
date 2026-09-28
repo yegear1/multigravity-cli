@@ -108,3 +108,42 @@ func TestExecCLI_PartialFailureExit(t *testing.T) {
 		t.Fatalf("expected failed=1, got %+v", report)
 	}
 }
+
+func TestExecCLI_ModelFlag(t *testing.T) {
+	setupExecCLIHome(t)
+
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "cli-model-prof"}); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	var capturedArgs []string
+	restore := headless.SetRunnerTestHooks(
+		func() (string, error) { return "/fake/agy", nil },
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			capturedArgs = args
+			return []byte(`{"response":"pong"}`), 0, nil
+		},
+	)
+	defer restore()
+
+	cmd := newExecCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"cli-model-prof", "ping", "-m", "gemini-3.6-flash-low", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("exec command failed: %v", err)
+	}
+
+	modelArgFound := false
+	for i, arg := range capturedArgs {
+		if arg == "--model" && i+1 < len(capturedArgs) && capturedArgs[i+1] == "gemini-3.6-flash-low" {
+			modelArgFound = true
+			break
+		}
+	}
+	if !modelArgFound {
+		t.Fatalf("expected --model gemini-3.6-flash-low in captured args, got: %v", capturedArgs)
+	}
+}

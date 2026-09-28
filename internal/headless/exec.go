@@ -43,6 +43,7 @@ func (m *Manager) Exec(opts ExecOptions) (*ExecReport, error) {
 				res, runErr := m.RunAgentPrompt(AgentRunOptions{
 					Profile:                    name,
 					Prompt:                     opts.Prompt,
+					Model:                      opts.Model,
 					Timeout:                    timeout,
 					DangerouslySkipPermissions: opts.DangerouslySkipPermissions,
 				})

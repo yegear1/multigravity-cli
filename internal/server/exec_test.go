@@ -69,3 +69,43 @@ func TestExecEndpoint(t *testing.T) {
 		t.Fatalf("expected 400 for missing prompt, got %d", badRec.Code)
 	}
 }
+
+func TestExecEndpoint_WithModel(t *testing.T) {
+	srv, home := setupTestServer(t)
+	outside := filepath.Join(filepath.Dir(home), "exec-shortcuts")
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", outside)
+
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "api-model-prof"}); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	var capturedArgs []string
+	restore := headless.SetRunnerTestHooks(
+		func() (string, error) { return "/fake/agy", nil },
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			capturedArgs = args
+			return []byte(`{"response":"pong","usage":{"total_tokens":3}}`), 0, nil
+		},
+	)
+	defer restore()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/exec", strings.NewReader(`{"profile":"api-model-prof","prompt":"ping","model":"gemini-3.6-flash-low"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	modelArgFound := false
+	for i, arg := range capturedArgs {
+		if arg == "--model" && i+1 < len(capturedArgs) && capturedArgs[i+1] == "gemini-3.6-flash-low" {
+			modelArgFound = true
+			break
+		}
+	}
+	if !modelArgFound {
+		t.Fatalf("expected --model gemini-3.6-flash-low in captured args, got: %v", capturedArgs)
+	}
+}
