@@ -7,10 +7,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ye-dev/multigravity-cli/internal/agent"
+	"github.com/ye-dev/multigravity-cli/internal/dispatch"
+	"github.com/ye-dev/multigravity-cli/internal/profile"
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
 
 func setupTestEnvironment(t *testing.T) (*Server, string) {
@@ -381,4 +387,228 @@ func TestMoreTools(t *testing.T) {
 	if respQuota == nil || respQuota.Error != nil {
 		t.Fatalf("quota_summary call error: %v", respQuota)
 	}
+}
+
+func TestQuotaSummary_OmitsCSRF(t *testing.T) {
+	srv, _ := setupTestEnvironment(t)
+
+	cleanup := quota.SetTestHooks(func(profile string) ([]quota.ActiveServer, error) {
+		return []quota.ActiveServer{
+			{
+				Profile: "mcp-prof",
+				PID:     5555,
+				Port:    6666,
+				CSRF:    "mcp-super-secret-csrf-token",
+			},
+		}, nil
+	})
+	defer cleanup()
+
+	req := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      200,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"quota_summary","arguments":{}}`),
+	}
+	resp := srv.HandleRequest(context.Background(), req)
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("quota_summary call failed: %v", resp)
+	}
+
+	callResult, ok := resp.Result.(*CallToolResult)
+	if !ok {
+		t.Fatalf("expected *CallToolResult, got %T", resp.Result)
+	}
+	if len(callResult.Content) == 0 {
+		t.Fatalf("expected non-empty content in CallToolResult")
+	}
+
+	text := callResult.Content[0].Text
+	if strings.Contains(text, "mcp-super-secret-csrf-token") {
+		t.Errorf("tool result text contains CSRF secret: %s", text)
+	}
+	if strings.Contains(text, `"csrf"`) {
+		t.Errorf("tool result text contains 'csrf' key: %s", text)
+	}
+	if !strings.Contains(text, "mcp-prof") {
+		t.Errorf("tool result text missing profile name: %s", text)
+	}
+}
+
+func TestDispatchTask_ArgsAndPrompt(t *testing.T) {
+	srv, _ := setupTestEnvironment(t)
+
+	// Create test profile
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "dev"}); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	// Intercept process creation hermetically - do not execute agy for real
+	var capturedOpts []agent.CreateSessionOptions
+	cleanupAgent := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		capturedOpts = append(capturedOpts, opts)
+		return exec.Command("true")
+	})
+	defer cleanupAgent()
+
+	// 1. Schema check
+	t.Run("SchemaProperties", func(t *testing.T) {
+		req := &JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      300,
+			Method:  "tools/list",
+			Params:  json.RawMessage(`{}`),
+		}
+		resp := srv.HandleRequest(context.Background(), req)
+		res := resp.Result.(ListToolsResult)
+		var dt *Tool
+		for i := range res.Tools {
+			if res.Tools[i].Name == "dispatch_task" {
+				dt = &res.Tools[i]
+				break
+			}
+		}
+		if dt == nil {
+			t.Fatalf("dispatch_task tool not found")
+		}
+		if _, ok := dt.InputSchema.Properties["args"]; !ok {
+			t.Errorf("expected 'args' property in dispatch_task schema")
+		}
+		if _, ok := dt.InputSchema.Properties["prompt"]; !ok {
+			t.Errorf("expected 'prompt' property in dispatch_task schema")
+		}
+		reqProps := dt.InputSchema.Required
+		hasProfile := false
+		hasCommand := false
+		for _, p := range reqProps {
+			if p == "profile" {
+				hasProfile = true
+			}
+			if p == "command" {
+				hasCommand = true
+			}
+		}
+		if !hasProfile || !hasCommand {
+			t.Errorf("expected 'command' and 'profile' in required properties, got %v", reqProps)
+		}
+	})
+
+	// 2. agy with prompt and without args produces argv equivalent to -p plus prompt
+	t.Run("AgyWithPromptNoArgs", func(t *testing.T) {
+		capturedOpts = nil
+		req := &JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      301,
+			Method:  "tools/call",
+			Params:  json.RawMessage(`{"name":"dispatch_task","arguments":{"profile":"dev","command":"agy","prompt":"fix issue","background":true}}`),
+		}
+		resp := srv.HandleRequest(context.Background(), req)
+		if resp == nil || resp.Error != nil {
+			t.Fatalf("unexpected error response: %v", resp)
+		}
+		callResult, ok := resp.Result.(*CallToolResult)
+		if !ok || callResult.IsError {
+			t.Fatalf("expected successful CallToolResult, got %+v", callResult)
+		}
+
+		var task dispatch.Task
+		if err := json.Unmarshal([]byte(callResult.Content[0].Text), &task); err != nil {
+			t.Fatalf("failed to decode task response: %v", err)
+		}
+		if task.Command != "agy" {
+			t.Errorf("expected task.Command 'agy', got %q", task.Command)
+		}
+		if task.Prompt != "fix issue" {
+			t.Errorf("expected task.Prompt 'fix issue', got %q", task.Prompt)
+		}
+		if len(task.Args) != 2 || task.Args[0] != "-p" || task.Args[1] != "fix issue" {
+			t.Errorf("expected task.Args [-p fix issue], got %v", task.Args)
+		}
+		if len(capturedOpts) > 0 {
+			if capturedOpts[0].Command != "agy" || len(capturedOpts[0].Args) != 2 || capturedOpts[0].Args[0] != "-p" || capturedOpts[0].Args[1] != "fix issue" {
+				t.Errorf("unexpected capturedOpts: %s %v", capturedOpts[0].Command, capturedOpts[0].Args)
+			}
+		}
+	})
+
+	// 3. agy with explicit args does not duplicate -p
+	t.Run("AgyWithExplicitArgs", func(t *testing.T) {
+		capturedOpts = nil
+		req := &JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      302,
+			Method:  "tools/call",
+			Params:  json.RawMessage(`{"name":"dispatch_task","arguments":{"profile":"dev","command":"agy","prompt":"fix issue","args":["-p","custom prompt","--print"],"background":true}}`),
+		}
+		resp := srv.HandleRequest(context.Background(), req)
+		if resp == nil || resp.Error != nil {
+			t.Fatalf("unexpected error response: %v", resp)
+		}
+		callResult, ok := resp.Result.(*CallToolResult)
+		if !ok || callResult.IsError {
+			t.Fatalf("expected successful CallToolResult, got %+v", callResult)
+		}
+
+		var task dispatch.Task
+		if err := json.Unmarshal([]byte(callResult.Content[0].Text), &task); err != nil {
+			t.Fatalf("failed to decode task response: %v", err)
+		}
+		if task.Command != "agy" {
+			t.Errorf("expected task.Command 'agy', got %q", task.Command)
+		}
+		if len(task.Args) != 3 || task.Args[0] != "-p" || task.Args[1] != "custom prompt" || task.Args[2] != "--print" {
+			t.Errorf("expected task.Args [-p custom prompt --print], got %v", task.Args)
+		}
+	})
+
+	// 4. command with spaces is not sliced into argv
+	t.Run("CommandWithSpacesNotSliced", func(t *testing.T) {
+		capturedOpts = nil
+		req := &JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      303,
+			Method:  "tools/call",
+			Params:  json.RawMessage(`{"name":"dispatch_task","arguments":{"profile":"dev","command":"echo hello world","background":true}}`),
+		}
+		resp := srv.HandleRequest(context.Background(), req)
+		if resp == nil || resp.Error != nil {
+			t.Fatalf("unexpected error response: %v", resp)
+		}
+		callResult, ok := resp.Result.(*CallToolResult)
+		if !ok || callResult.IsError {
+			t.Fatalf("expected successful CallToolResult, got %+v", callResult)
+		}
+
+		var task dispatch.Task
+		if err := json.Unmarshal([]byte(callResult.Content[0].Text), &task); err != nil {
+			t.Fatalf("failed to decode task response: %v", err)
+		}
+		if task.Command != "echo hello world" {
+			t.Errorf("expected task.Command 'echo hello world', got %q", task.Command)
+		}
+		if len(task.Args) != 0 {
+			t.Errorf("expected empty task.Args, got %v", task.Args)
+		}
+	})
+
+	// 5. missing profile returns error
+	t.Run("MissingProfileError", func(t *testing.T) {
+		req := &JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      304,
+			Method:  "tools/call",
+			Params:  json.RawMessage(`{"name":"dispatch_task","arguments":{"command":"agy"}}`),
+		}
+		resp := srv.HandleRequest(context.Background(), req)
+		if resp == nil {
+			t.Fatalf("expected response")
+		}
+		callResult, ok := resp.Result.(*CallToolResult)
+		if !ok || !callResult.IsError {
+			t.Fatalf("expected isError: true when profile is missing, got %+v", callResult)
+		}
+		if !strings.Contains(callResult.Content[0].Text, "profile is required") {
+			t.Errorf("expected 'profile is required' error, got %s", callResult.Content[0].Text)
+		}
+	})
 }

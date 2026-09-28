@@ -80,6 +80,24 @@ func getStringMap(args map[string]any, key string) map[string]string {
 	return res
 }
 
+func getStringSlice(args map[string]any, key string) []string {
+	if val, ok := args[key]; ok && val != nil {
+		if slice, ok := val.([]string); ok {
+			return slice
+		}
+		if slice, ok := val.([]any); ok {
+			res := make([]string, 0, len(slice))
+			for _, item := range slice {
+				if item != nil {
+					res = append(res, fmt.Sprintf("%v", item))
+				}
+			}
+			return res
+		}
+	}
+	return nil
+}
+
 // RegisterDefaultTools registers the standard Multigravity toolset on the server
 func RegisterDefaultTools(s *Server) {
 	// ==========================================
@@ -95,6 +113,15 @@ func RegisterDefaultTools(s *Server) {
 				"command": {
 					Type:        "string",
 					Description: "Command or agent instruction to execute (e.g., 'claude -p \"fix bug\"' or shell script).",
+				},
+				"args": {
+					Type:        "array",
+					Description: "Command arguments array. If provided, overrides automatic argument resolution.",
+					Items:       &PropertySchema{Type: "string"},
+				},
+				"prompt": {
+					Type:        "string",
+					Description: "Prompt instruction for the agent command (e.g. passed as -p to agy or claude if args is not provided).",
 				},
 				"profile": {
 					Type:        "string",
@@ -125,7 +152,7 @@ func RegisterDefaultTools(s *Server) {
 					Description: "Custom environment variables key-value map to pass into the task session.",
 				},
 			},
-			Required: []string{"command"},
+			Required: []string{"command", "profile"},
 		},
 	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
 		cmdStr := getString(args, "command")
@@ -134,13 +161,14 @@ func RegisterDefaultTools(s *Server) {
 		}
 
 		prof := getString(args, "profile")
-		if prof != "" {
-			if err := config.ValidateProfileName(prof); err != nil {
-				return nil, err
-			}
-			if !profile.ProfileExists(prof) {
-				return nil, fmt.Errorf("profile %q does not exist", prof)
-			}
+		if prof == "" {
+			return nil, fmt.Errorf("profile is required")
+		}
+		if err := config.ValidateProfileName(prof); err != nil {
+			return nil, err
+		}
+		if !profile.ProfileExists(prof) {
+			return nil, fmt.Errorf("profile %q does not exist", prof)
 		}
 
 		repo := getString(args, "repo")
@@ -158,6 +186,8 @@ func RegisterDefaultTools(s *Server) {
 
 		opts := dispatch.DispatchOptions{
 			Command:     cmdStr,
+			Args:        getStringSlice(args, "args"),
+			Prompt:      getString(args, "prompt"),
 			Profile:     prof,
 			RepoPath:    repo,
 			Branch:      branch,

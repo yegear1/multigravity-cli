@@ -19,7 +19,17 @@ type Manager struct {
 var (
 	defaultManager     *Manager
 	defaultManagerOnce sync.Once
+	cmdBuilderHook     func(opts CreateSessionOptions) *exec.Cmd
 )
+
+// SetTestHooks allows tests to inject custom command building logic for hermetic testing.
+func SetTestHooks(fn func(opts CreateSessionOptions) *exec.Cmd) func() {
+	orig := cmdBuilderHook
+	cmdBuilderHook = fn
+	return func() {
+		cmdBuilderHook = orig
+	}
+}
 
 // GetDefaultManager returns the process-wide agent Session Manager singleton.
 func GetDefaultManager() *Manager {
@@ -54,9 +64,16 @@ func (m *Manager) StartSession(opts CreateSessionOptions) (*SessionInstance, err
 		return nil, fmt.Errorf("failed to build agent environment: %w", err)
 	}
 
-	cmd := exec.Command(opts.Command, opts.Args...)
-	cmd.Env = env
-	if opts.Cwd != "" {
+	var cmd *exec.Cmd
+	if cmdBuilderHook != nil {
+		cmd = cmdBuilderHook(opts)
+	} else {
+		cmd = exec.Command(opts.Command, opts.Args...)
+	}
+	if cmd.Env == nil {
+		cmd.Env = env
+	}
+	if cmd.Dir == "" && opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
 

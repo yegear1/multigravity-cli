@@ -91,6 +91,24 @@ func TestResolveAgentCommand(t *testing.T) {
 	if cmd != "python3" || len(args) != 1 || args[0] != "script.py" {
 		t.Errorf("unexpected custom command: %s %v", cmd, args)
 	}
+
+	// agy with prompt and empty args
+	cmd, args = ResolveAgentCommand("", "agy", nil, "fix issue")
+	if cmd != "agy" || len(args) != 2 || args[0] != "-p" || args[1] != "fix issue" {
+		t.Errorf("unexpected agy command with prompt: %s %v", cmd, args)
+	}
+
+	// agy with explicit args does not duplicate -p
+	cmd, args = ResolveAgentCommand("", "agy", []string{"-p", "custom prompt", "--other"}, "fix issue")
+	if cmd != "agy" || len(args) != 3 || args[0] != "-p" || args[1] != "custom prompt" || args[2] != "--other" {
+		t.Errorf("unexpected agy command with explicit args: %s %v", cmd, args)
+	}
+
+	// command with spaces is not sliced into argv
+	cmd, args = ResolveAgentCommand("", "echo hello world", nil, "")
+	if cmd != "echo hello world" || len(args) != 0 {
+		t.Errorf("unexpected command with spaces: %s %v", cmd, args)
+	}
 }
 
 func TestDispatchTaskLifecycle(t *testing.T) {
@@ -160,12 +178,14 @@ func TestDispatchTaskLifecycle(t *testing.T) {
 		t.Errorf("expected logs to contain 'hello from agent task', got:\n%s", string(logs))
 	}
 
-	// Verify diff inside worktree
+	// Verify diff inside worktree (includes untracked created_file.txt)
 	diff, err := taskMgr.GetTaskDiff(repoDir, "task-test-lifecycle", false)
 	if err != nil {
 		t.Fatalf("failed to get task diff: %v", err)
 	}
-	_ = diff
+	if !strings.Contains(diff, "created_file.txt") {
+		t.Errorf("expected diff to contain untracked created_file.txt, got:\n%s", diff)
+	}
 
 	// Verify structured diff and files
 	sd, err := taskMgr.GetTaskStructuredDiff(repoDir, "task-test-lifecycle")
@@ -175,12 +195,23 @@ func TestDispatchTaskLifecycle(t *testing.T) {
 	if sd == nil {
 		t.Fatal("expected non-nil structured diff")
 	}
+	if sd.Summary.FilesChanged != 1 || sd.Summary.Additions != 1 {
+		t.Errorf("expected 1 file changed and 1 addition, got %+v", sd.Summary)
+	}
+	if len(sd.Files) != 1 || sd.Files[0].NewPath != "created_file.txt" {
+		t.Errorf("expected created_file.txt in sd.Files, got %+v", sd.Files)
+	}
+	if sd.Files[0].Status != DiffFileAdded {
+		t.Errorf("expected DiffFileAdded status for created_file.txt, got %s", sd.Files[0].Status)
+	}
 
 	files, err := taskMgr.GetTaskFiles(repoDir, "task-test-lifecycle")
 	if err != nil {
 		t.Fatalf("failed to get task files: %v", err)
 	}
-	_ = files
+	if len(files) != 1 || files[0].NewPath != "created_file.txt" {
+		t.Errorf("expected created_file.txt in files, got %+v", files)
+	}
 
 	// Verify Dashboard Summary
 	dashboard, err := taskMgr.GetDashboardSummary(repoDir)
