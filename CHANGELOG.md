@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-28
+
+### Added
+- **Native MCP Server (`multigravity mcp serve` & `mcp-server`):** Built-in Model Context Protocol (MCP) server supporting stdio and HTTP/SSE JSON-RPC 2.0 transports with 16+ tools spanning task dispatch, profile lifecycle, workspace mapping, live quota telemetry, proactive priming, and structured Git diff inspection.
+- **Subtask Plan Aggregator (`multigravity dispatch plan` & `/api/v1/dispatch/plans`):** Concurrent batch execution of multi-agent plans across isolated ephemeral Git worktrees, synchronized under timeout control, with consolidated unified diff summaries, line metrics, and automated disjoint scope collision detection.
+- **Multi-Agent Orchestration Skill (`skills/multigravity-orchestrator`):** Formal playbook for autonomous AI agents to decompose complex objectives into Directed Acyclic Graphs (DAGs), allocate profiles dynamically based on live quota fraction, and execute topological merges with zero merge conflicts.
+- **Model Selection & Tiered Thinking:** Added `--model` (`-m`) flag in `multigravity exec`, `multigravity headless run`, and the REST API. Added support for tiered thinking levels (`LOW`, `MEDIUM`, `HIGH`) via `thinkingConfig` for Gemini 3.7 and 3.8 tiered models in the AI gateway, synced with live CloudCode agent catalog models.
+- **Untracked File Diff Ingestion:** Task and worktree diff generation (`internal/worktree`) automatically incorporates newly created untracked files via `git diff --no-index` without mutating the Git index.
+- **MCP Dispatch Arguments and Prompts:** `dispatch_task` accepts optional `args` and `prompt` parameters with automatic command resolution (`-p`) for `agy`.
+
+### Fixed
+- **Process Detection Prefix Collision:** Prevented false positive active profile status when profile names share prefixes (e.g., `yegear` matching `yegear2`) via strict boundary matching in `internal/profile`.
+- **Pre-Flight Git Diagnostics:** Added Git installation and version diagnostics to `multigravity doctor`.
+- **Headless Timeout Reporting:** Explicit context deadline exceeded message formatting for timeouts in `multigravity exec` and headless execution.
+- **Task Deletion Force Flag:** Added `-f, --force` flag alias to `multigravity dispatch delete` to tear down associated Git worktrees in a single operation.
+- **Language Server CSRF Redaction:** Strictly omitted the internal language server CSRF token from public JSON serialization in active servers, REST APIs, and MCP quota tools.
+
 ## [2.1.0] - 2026-09-26
 
 ### Added
