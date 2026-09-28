@@ -6,7 +6,7 @@
 
 ## Tarefa Ativa
 
-*(Nenhuma tarefa ativa no momento)*
+Nenhuma tarefa em `EM EXECUÇÃO`.
 
 ---
 
@@ -16,7 +16,11 @@
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [07.1] | Suporte a flag --model (-m) em multigravity exec, headless run e REST API | 423b8ba | 2026-09-28 |
 | [06.1] | Despachar plano com --repo sem trocar a workspace quando o alvo não tem origin | a4576df | 2026-09-27 |
+| [05.3] | dispatch_task aceita args e prompt no schema MCP e handler de despacho | b023952 | 2026-09-27 |
+| [05.2] | Diff de tarefa inclui arquivos untracked via git ls-files e git diff --no-index | a932a2f | 2026-09-27 |
+| [05.1] | Omitir CSRF token da serialização JSON em cotas (ActiveServer), MCP e REST API | 5625845 | 2026-09-27 |
 | [04.4] | Expor ferramenta dispatch_plan no servidor MCP, registrar multigravity no mcp_config.json e instalar agy CLI | fabedb6 | 2026-09-27 |
 | [04.3] | Endpoint de Subtask Aggregator na API REST (/api/v1/dispatch/plans) | cbbbd40 | 2026-09-27 |
 | [04.2] | Skill de Orquestração Multi-Agente (skills/multigravity-orchestrator) | fd8117c | 2026-09-27 |

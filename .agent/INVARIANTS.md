@@ -113,7 +113,7 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
 
 - O processo Electron grava em `<user-data-dir>/logs/main.log` (`Electron Logs` no próprio arquivo). O language server embutido na IDE grava o vizinho `language_server.log`.
 - `multigravity logs` e `GET /api/v1/profiles/{name}/ide/logs` leem somente `main.log`. O language server gerenciado continua em `headless logs`; a saída de tarefa continua em `dispatch logs`.
-- A linha de spawn em `main.log` contém `--csrf_token` e `--host_bridge_token`. Qualquer leitura exposta pela CLI ou pela API redige esses valores. Não copiar o arquivo cru para stdout, JSON ou SSE.
+- A linha de spawn em `main.log` contém `--csrf_token` e `--host_bridge_token`. Qualquer leitura exposta pela CLI ou pela API redige esses valores. Não copiar o arquivo cru para stdout, JSON ou SSE. A proibição de expor ou serializar o token CSRF vale também para `multigravity quota`, `multigravity quota --json`, a ferramenta MCP `quota_summary` e os endpoints `GET /api/v1/quota*` (o campo permanece estritamente em memória para consumo do processo local).
 
 ## 11. Catálogo de MCP e skills
 

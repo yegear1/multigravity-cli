@@ -19,6 +19,21 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-28 [Task 07.1] Suporte a flag --model (-m) em multigravity exec, headless run e REST API
+
+- **Contexto:** Ao testar liveness ou orquestração multi-perfil, agentes e usuários precisavam especificar explicitamente o modelo para a execução headless (ex: contornar cota crítica de Gemini em perfis com < 5% semanal usando modelos de terceiros ou forçando modelos econômicos como `gemini-3.6-flash-low`). O runner headless (`RunAgentPrompt`) e o fan-out (`Exec`) não aceitavam `--model`.
+- **Decisões Técnicas:**
+  - **Módulo `internal/headless`:**
+    - `types.go`: adicionado `Model string` em `AgentRunOptions` e `ExecOptions` (`json:"model,omitempty"`).
+    - `runner.go`: quando `opts.Model != ""`, injeta `--model <model>` nos argumentos da CLI `agy`. No fallback de Cascade RPC, repassa o modelo para `SendUserCascadeMessage`.
+    - `exec.go`: propaga `Model` para os workers do pool em `m.Exec`.
+  - **CLI (`internal/cmd`):**
+    - `exec.go` e `headless.go`: adicionada flag `-m, --model` e suporte a passthrough para os options correspondentes com reset seguro em defer.
+  - **Servidor REST HTTP (`internal/server`):**
+    - `routes.go`: `runHeadlessRequest` e `execPromptsRequest` aceitam campo opcional `model`.
+  - **Testes de Regressão:**
+    - Testes adicionados em `internal/headless/headless_test.go` (`TestRunAgentPrompt_Agy_WithModel`), `internal/headless/exec_test.go` (`TestExecPropagatesModel`), `internal/cmd/exec_test.go` (`TestExecCLI_ModelFlag`) e `internal/server/exec_test.go` (`TestExecEndpoint_WithModel`).
+
 ### 2026-09-27 [Task 06.1] Plano em outro repositório sem trocar a workspace
 
 - **Contexto:** A issue #3 aborta em `move_agent_to_root` antes de qualquer worker. Esse chamado faz `git fetch origin <branch>`. `/home/yegear/github/polyglot-terminal` não tem `origin` (commit vazio `fab85c7`). `ExecutePlan` já honra `RepoPath`, e `dispatch plan --repo` já existe.
@@ -26,6 +41,48 @@
   - **Skill (`skills/multigravity-orchestrator`):** a fase 3 resolve a raiz com `git -C`, exige worktree limpa nesse repositório e despacha com `--repo` / `repo` a partir da workspace atual. Sem `origin`, `move_agent_to_root` fica proibido. A troca de raiz da IDE só ocorre depois do plano, quando um humano vai continuar editando ali.
   - **`dispatch run`** continua preso ao cwd do processo. O caminho entre repositórios é `dispatch plan --repo`.
   - **Teste:** `TestDispatchCLIPlanRepoOtherThanCwd` deixa o cwd num git repo e aponta `--repo` para outro, em `main`, limpo e sem remote. O plano grava `hello.txt` só no worktree do alvo.
+
+### 2026-09-27 [Task 05.3] dispatch_task aceita args e prompt no MCP
+
+- **Contexto:** A ferramenta MCP `dispatch_task` aceitava apenas `command` como string, repassando `Args` vazio para `dispatch.DispatchOptions`. Chamadas como `agy --print "..."` falhavam como executável inexistente, enquanto `prompt` não podia ser transmitido para a resolução automática de flags (`ResolveAgentCommand`).
+- **Decisões Técnicas:**
+  - **Servidor MCP (`internal/mcp`):**
+    - `tools.go`: adicionado helper `getStringSlice`, expandido `InputSchema` de `dispatch_task` com propriedades opcionais `args` (`string[]`) e `prompt` (`string`), e tornado `profile` obrigatório (`Required: []string{"command", "profile"}`).
+    - Handler de `dispatch_task` repassa `Args: getStringSlice(args, "args")` e `Prompt: getString(args, "prompt")` para `dispatch.DispatchOptions`.
+    - `profile` ausente é rejeitado imediatamente com erro amigável.
+  - **Testabilidade Hermética (`internal/agent`):**
+    - `manager.go`: adicionado hook de teste `SetTestHooks(fn func(opts CreateSessionOptions) *exec.Cmd) func()` permitindo interceptar o processo sem invocar o binário real do `agy` durante testes unitários.
+  - **Bateria de Testes:**
+    - `internal/dispatch/dispatch_test.go`: `TestResolveAgentCommand` expandido para cobrir `agy` com prompt (gera `-p <prompt>`), `agy` com args explícitos (não duplica `-p`) e comandos com espaços (não são fatiados em argv).
+    - `internal/mcp/server_test.go`: `TestDispatchTask_ArgsAndPrompt` testando via JSON-RPC o schema, a geração de flags para `agy`, preservação de args explícitos, comandos com espaço e rejeição de chamadas sem perfil.
+
+### 2026-09-27 [Task 05.2] Inclusão de Arquivos Untracked no Diff de Tarefas e Worktrees
+
+- **Contexto:** Tarefas despachadas via `multigravity dispatch`, `dispatch_task` ou `dispatch_plan` que criavam arquivos novos sem commitá-los terminavam `completed` mas com diff vazio (`files_changed: 0`), pois `worktree.GitDiff` invocava somente `git diff [base]`, ignorando arquivos untracked.
+- **Decisões Técnicas:**
+  - **Módulo `internal/worktree` (`git.go`):**
+    - `diffNoIndex(dir, path, statOnly)`: executa `git diff --no-index [--stat] -- <os.DevNull> <path>`. Trata exit code 1 do Git (diferenças encontradas) como sucesso com payload, exit code 0 como sem diferenças e $> 1$ como erro de execução. Usa `os.DevNull` para paridade multiplataforma (Linux/macOS/Windows).
+    - `GitDiff(worktreeDir, base, statOnly, cached)`: quando `cached == false`, lista arquivos untracked via `git ls-files --others --exclude-standard` (respeitando `.gitignore` e `info/exclude`), gera o patch individual via `diffNoIndex` e concatena ao diff unificado.
+    - Preserva o índice do Git sem usar `git add`, `--intent-to-add` ou `update-index`.
+  - **Propagação Transparente:**
+    - `ParseUnifiedDiff` consome o patch unificado e gera nós `DiffFile` com `Status: DiffFileAdded`, `NewPath: <path>` e adições corretas.
+    - `GetTaskDiff`, `GetTaskStructuredDiff`, `GetTaskFiles` e o agregador de planos (`UnifiedDiffSummary` e checagem de escopos disjuntos) passam a refletir arquivos criados imediatamente.
+  - **Testes de Regressão:**
+    - Testes unitários adicionados em `internal/worktree/worktree_test.go` (`TestGitDiffUntrackedAndIgnored` e assertions em `TestWorktreeLifecycle`) e `internal/dispatch/dispatch_test.go` (`TestDispatchTaskLifecycle`).
+
+### 2026-09-27 [Task 05.1] Omitir CSRF do Language Server da serialização de Cota
+
+- **Contexto:** `quota.ActiveServer` expunha o token CSRF (`csrf`) na serialização JSON de comandos e endpoints públicos (`multigravity quota --json`, `GET /api/v1/quota`, `GET /api/v1/quota/{profile}`, e ferramenta MCP `quota_summary`). Isso violava o Invariante 10 de redação estrita de segredos locais do Language Server.
+- **Decisões Técnicas:**
+  - **Struct `ActiveServer` (`internal/quota/types.go`):**
+    - Tag do campo `CSRF` alterada de `` `json:"csrf,omitempty"` `` para `` `json:"-"` ``.
+    - O campo permanece intacto em memória no struct Go, permitindo que rotinas locais (`prime`, `headless` e chamadas RPC) continuem comunicando-se com o processo sem quebras.
+  - **Hook de Teste Hermético (`internal/quota/discover.go`):**
+    - Adicionada função `SetTestHooks(fn func(string) ([]ActiveServer, error))` e desacoplada a implementação de SO em `discover_unix.go` e `discover_windows.go` (`findActiveServersOS`). Permite testes herméticos e determinísticos em todas as camadas sem necessidade de instâncias ativas da IDE.
+  - **Invariante 10 Atualizado (`.agent/INVARIANTS.md`):**
+    - Estendida a regra de proteção contra vazamento de CSRF explicitamente para `quota`, `quota --json`, `quota_summary` e `GET /api/v1/quota*`.
+  - **Bateria de Testes de Regressão:**
+    - Testes unitários e de integração adicionados em `internal/quota`, `internal/cmd`, `internal/server` e `internal/mcp` garantindo ausência da chave `"csrf"` e do valor secreto do token em todas as saídas serializadas.
 
 ### 2026-09-27 [Task 04.4] Expor ferramenta dispatch_plan no MCP, registrar multigravity no mcp_config.json e instalar agy CLI
 
