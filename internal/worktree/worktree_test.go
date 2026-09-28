@@ -184,6 +184,9 @@ func TestWorktreeLifecycle(t *testing.T) {
 	if !strings.Contains(diff, "Test Repo Modified") {
 		t.Errorf("expected diff to contain 'Test Repo Modified', got:\n%s", diff)
 	}
+	if !strings.Contains(diff, "new_feature.go") {
+		t.Errorf("expected diff to contain untracked 'new_feature.go', got:\n%s", diff)
+	}
 
 	// 8. Attempt remove without force should fail due to dirty changes
 	err = RemoveWorktree(repoDir, "agent-task-1", RemoveOptions{Force: false})
@@ -214,5 +217,69 @@ func TestWorktreeLifecycle(t *testing.T) {
 	// 10. Prune
 	if err := PruneWorktrees(repoDir); err != nil {
 		t.Fatalf("PruneWorktrees failed: %v", err)
+	}
+}
+
+func TestGitDiffUntrackedAndIgnored(t *testing.T) {
+	repoDir := initTestRepo(t)
+
+	// Create an untracked file: main.py
+	mainPy := filepath.Join(repoDir, "main.py")
+	if err := os.WriteFile(mainPy, []byte("print('hello world')\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a modified tracked file: README.md
+	readme := filepath.Join(repoDir, "README.md")
+	if err := os.WriteFile(readme, []byte("# Test Repo Modified\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create an ignored file: config.local (in .gitignore from initTestRepo)
+	ignoredFile := filepath.Join(repoDir, "config.local")
+	if err := os.WriteFile(ignoredFile, []byte("SECRET=123\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Full unified diff should contain main.py and README.md, but NOT config.local
+	diff, err := GitDiff(repoDir, "", false, false)
+	if err != nil {
+		t.Fatalf("GitDiff failed: %v", err)
+	}
+	if !strings.Contains(diff, "main.py") {
+		t.Errorf("expected diff to contain untracked 'main.py', got:\n%s", diff)
+	}
+	if !strings.Contains(diff, "print('hello world')") {
+		t.Errorf("expected diff to contain additions of 'main.py', got:\n%s", diff)
+	}
+	if !strings.Contains(diff, "README.md") {
+		t.Errorf("expected diff to contain modified 'README.md', got:\n%s", diff)
+	}
+	if strings.Contains(diff, "config.local") {
+		t.Errorf("diff should NOT contain ignored 'config.local', got:\n%s", diff)
+	}
+
+	// 2. Stat-only diff should list main.py and README.md, but NOT config.local
+	statDiff, err := GitDiff(repoDir, "", true, false)
+	if err != nil {
+		t.Fatalf("GitDiff --stat failed: %v", err)
+	}
+	if !strings.Contains(statDiff, "main.py") {
+		t.Errorf("expected statDiff to contain 'main.py', got:\n%s", statDiff)
+	}
+	if !strings.Contains(statDiff, "README.md") {
+		t.Errorf("expected statDiff to contain 'README.md', got:\n%s", statDiff)
+	}
+	if strings.Contains(statDiff, "config.local") {
+		t.Errorf("statDiff should NOT contain ignored 'config.local', got:\n%s", statDiff)
+	}
+
+	// 3. Cached diff should NOT contain untracked main.py
+	cachedDiff, err := GitDiff(repoDir, "", false, true)
+	if err != nil {
+		t.Fatalf("GitDiff --cached failed: %v", err)
+	}
+	if strings.Contains(cachedDiff, "main.py") {
+		t.Errorf("cachedDiff should NOT contain untracked 'main.py', got:\n%s", cachedDiff)
 	}
 }

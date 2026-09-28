@@ -250,7 +250,46 @@ func GitStatusPorcelain(worktreeDir string) (isClean bool, modified, untracked [
 	return isClean, modified, untracked, nil
 }
 
+// diffNoIndex runs `git diff --no-index [--stat] -- <os.DevNull> <path>` in dir.
+// Git returns exit code 1 when differences are found, which is expected.
+func diffNoIndex(dir, path string, statOnly bool) (string, error) {
+	args := []string{"diff", "--no-index"}
+	if statOnly {
+		args = append(args, "--stat")
+	}
+	args = append(args, "--", os.DevNull, path)
+
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Exit code 1 means differences found; stdout contains the patch
+			if exitErr.ExitCode() == 1 {
+				return strings.TrimRight(stdout.String(), "\r\n"), nil
+			}
+		}
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg == "" {
+			errMsg = strings.TrimSpace(stdout.String())
+		}
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), errMsg)
+	}
+	return strings.TrimRight(stdout.String(), "\r\n"), nil
+}
+
 // GitDiff executes git diff in the worktree directory.
+// When cached is false, untracked files are also included in the unified diff
+// by diffing each untracked file against os.DevNull.
 func GitDiff(worktreeDir, base string, statOnly, cached bool) (string, error) {
 	args := []string{"diff"}
 	if statOnly {
@@ -262,7 +301,53 @@ func GitDiff(worktreeDir, base string, statOnly, cached bool) (string, error) {
 	if base != "" {
 		args = append(args, base)
 	}
-	return runGit(worktreeDir, args...)
+	baseDiff, err := runGit(worktreeDir, args...)
+	if err != nil {
+		return "", err
+	}
+	if cached {
+		return baseDiff, nil
+	}
+
+	// List untracked files respecting .gitignore
+	out, err := runGit(worktreeDir, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return baseDiff, nil
+	}
+
+	var untracked []string
+	if strings.TrimSpace(out) != "" {
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimRight(line, "\r")
+			line = strings.TrimSpace(line)
+			if line != "" {
+				untracked = append(untracked, line)
+			}
+		}
+	}
+
+	if len(untracked) == 0 {
+		return baseDiff, nil
+	}
+
+	var diffBuilder strings.Builder
+	if baseDiff != "" {
+		diffBuilder.WriteString(baseDiff)
+		diffBuilder.WriteString("\n")
+	}
+
+	for _, file := range untracked {
+		patch, err := diffNoIndex(worktreeDir, file, statOnly)
+		if err != nil {
+			return "", err
+		}
+		if patch != "" {
+			diffBuilder.WriteString(patch)
+			diffBuilder.WriteString("\n")
+		}
+	}
+
+	return strings.TrimRight(diffBuilder.String(), "\r\n"), nil
 }
 
 // GitCommitCount returns the number of commits ahead and behind between two refs.
