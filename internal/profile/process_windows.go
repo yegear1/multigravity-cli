@@ -16,7 +16,7 @@ func getProfilePIDsOS(name string) ([]int, error) {
 	profileDir := config.GetProfileDir(name)
 	dataDir := config.GetUserDataDir(profileDir)
 
-	psScript := fmt.Sprintf(`Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and ($_.CommandLine -like "*%s*" -or $_.CommandLine -like "*%s*") } | Select-Object -ExpandProperty ProcessId`, dataDir, profileDir)
+	psScript := fmt.Sprintf(`Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and ($_.CommandLine -like "*%s*" -or $_.CommandLine -like "*%s*") } | ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }`, dataDir, profileDir)
 	cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
 	out, err := cmd.Output()
 	if err != nil {
@@ -31,9 +31,14 @@ func getProfilePIDsOS(name string) ([]int, error) {
 		if line == "" {
 			continue
 		}
-		if pid, err := strconv.Atoi(line); err == nil {
-			if pid != currentPID {
-				pids = append(pids, pid)
+		if lineMatchesPath(line, dataDir) || lineMatchesPath(line, profileDir) {
+			parts := strings.Fields(line)
+			if len(parts) > 0 {
+				if pid, err := strconv.Atoi(parts[0]); err == nil {
+					if pid != currentPID {
+						pids = append(pids, pid)
+					}
+				}
 			}
 		}
 	}

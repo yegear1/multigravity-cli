@@ -35,6 +35,7 @@ var (
 	dpStructured  bool
 	dpWeb         bool
 	dpForce       bool
+	dpForceDelete bool
 	dpRmWorktree  bool
 	dpMaxAgeStr   string
 	dpFilterProf  string
@@ -166,6 +167,7 @@ with profile-isolated credentials, ephemeral git worktrees, and persistent log c
 		RunE:    runDispatchDelete,
 	}
 	deleteSubCmd.Flags().BoolVarP(&dpRmWorktree, "worktree", "w", false, "Also remove the associated ephemeral git worktree and branch")
+	deleteSubCmd.Flags().BoolVarP(&dpForceDelete, "force", "f", false, "Force delete task and remove associated ephemeral git worktree")
 
 	// Prune Subcommand
 	pruneSubCmd := &cobra.Command{
@@ -734,12 +736,14 @@ func runDispatchCancel(cmd *cobra.Command, args []string) error {
 func runDispatchDelete(cmd *cobra.Command, args []string) error {
 	defer func() {
 		dpRmWorktree = false
+		dpForceDelete = false
 		dpJSON = false
 	}()
 
 	taskID := args[0]
 	mgr := dispatch.GetDefaultTaskManager()
-	if err := mgr.DeleteTask("", taskID, dpRmWorktree); err != nil {
+	removeWorktree := dpRmWorktree || dpForceDelete
+	if err := mgr.DeleteTask("", taskID, removeWorktree); err != nil {
 		return err
 	}
 

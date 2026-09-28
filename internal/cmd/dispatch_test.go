@@ -537,4 +537,46 @@ func TestDispatchCLIPlanRepoOtherThanCwd(t *testing.T) {
 	}
 }
 
+func TestDispatchCLIDeleteForce(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfileForCmd(t, "dev")
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newDispatchCmd()
+	out, err := executeCommand(cmd, "run", "dev", "--new-worktree", "--detach", "--json", "--", "sh", "-c", "echo 'force delete test' > file.txt")
+	if err != nil {
+		t.Fatalf("failed to run dispatch: %v", err)
+	}
+
+	var task dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Delete with --force
+	out, err = executeCommand(cmd, "delete", task.ID, "--force", "--json")
+	if err != nil {
+		t.Fatalf("failed to delete task with --force: %v", err)
+	}
+
+	var delRes map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &delRes); err != nil {
+		t.Fatalf("failed to parse delete response: %v", err)
+	}
+	if delRes["deleted"] != true {
+		t.Errorf("expected deleted=true, got %v", delRes["deleted"])
+	}
+}
+
+
 

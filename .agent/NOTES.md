@@ -19,6 +19,24 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-09-28 [Task 08.1] Correção de colisão de nomes em detecção de processos, git no doctor, timeout em exec e alias --force
+
+- **Contexto:** Auditorias do Cursor CLI (`todo-note.md`) identificaram que `yegear` aparecia como ativo quando apenas `yegear2` estava em execução, além de timeout reportado como `signal: killed` em `multigravity exec --all`, ausência de verificação de `git` no `multigravity doctor` e necessidade de `--force` em `multigravity dispatch delete`.
+- **Decisões Técnicas:**
+  - **Módulo `internal/profile`:**
+    - `process.go`: implementado helper `lineMatchesPath` com validação de limites de token/caminho (separadores `/` ou `\`, espaços, aspas, `=`, início/fim de linha).
+    - `process_unix.go`: refatorado `parsePIDsFromPSOutput` para usar `lineMatchesPath`, prevenindo falsos positivos de perfis cujos nomes são prefixos de outros perfis (ex: `yegear` casando com `yegear2`).
+    - `process_windows.go`: filtro do PowerShell alinhado com `lineMatchesPath` para paridade multiplataforma.
+    - `launcher.go`: adicionado `delete(envMap, "GEMINI_FORCE_FILE_STORAGE")` antes de avaliar `auth.HasVault(profileDir)`, evitando contaminação por variáveis de ambiente do processo pai.
+  - **Módulo `internal/doctor`:**
+    - `doctor.go`: adicionada checagem diagnóstica de runtime `git` via `exec.LookPath("git")` e extração de versão com `git --version`.
+  - **Módulo `internal/headless`:**
+    - `runner.go`: quando `ctx.Err() == context.DeadlineExceeded`, formata explicitamente o erro como `execution timed out after <dur> (context deadline exceeded)`.
+  - **CLI `multigravity dispatch` (`internal/cmd`):**
+    - `dispatch.go`: adicionada flag `-f, --force` como alias para `--worktree` em `dispatch delete`.
+  - **Testes de Regressão:**
+    - Testes adicionados em `internal/profile/process_test.go` (`TestLineMatchesPath`, `TestParsePIDsFromPSOutput_PrefixCollision`), `internal/doctor/doctor_test.go`, `internal/headless/headless_test.go` (`TestRunAgentPrompt_Timeout`) e `internal/cmd/dispatch_test.go` (`TestDispatchCLIDeleteForce`).
+
 ### 2026-09-28 [Task 07.1] Suporte a flag --model (-m) em multigravity exec, headless run e REST API
 
 - **Contexto:** Ao testar liveness ou orquestração multi-perfil, agentes e usuários precisavam especificar explicitamente o modelo para a execução headless (ex: contornar cota crítica de Gemini em perfis com < 5% semanal usando modelos de terceiros ou forçando modelos econômicos como `gemini-3.6-flash-low`). O runner headless (`RunAgentPrompt`) e o fan-out (`Exec`) não aceitavam `--model`.

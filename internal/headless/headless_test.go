@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -398,3 +399,44 @@ func TestGetLogs(t *testing.T) {
 		t.Logf("got logs: %q", logs)
 	}
 }
+
+func TestRunAgentPrompt_Timeout(t *testing.T) {
+	_, cleanupEnv := setupTestEnvironment(t)
+	defer cleanupEnv()
+
+	profName := "timeout-prof"
+	if err := profile.CreateProfile(profile.CreateOptions{Name: profName}); err != nil {
+		t.Fatalf("failed to create test profile: %v", err)
+	}
+
+	mgr := NewManager()
+
+	restoreRunnerHooks := SetRunnerTestHooks(
+		func() (string, error) {
+			return "/fake/bin/agy", nil
+		},
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			<-ctx.Done()
+			return nil, -1, ctx.Err()
+		},
+	)
+	defer restoreRunnerHooks()
+
+	timeoutDur := 50 * time.Millisecond
+	result, err := mgr.RunAgentPrompt(AgentRunOptions{
+		Profile: profName,
+		Prompt:  "Test timeout handling",
+		Timeout: timeoutDur,
+	})
+	if err != nil {
+		t.Fatalf("unexpected fatal error: %v", err)
+	}
+
+	if !strings.Contains(result.Error, "execution timed out after") || !strings.Contains(result.Error, "context deadline exceeded") {
+		t.Fatalf("expected clear timeout error, got: %q", result.Error)
+	}
+	if result.ExitCode != -1 {
+		t.Fatalf("expected exit code -1 on timeout kill, got: %d", result.ExitCode)
+	}
+}
+

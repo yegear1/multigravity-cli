@@ -39,6 +39,9 @@ func TestRunDoctor(t *testing.T) {
 	if !strings.Contains(out, "(writable)") {
 		t.Errorf("expected profile storage writable, got: %s", out)
 	}
+	if !strings.Contains(out, "Git:") {
+		t.Errorf("expected git check in doctor output, got: %s", out)
+	}
 	if res.Errors > 0 {
 		t.Errorf("expected 0 errors with fake app, got %d errors", res.Errors)
 	}

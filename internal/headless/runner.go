@@ -126,7 +126,11 @@ func (m *Manager) RunAgentPrompt(opts AgentRunOptions) (*AgentRunResult, error) 
 		}
 
 		if cmdErr != nil {
-			result.Error = cmdErr.Error()
+			if ctx.Err() == context.DeadlineExceeded {
+				result.Error = fmt.Sprintf("execution timed out after %s (context deadline exceeded)", timeout)
+			} else {
+				result.Error = cmdErr.Error()
+			}
 		}
 
 		noteHeadlessTokens(result)

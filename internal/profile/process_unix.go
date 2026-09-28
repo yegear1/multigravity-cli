@@ -12,28 +12,16 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/config"
 )
 
-func getProfilePIDsOS(name string) ([]int, error) {
-	profileDir := config.GetProfileDir(name)
-	dataDir := config.GetUserDataDir(profileDir)
-
-	cmd := exec.Command("ps", "-eo", "pid,ppid,args")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	currentPID := os.Getpid()
-	parentPID := os.Getppid()
+func parsePIDsFromPSOutput(out string, profileDir, dataDir string, currentPID, parentPID int) []int {
 	var pids []int
-
-	lines := strings.Split(string(out), "\n")
+	lines := strings.Split(out, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.Contains(line, "grep") {
 			continue
 		}
 
-		if strings.Contains(line, dataDir) || strings.Contains(line, profileDir) {
+		if lineMatchesPath(line, dataDir) || lineMatchesPath(line, profileDir) {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
 				pid, err1 := strconv.Atoi(parts[0])
@@ -47,7 +35,20 @@ func getProfilePIDsOS(name string) ([]int, error) {
 			}
 		}
 	}
-	return pids, nil
+	return pids
+}
+
+func getProfilePIDsOS(name string) ([]int, error) {
+	profileDir := config.GetProfileDir(name)
+	dataDir := config.GetUserDataDir(profileDir)
+
+	cmd := exec.Command("ps", "-eo", "pid,ppid,args")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	return parsePIDsFromPSOutput(string(out), profileDir, dataDir, os.Getpid(), os.Getppid()), nil
 }
 
 func terminateProcessOS(pid int) error {

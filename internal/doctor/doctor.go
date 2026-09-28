@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/ye-dev/multigravity-cli/internal/app"
 	"github.com/ye-dev/multigravity-cli/internal/config"
@@ -108,7 +109,29 @@ func Diagnose() (*DiagnosticReport, error) {
 		report.Warnings++
 	}
 
-	// 4. Icon Check (macOS)
+	// 4. Git Runtime Check
+	gitPath, err := exec.LookPath("git")
+	if err == nil && gitPath != "" {
+		gitVer := "unknown version"
+		if verOut, verErr := exec.Command(gitPath, "--version").Output(); verErr == nil {
+			gitVer = strings.TrimSpace(string(verOut))
+		}
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name:    "Git",
+			Status:  StatusOK,
+			Message: fmt.Sprintf("Git: Found at %s (%s)", gitPath, gitVer),
+			Detail:  gitPath,
+		})
+	} else {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name:    "Git",
+			Status:  StatusWarning,
+			Message: "Git: Not found in PATH. Worktrees and task diffs will not function properly.",
+		})
+		report.Warnings++
+	}
+
+	// 5. Icon Check (macOS)
 	if platform == "darwin" {
 		if shortcut.HasEmbeddedIcon() {
 			report.Checks = append(report.Checks, DiagnosticCheck{

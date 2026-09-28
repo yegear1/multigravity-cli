@@ -95,6 +95,7 @@ func BuildLaunchCommand(name string, forwardArgs []string) (*exec.Cmd, error) {
 	// Cursor, VS Code and Antigravity export this. A nested Electron
 	// process then runs as Node and rejects --user-data-dir.
 	delete(envMap, "ELECTRON_RUN_AS_NODE")
+	delete(envMap, "GEMINI_FORCE_FILE_STORAGE")
 	if auth.HasVault(profileDir) {
 		envMap["GEMINI_FORCE_FILE_STORAGE"] = "true"
 	}
