@@ -16,6 +16,7 @@ Nenhuma tarefa em `EM EXECUÇÃO`.
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [08.1] | Correção de colisão de nomes em detecção de processos, git no doctor, timeout em exec e alias --force | d238eba | 2026-09-28 |
 | [07.1] | Suporte a flag --model (-m) em multigravity exec, headless run e REST API | 423b8ba | 2026-09-28 |
 | [06.1] | Despachar plano com --repo sem trocar a workspace quando o alvo não tem origin | a4576df | 2026-09-27 |
 | [05.3] | dispatch_task aceita args e prompt no schema MCP e handler de despacho | b023952 | 2026-09-27 |
