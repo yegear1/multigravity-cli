@@ -12,11 +12,10 @@ Nenhuma tarefa em `EM EXECUÇÃO`.
 
 ## Log de Tarefas Concluídas
 
-> Histórico anterior arquivado em `ARCHIVE.md` sob `[v2.2.0] - 2026-09-28`.
+> Histórico anterior arquivado em `ARCHIVE.md` sob `[v2.2.1] - 2026-09-29`.
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
-| [01.1] | Resolução de atritos de DX em dispatch, agent run, exec e telemetria de cota | 51e56fd | 2026-09-29 |
 
 ---
 
