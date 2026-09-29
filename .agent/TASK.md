@@ -16,7 +16,7 @@ Nenhuma tarefa em `EM EXECUÇÃO`.
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
-| [01.1] | Resolução de atritos de DX em dispatch, agent run, exec e telemetria de cota | feat/dx-01-1 | 2026-09-29 |
+| [01.1] | Resolução de atritos de DX em dispatch, agent run, exec e telemetria de cota | 51e56fd | 2026-09-29 |
 
 ---
 
