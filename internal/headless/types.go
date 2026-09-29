@@ -72,6 +72,7 @@ type ExecReport struct {
 	Prompt          string           `json:"prompt"`
 	Workers         int              `json:"workers"`
 	Results         []AgentRunResult `json:"results"`
+	Skipped         []string         `json:"skipped,omitempty"`
 	Succeeded       int              `json:"succeeded"`
 	Failed          int              `json:"failed"`
 	TotalTokens     int              `json:"total_tokens"`

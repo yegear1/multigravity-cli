@@ -578,5 +578,88 @@ func TestDispatchCLIDeleteForce(t *testing.T) {
 	}
 }
 
+func TestDispatchCLIRunProfileAndRepoFlags(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfilesForCmd(t, "dev", "other")
+
+	cmd := newDispatchCmd()
+
+	// 1. Neither positional nor --profile set: returns usage error
+	_, err := executeCommand(cmd, "run", "--detach", "--json")
+	if err == nil {
+		t.Fatal("expected error when neither positional profile nor --profile is provided")
+	}
+	if !strings.Contains(err.Error(), "profile is required") {
+		t.Fatalf("expected 'profile is required' error, got: %v", err)
+	}
+
+	// 2. Both set but differ: returns error
+	_, err = executeCommand(cmd, "run", "other", "--profile", "dev", "--detach", "--json")
+	if err == nil {
+		t.Fatal("expected error when positional profile differs from --profile")
+	}
+	if !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("expected mismatch error, got: %v", err)
+	}
+
+	// 3. Both set and match: succeeds
+	out, err := executeCommand(cmd, "run", "dev", "--profile", "dev", "--detach", "--json", "--repo", repoDir, "--", "sh", "-c", "echo 'match'")
+	if err != nil {
+		t.Fatalf("expected success when positional profile matches --profile, got: %v", err)
+	}
+	var task1 dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task1); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+	if task1.Profile != "dev" {
+		t.Fatalf("expected profile 'dev', got %q", task1.Profile)
+	}
+
+	// 4. Only --profile set (no positional profile): succeeds
+	out, err = executeCommand(cmd, "run", "--profile", "dev", "--detach", "--json", "--repo", repoDir, "--", "sh", "-c", "echo 'flag only'")
+	if err != nil {
+		t.Fatalf("expected success with --profile only, got: %v", err)
+	}
+	var task2 dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task2); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+	if task2.Profile != "dev" {
+		t.Fatalf("expected profile 'dev', got %q", task2.Profile)
+	}
+
+	// 5. Cwd is in non-git directory, but --repo points to repoDir with -w (new worktree):
+	nonGitDir := t.TempDir()
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(nonGitDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(origWd)
+	}()
+
+	out, err = executeCommand(cmd, "run", "--profile", "dev", "--repo", repoDir, "-w", "--detach", "--json", "--", "sh", "-c", "echo 'in worktree'")
+	if err != nil {
+		t.Fatalf("expected success creating worktree via --repo from non-git cwd, got: %v", err)
+	}
+	var task3 dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task3); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+	if task3.WorktreeID == "" {
+		t.Fatal("expected worktree to be created via --repo")
+	}
+	if task3.RepoPath != repoDir {
+		t.Fatalf("expected task RepoPath to be %q, got %q", repoDir, task3.RepoPath)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	_, _ = executeCommand(cmd, "delete", task3.ID, "--worktree", "--force", "--json")
+	_ = os.Chdir(origWd)
+}
+
 
 

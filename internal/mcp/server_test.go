@@ -433,6 +433,64 @@ func TestQuotaSummary_OmitsCSRF(t *testing.T) {
 	if !strings.Contains(text, "mcp-prof") {
 		t.Errorf("tool result text missing profile name: %s", text)
 	}
+	if !strings.Contains(text, `"quota_known": true`) {
+		t.Errorf("expected tool result text to contain '\"quota_known\": true': %s", text)
+	}
+}
+
+func TestQuotaSummary_UnknownQuotaForInactiveProfiles(t *testing.T) {
+	srv, _ := setupTestEnvironment(t)
+
+	// Create registered profile with no running server
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "inactive-mcp-prof"}); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	// 1. Query all profiles: must include inactive-mcp-prof with quota_known: false
+	reqAll := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      201,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"quota_summary","arguments":{}}`),
+	}
+	respAll := srv.HandleRequest(context.Background(), reqAll)
+	if respAll == nil || respAll.Error != nil {
+		t.Fatalf("quota_summary call failed: %v", respAll)
+	}
+	callResultAll, ok := respAll.Result.(*CallToolResult)
+	if !ok || len(callResultAll.Content) == 0 {
+		t.Fatalf("expected CallToolResult with content")
+	}
+	textAll := callResultAll.Content[0].Text
+	if !strings.Contains(textAll, "inactive-mcp-prof") {
+		t.Errorf("expected text to contain inactive-mcp-prof: %s", textAll)
+	}
+	if !strings.Contains(textAll, `"quota_known": false`) {
+		t.Errorf("expected text to contain '\"quota_known\": false': %s", textAll)
+	}
+
+	// 2. Query named single profile with no server: must return single profile with quota_known: false (not [])
+	reqSingle := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      202,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"quota_summary","arguments":{"profile":"inactive-mcp-prof"}}`),
+	}
+	respSingle := srv.HandleRequest(context.Background(), reqSingle)
+	if respSingle == nil || respSingle.Error != nil {
+		t.Fatalf("quota_summary call failed: %v", respSingle)
+	}
+	callResultSingle, ok := respSingle.Result.(*CallToolResult)
+	if !ok || len(callResultSingle.Content) == 0 {
+		t.Fatalf("expected CallToolResult with content")
+	}
+	textSingle := callResultSingle.Content[0].Text
+	if textSingle == "[]" {
+		t.Fatalf("expected single profile with quota_known: false, got empty array []")
+	}
+	if !strings.Contains(textSingle, "inactive-mcp-prof") || !strings.Contains(textSingle, `"quota_known": false`) {
+		t.Errorf("expected text to contain profile and quota_known: false: %s", textSingle)
+	}
 }
 
 func TestDispatchTask_ArgsAndPrompt(t *testing.T) {

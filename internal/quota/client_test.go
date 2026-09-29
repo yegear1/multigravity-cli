@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -189,3 +191,108 @@ func TestActiveServerJSON_OmitsCSRF(t *testing.T) {
 		t.Errorf("expected serialized JSON to not contain 'csrf' key, got: %s", raw)
 	}
 }
+
+func TestBuildQuotaSummary_StatesUnknownQuota(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+
+	// Create 2 profiles: "prof-active" and "prof-idle"
+	for _, p := range []string{"prof-active", "prof-idle"} {
+		if err := os.MkdirAll(filepath.Join(tempHome, p), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	liveServers := []ActiveServer{
+		{
+			Profile: "prof-active",
+			PID:     1234,
+			Port:    5678,
+			Data: &QuotaSummaryResponse{
+				Response: QuotaResponse{
+					Groups: []QuotaGroup{
+						{
+							DisplayName: "Group 1",
+							Buckets: []QuotaBucket{
+								{BucketID: "b1", RemainingFraction: 0.8},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// 1. All profiles: prof-active has quota_known: true, prof-idle has quota_known: false
+	summaryAll, err := BuildQuotaSummary("", liveServers)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(summaryAll) != 2 {
+		t.Fatalf("expected 2 profiles in summary, got %d", len(summaryAll))
+	}
+
+	foundActive := false
+	foundIdle := false
+	for _, s := range summaryAll {
+		if s.Profile == "prof-active" {
+			foundActive = true
+			if !s.QuotaKnown {
+				t.Errorf("expected prof-active QuotaKnown=true, got false")
+			}
+			if s.Data == nil {
+				t.Errorf("expected prof-active to keep live server payload")
+			}
+		}
+		if s.Profile == "prof-idle" {
+			foundIdle = true
+			if s.QuotaKnown {
+				t.Errorf("expected prof-idle QuotaKnown=false, got true")
+			}
+			if s.Data != nil {
+				t.Errorf("expected prof-idle to have nil Data, got %+v", s.Data)
+			}
+		}
+	}
+	if !foundActive || !foundIdle {
+		t.Fatalf("expected both active and idle in summary, got: %+v", summaryAll)
+	}
+
+	// Check JSON serialization of summaryAll
+	jsonData, err := json.Marshal(summaryAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonStr := string(jsonData)
+	if !strings.Contains(jsonStr, `"quota_known":true`) {
+		t.Errorf("expected JSON to contain '\"quota_known\":true', got: %s", jsonStr)
+	}
+	if !strings.Contains(jsonStr, `"quota_known":false`) {
+		t.Errorf("expected JSON to contain '\"quota_known\":false', got: %s", jsonStr)
+	}
+
+	// 2. Single profile with no live server returns [ { profile: "prof-idle", quota_known: false } ]
+	summarySingleIdle, err := BuildQuotaSummary("prof-idle", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(summarySingleIdle) != 1 {
+		t.Fatalf("expected 1 element for single idle profile, got %d", len(summarySingleIdle))
+	}
+	if summarySingleIdle[0].Profile != "prof-idle" || summarySingleIdle[0].QuotaKnown != false {
+		t.Errorf("unexpected summary for prof-idle: %+v", summarySingleIdle[0])
+	}
+
+	// 3. Single profile with live server returns [ { profile: "prof-active", quota_known: true } ]
+	summarySingleActive, err := BuildQuotaSummary("prof-active", liveServers)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(summarySingleActive) != 1 {
+		t.Fatalf("expected 1 element for single active profile, got %d", len(summarySingleActive))
+	}
+	if summarySingleActive[0].Profile != "prof-active" || summarySingleActive[0].QuotaKnown != true {
+		t.Errorf("unexpected summary for prof-active: %+v", summarySingleActive[0])
+	}
+}
+

@@ -653,10 +653,11 @@ func RegisterDefaultTools(s *Server) {
 		}
 		quota.RecordLiveSnapshots(servers)
 
-		if servers == nil {
-			servers = []quota.ActiveServer{}
+		summary, err := quota.BuildQuotaSummary(prof, servers)
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve quota: %w", err)
 		}
-		return toJSONText(servers)
+		return toJSONText(summary)
 	})
 
 	s.RegisterTool(Tool{

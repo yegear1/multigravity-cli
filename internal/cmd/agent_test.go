@@ -149,3 +149,112 @@ func checkSubstring(t *testing.T, got, want string) {
 		t.Errorf("expected substring %q in %q", want, got)
 	}
 }
+
+func TestAgentRun_RewriteModelArgs(t *testing.T) {
+	// Unit tests for rewriteAgyModelArgs
+	tests := []struct {
+		name      string
+		input     []string
+		want      []string
+		wantError bool
+	}{
+		{
+			name:  "short -m rewritten to --model",
+			input: []string{"-p", "hello", "-m", "gemini-2.5-pro"},
+			want:  []string{"-p", "hello", "--model", "gemini-2.5-pro"},
+		},
+		{
+			name:  "short -m= rewritten to --model",
+			input: []string{"-m=gemini-2.5-pro", "-p", "hello"},
+			want:  []string{"--model", "gemini-2.5-pro", "-p", "hello"},
+		},
+		{
+			name:  "long --model untouched",
+			input: []string{"--model", "gemini-2.5-pro", "-p", "hello"},
+			want:  []string{"--model", "gemini-2.5-pro", "-p", "hello"},
+		},
+		{
+			name:  "both -m and --model matching: drops -m",
+			input: []string{"-m", "gemini-2.5-pro", "--model", "gemini-2.5-pro"},
+			want:  []string{"--model", "gemini-2.5-pro"},
+		},
+		{
+			name:  "both --model and -m matching: drops -m",
+			input: []string{"--model", "gemini-2.5-pro", "-m", "gemini-2.5-pro"},
+			want:  []string{"--model", "gemini-2.5-pro"},
+		},
+		{
+			name:      "both -m and --model differing: error",
+			input:     []string{"-m", "gemini-2.5-flash", "--model", "gemini-2.5-pro"},
+			wantError: true,
+		},
+		{
+			name:  "no model flags untouched",
+			input: []string{"-p", "hello world", "--verbose"},
+			want:  []string{"-p", "hello world", "--verbose"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := rewriteAgyModelArgs(tc.input)
+			if tc.wantError {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("expected %v, got %v", tc.want, got)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("at index %d: expected %q, got %q", i, tc.want[i], got[i])
+				}
+			}
+		})
+	}
+
+	// Test isAgyCommand
+	if !isAgyCommand("", "agy") {
+		t.Error("expected 'agy' to be agy command")
+	}
+	if !isAgyCommand("", "/usr/local/bin/agy") {
+		t.Error("expected '/usr/local/bin/agy' to be agy command")
+	}
+	if !isAgyCommand("agy", "") {
+		t.Error("expected agentType 'agy' with empty command to be agy command")
+	}
+	if isAgyCommand("claude", "agy") {
+		t.Error("expected agentType 'claude' to not be agy command")
+	}
+	if isAgyCommand("aider", "agy") {
+		t.Error("expected agentType 'aider' to not be agy command")
+	}
+	if isAgyCommand("opencode", "agy") {
+		t.Error("expected agentType 'opencode' to not be agy command")
+	}
+	if isAgyCommand("", "claude") {
+		t.Error("expected 'claude' command to not be agy command")
+	}
+
+	// Integration test via agent run with conflicting models
+	tempHome := t.TempDir()
+	profDir := filepath.Join(tempHome, "AntigravityProfiles", "agy-prof")
+	_ = os.MkdirAll(profDir, 0755)
+	t.Setenv("MULTIGRAVITY_HOME", filepath.Join(tempHome, "AntigravityProfiles"))
+
+	cmd := newAgentCmd()
+	cmd.SetArgs([]string{"run", "agy-prof", "--", "agy", "-m", "flash", "--model", "pro"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for conflicting models in agent run")
+	}
+	if !strings.Contains(err.Error(), "conflicting model") {
+		t.Fatalf("expected 'conflicting model' in error, got: %v", err)
+	}
+}
+

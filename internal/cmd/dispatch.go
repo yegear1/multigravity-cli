@@ -45,6 +45,8 @@ var (
 	dpPlanWorkers int
 	dpPlanTimeout string
 	dpPlanRepo    string
+	dpRunProfile  string
+	dpRunRepo     string
 
 	dpGreen  = color.New(color.FgGreen).SprintFunc()
 	dpYellow = color.New(color.FgYellow).SprintFunc()
@@ -70,9 +72,9 @@ with profile-isolated credentials, ephemeral git worktrees, and persistent log c
 
 	// Run Subcommand
 	runSubCmd := &cobra.Command{
-		Use:   "run <profile> [flags] [--] [command] [args...]",
+		Use:   "run [profile] [flags] [--] [command] [args...]",
 		Short: "Dispatch an agent task with isolated profile credentials and worktree",
-		Args:  cobra.MinimumNArgs(1),
+		Args:  cobra.ArbitraryArgs,
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			if len(args) == 0 {
 				return profileArgsCompletion(cmd, args, toComplete)
@@ -81,6 +83,8 @@ with profile-isolated credentials, ephemeral git worktrees, and persistent log c
 		},
 		RunE: runDispatchRun,
 	}
+	runSubCmd.Flags().StringVar(&dpRunProfile, "profile", "", "Profile to use for task execution")
+	runSubCmd.Flags().StringVar(&dpRunRepo, "repo", "", "Target git repository directory")
 	runSubCmd.Flags().StringVarP(&dpPrompt, "prompt", "p", "", "Instruction prompt for the agent")
 	runSubCmd.Flags().StringVar(&dpAgentType, "agent", "", "Agent type (claude, aider, opencode, agy, custom)")
 	runSubCmd.Flags().BoolVarP(&dpNewWorktree, "new-worktree", "w", false, "Create a dedicated ephemeral git worktree for the task")
@@ -223,21 +227,51 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		dpBranch = ""
 		dpBaseCommit = ""
 		dpCwd = ""
+		dpRunRepo = ""
+		dpRunProfile = ""
 		dpGateway = ""
 		dpGatewayKey = ""
 		dpDetach = false
 		dpJSON = false
 	}()
 
-	profileName := args[0]
+	var positionalProfile string
 	var command string
 	var cmdArgs []string
 
-	if len(args) > 1 {
-		command = args[1]
-		if len(args) > 2 {
-			cmdArgs = args[2:]
+	dashAt := cmd.ArgsLenAtDash()
+	if dashAt >= 0 {
+		if dashAt > 0 {
+			positionalProfile = args[0]
 		}
+		if len(args) > dashAt {
+			command = args[dashAt]
+			if len(args) > dashAt+1 {
+				cmdArgs = args[dashAt+1:]
+			}
+		}
+	} else if len(args) > 0 {
+		positionalProfile = args[0]
+		if len(args) > 1 {
+			command = args[1]
+			if len(args) > 2 {
+				cmdArgs = args[2:]
+			}
+		}
+	}
+
+	if positionalProfile == "" && dpRunProfile == "" {
+		_ = cmd.Usage()
+		return fmt.Errorf("profile is required: provide as positional argument or via --profile")
+	}
+
+	if positionalProfile != "" && dpRunProfile != "" && positionalProfile != dpRunProfile {
+		return fmt.Errorf("positional profile %q does not match --profile %q", positionalProfile, dpRunProfile)
+	}
+
+	profileName := dpRunProfile
+	if profileName == "" {
+		profileName = positionalProfile
 	}
 
 	gatewayURL := dpGateway
@@ -247,6 +281,7 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 
 	opts := dispatch.DispatchOptions{
 		Profile:     profileName,
+		RepoPath:    dpRunRepo,
 		Prompt:      dpPrompt,
 		AgentType:   dpAgentType,
 		Command:     command,

@@ -1101,6 +1101,59 @@ func TestQuotaCmdJSON_OmitsCSRF(t *testing.T) {
 	}
 }
 
+func TestQuotaCLI_StatesUnknownQuota(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_TEST_SHORTCUTS_DIR", filepath.Join(tempHome, "shortcuts"))
+
+	profName := "cli-inactive-prof"
+	if err := profile.CreateProfile(profile.CreateOptions{Name: profName}); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	// 1. quota --json without running servers includes profName with quota_known: false
+	out, err := executeCommand(rootCmd, "quota", "--json")
+	if err != nil {
+		t.Fatalf("quota --json failed: %v", err)
+	}
+	var allServers []quota.ActiveServer
+	if err := json.Unmarshal([]byte(out), &allServers); err != nil {
+		t.Fatalf("failed to parse JSON: %v, raw: %s", err, out)
+	}
+	found := false
+	for _, s := range allServers {
+		if s.Profile == profName {
+			found = true
+			if s.QuotaKnown {
+				t.Errorf("expected %s to have quota_known: false, got true", profName)
+			}
+			if s.Data != nil {
+				t.Errorf("expected %s to have nil Data, got %+v", profName, s.Data)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected to find %s in quota --json output: %s", profName, out)
+	}
+
+	// 2. quota <profile> --json without running server returns single entry with quota_known: false
+	outSingle, err := executeCommand(rootCmd, "quota", profName, "--json")
+	if err != nil {
+		t.Fatalf("quota %s --json failed: %v", profName, err)
+	}
+	var singleServers []quota.ActiveServer
+	if err := json.Unmarshal([]byte(outSingle), &singleServers); err != nil {
+		t.Fatalf("failed to parse single JSON: %v, raw: %s", err, outSingle)
+	}
+	if len(singleServers) != 1 {
+		t.Fatalf("expected exactly 1 entry for single profile, got %d (raw: %s)", len(singleServers), outSingle)
+	}
+	if singleServers[0].Profile != profName || singleServers[0].QuotaKnown != false {
+		t.Errorf("unexpected entry for single profile: %+v", singleServers[0])
+	}
+}
+
+
 
 
 

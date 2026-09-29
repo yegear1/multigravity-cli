@@ -37,12 +37,13 @@ func newQuotaCmd() *cobra.Command {
 			quota.RecordLiveSnapshots(servers)
 
 			if quotaJSON {
-				if servers == nil {
-					servers = []quota.ActiveServer{}
+				summary, err := quota.BuildQuotaSummary(targetProf, servers)
+				if err != nil {
+					return err
 				}
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				return enc.Encode(servers)
+				return enc.Encode(summary)
 			}
 
 			if len(servers) == 0 {

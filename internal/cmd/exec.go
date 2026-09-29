@@ -136,6 +136,10 @@ func writeExecTable(cmd *cobra.Command, report *headless.ExecReport) error {
 	if err := w.Flush(); err != nil {
 		return err
 	}
+	if len(report.Skipped) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Skipped %d inactive auth-only profile(s): %s\n",
+			execDim("---"), len(report.Skipped), strings.Join(report.Skipped, ", "))
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s %d profiles | %d succeeded | %d failed | tokens: %d | %.2fs\n",
 		execDim("---"), len(report.Results), report.Succeeded, report.Failed, report.TotalTokens, report.DurationSeconds)
 	return nil

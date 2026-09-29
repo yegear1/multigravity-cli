@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -58,7 +59,7 @@ in pseudo-terminal (PTY) environments with identity isolation and multi-account 
 	runSubCmd := &cobra.Command{
 		Use:   "run <profile> [--] <command> [args...]",
 		Short: "Launch an agent CLI inside an isolated PTY environment",
-		Args:  cobra.MinimumNArgs(2),
+		Args:  cobra.MinimumNArgs(1),
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			if len(args) == 0 {
 				return profileArgsCompletion(cmd, args, toComplete)
@@ -170,12 +171,136 @@ func probeDefaultGateway() string {
 	return ""
 }
 
+func isAgyCommand(agentType, command string) bool {
+	at := strings.ToLower(strings.TrimSpace(agentType))
+	if at == "claude" || at == "aider" || at == "opencode" {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(command))
+	base = strings.TrimSuffix(base, ".exe")
+	if base == "agy" {
+		return true
+	}
+	if at == "agy" && (command == "" || base == "agy") {
+		return true
+	}
+	return false
+}
+
+func rewriteAgyModelArgs(args []string) ([]string, error) {
+	var mModel string
+	var hasM bool
+	var mIndices []int
+
+	var longModel string
+	var hasLongModel bool
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "-m" {
+			if i+1 < len(args) {
+				val := args[i+1]
+				if hasM && mModel != val {
+					return nil, fmt.Errorf("conflicting model arguments: -m %q and -m %q", mModel, val)
+				}
+				mModel = val
+				hasM = true
+				mIndices = append(mIndices, i, i+1)
+				i++
+			}
+		} else if strings.HasPrefix(arg, "-m=") {
+			val := strings.TrimPrefix(arg, "-m=")
+			if hasM && mModel != val {
+				return nil, fmt.Errorf("conflicting model arguments: -m %q and -m %q", mModel, val)
+			}
+			mModel = val
+			hasM = true
+			mIndices = append(mIndices, i)
+		} else if arg == "--model" {
+			if i+1 < len(args) {
+				val := args[i+1]
+				if hasLongModel && longModel != val {
+					return nil, fmt.Errorf("conflicting model arguments: --model %q and --model %q", longModel, val)
+				}
+				longModel = val
+				hasLongModel = true
+				i++
+			}
+		} else if strings.HasPrefix(arg, "--model=") {
+			val := strings.TrimPrefix(arg, "--model=")
+			if hasLongModel && longModel != val {
+				return nil, fmt.Errorf("conflicting model arguments: --model %q and --model %q", longModel, val)
+			}
+			longModel = val
+			hasLongModel = true
+		}
+	}
+
+	if !hasM {
+		return args, nil
+	}
+
+	if hasLongModel {
+		if mModel != longModel {
+			return nil, fmt.Errorf("conflicting model arguments: -m %q and --model %q", mModel, longModel)
+		}
+		// Drop the redundant -m pair, keep --model untouched
+		dropMap := make(map[int]bool, len(mIndices))
+		for _, idx := range mIndices {
+			dropMap[idx] = true
+		}
+		newArgs := make([]string, 0, len(args)-len(mIndices))
+		for i := 0; i < len(args); i++ {
+			if !dropMap[i] {
+				newArgs = append(newArgs, args[i])
+			}
+		}
+		return newArgs, nil
+	}
+
+	// Only -m is present: rewrite first -m to --model <model>
+	firstMStart := mIndices[0]
+	dropMap := make(map[int]bool, len(mIndices))
+	for _, idx := range mIndices {
+		dropMap[idx] = true
+	}
+	newArgs := make([]string, 0, len(args)+2)
+	for i := 0; i < len(args); i++ {
+		if i == firstMStart {
+			newArgs = append(newArgs, "--model", mModel)
+			continue
+		}
+		if !dropMap[i] {
+			newArgs = append(newArgs, args[i])
+		}
+	}
+	return newArgs, nil
+}
+
 func runAgentRun(cmd *cobra.Command, args []string) error {
 	profileName := args[0]
-	command := args[1]
+	var command string
 	var cmdArgs []string
-	if len(args) > 2 {
-		cmdArgs = args[2:]
+	if len(args) > 1 {
+		command = args[1]
+		if len(args) > 2 {
+			cmdArgs = args[2:]
+		}
+	} else if strings.ToLower(strings.TrimSpace(agAgentType)) == "agy" {
+		command = "agy"
+	} else {
+		return fmt.Errorf("command is required to start agent session")
+	}
+
+	if isAgyCommand(agAgentType, command) {
+		if command == "" {
+			command = "agy"
+		}
+		rewritten, err := rewriteAgyModelArgs(cmdArgs)
+		if err != nil {
+			return err
+		}
+		cmdArgs = rewritten
 	}
 
 	// Resolve worktree directory if specified and cwd is empty

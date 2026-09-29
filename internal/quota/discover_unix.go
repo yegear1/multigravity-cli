@@ -111,11 +111,12 @@ func findActiveServersOS(targetProf string) ([]ActiveServer, error) {
 			if err == nil && res != nil {
 				seenPorts[port] = true
 				servers = append(servers, ActiveServer{
-					Profile: profile,
-					PID:     pid,
-					Port:    port,
-					CSRF:    csrf,
-					Data:    res,
+					Profile:    profile,
+					PID:        pid,
+					Port:       port,
+					CSRF:       csrf,
+					QuotaKnown: true,
+					Data:       res,
 				})
 				break
 			}

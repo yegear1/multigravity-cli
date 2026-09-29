@@ -2,12 +2,14 @@ package headless
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
 	"github.com/ye-dev/multigravity-cli/internal/shortcut"
@@ -282,5 +284,127 @@ func TestExecPropagatesModel(t *testing.T) {
 	}
 	if !modelArgFound {
 		t.Fatalf("expected --model claude-opus-4-6-thinking in args, got: %v", capturedArgs)
+	}
+}
+
+func TestExecAll_SkipsInactiveAuthOnly(t *testing.T) {
+	setupExecHome(t)
+
+	// Create full profile
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "prof-full"}); err != nil {
+		t.Fatalf("failed to create full profile: %v", err)
+	}
+
+	// Create inactive auth-only profile
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "prof-auth-inactive"}); err != nil {
+		t.Fatalf("failed to create auth profile: %v", err)
+	}
+	authInactiveDir := config.GetProfileDir("prof-auth-inactive")
+	if err := os.WriteFile(filepath.Join(authInactiveDir, config.SentinelAuthOnly), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create running auth-only profile
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "prof-auth-running"}); err != nil {
+		t.Fatalf("failed to create running auth profile: %v", err)
+	}
+	authRunningDir := config.GetProfileDir("prof-auth-running")
+	if err := os.WriteFile(filepath.Join(authRunningDir, config.SentinelAuthOnly), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock GetProfilePIDs so prof-auth-running reports as running
+	restorePIDs := profile.SetGetProfilePIDsFn(func(name string) ([]int, error) {
+		if name == "prof-auth-running" {
+			return []int{99999}, nil
+		}
+		return nil, nil
+	})
+	defer restorePIDs()
+
+	var executedProfiles []string
+	restoreRunner := SetRunnerTestHooks(
+		func() (string, error) { return "/usr/local/bin/agy", nil },
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			executedProfiles = append(executedProfiles, filepath.Base(dir))
+			return []byte(`{"response":"ok","usage":{"total_tokens":5}}`), 0, nil
+		},
+	)
+	defer restoreRunner()
+
+	mgr := NewManager()
+	report, err := mgr.Exec(ExecOptions{
+		All:                        true,
+		Prompt:                     "ping all",
+		DangerouslySkipPermissions: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check skipped contains prof-auth-inactive
+	if len(report.Skipped) != 1 || report.Skipped[0] != "prof-auth-inactive" {
+		t.Errorf("expected Skipped to be [prof-auth-inactive], got: %v", report.Skipped)
+	}
+
+	// Check results contain prof-full and prof-auth-running, but NOT prof-auth-inactive
+	if len(report.Results) != 2 {
+		t.Fatalf("expected 2 executed results, got %d: %+v", len(report.Results), report.Results)
+	}
+	for _, res := range report.Results {
+		if res.Profile == "prof-auth-inactive" {
+			t.Errorf("inactive auth profile was executed: %s", res.Profile)
+		}
+	}
+	if report.Succeeded != 2 || report.Failed != 0 {
+		t.Errorf("expected 2 succeeded, 0 failed, got succeeded=%d failed=%d", report.Succeeded, report.Failed)
+	}
+}
+
+func TestExec_FailFastWorkers(t *testing.T) {
+	setupExecHome(t)
+
+	for _, name := range []string{"worker-p1", "worker-p2", "worker-p3"} {
+		if err := profile.CreateProfile(profile.CreateOptions{Name: name}); err != nil {
+			t.Fatalf("failed to create profile %s: %v", name, err)
+		}
+	}
+
+	var executed []string
+	restoreRunner := SetRunnerTestHooks(
+		func() (string, error) { return "/usr/local/bin/agy", nil },
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			p := filepath.Base(dir)
+			executed = append(executed, p)
+			if p == "worker-p1" {
+				return []byte(`{"response":"failed"}`), 1, fmt.Errorf("task failed")
+			}
+			return []byte(`{"response":"ok"}`), 0, nil
+		},
+	)
+	defer restoreRunner()
+
+	mgr := NewManager()
+	// Run with 1 worker sequentially: worker-p1 fails first, worker-p2 and worker-p3 should not start
+	report, err := mgr.Exec(ExecOptions{
+		Profiles: []string{"worker-p1", "worker-p2", "worker-p3"},
+		Workers:  1,
+		Prompt:   "fail fast test",
+	})
+	if err != nil {
+		t.Fatalf("unexpected fatal exec error: %v", err)
+	}
+
+	if len(report.Results) != 1 {
+		t.Fatalf("expected exactly 1 result due to fail-fast, got %d: %+v", len(report.Results), report.Results)
+	}
+	if report.Results[0].Profile != "worker-p1" {
+		t.Errorf("expected worker-p1 as the only result, got: %s", report.Results[0].Profile)
+	}
+	if report.Failed != 1 || report.Succeeded != 0 {
+		t.Errorf("expected failed=1, succeeded=0, got failed=%d, succeeded=%d", report.Failed, report.Succeeded)
+	}
+	if len(executed) != 1 || executed[0] != "worker-p1" {
+		t.Errorf("expected only worker-p1 to have been started, got: %v", executed)
 	}
 }
