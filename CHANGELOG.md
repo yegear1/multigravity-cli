@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-09-29
+
+### Added
+- **Explicit Dispatch Profile & Repository Target:** Added `--profile` (`-p`) and `--repo` (`-r`) flags to `multigravity dispatch run`, allowing scripted and orchestrated workflows to execute tasks under specific profiles and repositories without relying on interactive prompts.
+- **Model Forwarding in Agent Command:** Added `--model` (`-m`) flag to `multigravity agent run` with automatic passthrough to `agy`, matching `exec` and headless runner capabilities.
+
+### Fixed
+- **Deterministic Quota Availability Flag:** Set `quota_known: false` for idle profiles or when live language server RPC telemetry is unavailable, eliminating misleading zero-percent quota reports and preventing premature exhaustion alerts.
+- **Partial Execution Fan-out Resiliency:** `multigravity exec` now delivers partial aggregated reports instead of failing the entire operation when inactive auth-only profiles are skipped or individual worker timeouts occur.
+
 ## [2.2.0] - 2026-09-28
 
 ### Added
