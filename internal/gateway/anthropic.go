@@ -300,6 +300,10 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				g.writeAnthropicError(w, http.StatusTooManyRequests, "All profiles in pool are currently rate-limited or cooling down", "rate_limit_error")
 				return
 			}
+			if authFailures > 0 && authFailures >= failoverCount {
+				g.writeAnthropicError(w, http.StatusUnauthorized, "profile is not authenticated", "authentication_error")
+				return
+			}
 			if failoverCount > 0 {
 				g.writeAnthropicError(w, http.StatusTooManyRequests, fmt.Sprintf("All eligible profiles exhausted after %d failovers: %v", failoverCount, err), "rate_limit_error")
 				return

@@ -293,6 +293,10 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 				g.writeError(w, http.StatusTooManyRequests, "All profiles in pool are currently rate-limited or cooling down", "rate_limit_exceeded", "rate_limit_exceeded")
 				return
 			}
+			if authFailures > 0 && authFailures >= failoverCount {
+				g.writeError(w, http.StatusUnauthorized, "profile is not authenticated", "authentication_error", "profile_unauthenticated")
+				return
+			}
 			if failoverCount > 0 {
 				g.writeError(w, http.StatusTooManyRequests, fmt.Sprintf("All eligible profiles exhausted after %d failovers: %v", failoverCount, err), "rate_limit_exceeded", "rate_limit_exceeded")
 				return

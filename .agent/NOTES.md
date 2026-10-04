@@ -19,7 +19,17 @@
 
 ## Decisões Técnicas Recentes
 
-### 2026-09-28 [Task 08.1] Correção de colisão de nomes em detecção de processos, git no doctor, timeout em exec e alias --force
+### 2026-10-04 [Task 00.2] Lacunas de teste do gateway
+
+- **Descoberto:** perfil sem credencial, com failover ligado, respondia 429 `rate_limit_exceeded` e não 401. O ramo que já distinguia falha de autenticação só rodava no fim do loop; `SelectProfile` esgotava o pool antes.
+- **Contrato:** se toda tentativa falhou por credencial ausente, OpenAI devolve 401 `profile_unauthenticated` e Anthropic devolve 401 `authentication_error`. O upstream não é chamado. 429 permanece quando houve limite de fato.
+- **Coberto agora:** `TestGatewayDoesNotForwardInboundAuthorization`, `TestGatewayUnauthenticatedProfile`, `TestGatewayMessagesUnauthenticatedProfile`, `TestGatewayEstimatesTokensWithoutUsageMetadata`, `TestGatewayUpstreamErrorDoesNotFailover`, `TestClientEndpointFailover`.
+
+### 2026-10-04 [Task 02.1] Árvore de decisão dos runners
+
+- **Contexto:** `prime`, `exec`, `headless run`, `dispatch` e `agent run` compartilham a ideia de "rodar um agente". A CLI de cada um permanece. A escolha fica na skill.
+- **Decisão:** a primeira linha que casa vence. Diff para merge é `dispatch`. PTY ou `agent attach` é `agent run`. O mesmo prompt em dois ou mais perfis, com relatório, é `exec`. Só avançar janela de cota, com fração medida acima de 0,05 e reset elegível, é `prime`. O resto, um prompt e um perfil, é `headless run`. `exec` com um perfil continua válido na CLI; o agente escolhe `headless run` nesse caso.
+- **Onde:** `skills/multigravity/SKILL.md`, ponteiro em `skills/multigravity-orchestrator/SKILL.md`, espelho curto em `README.md` e `README.pt-br.md`.
 
 - **Contexto:** Auditorias do Cursor CLI (`todo-note.md`) identificaram que `yegear` aparecia como ativo quando apenas `yegear2` estava em execução, além de timeout reportado como `signal: killed` em `multigravity exec --all`, ausência de verificação de `git` no `multigravity doctor` e necessidade de `--force` em `multigravity dispatch delete`.
 - **Decisões Técnicas:**

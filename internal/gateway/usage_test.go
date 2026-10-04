@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -59,5 +60,58 @@ func TestGatewayRecordsTokenSeries(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(config.GetProfileDir("primary"), ".multigravity", "quota-history.jsonl")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGatewayEstimatesTokensWithoutUsageMetadata(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", home)
+	if err := os.MkdirAll(config.GetProfileDir("primary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const prompt = "Hi"
+	const completion = "Hello"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":%q}]}}]}}\n\n", completion)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+
+	client := NewClient(WithEndpoints([]string{upstream.URL}), WithHTTPClient(upstream.Client()))
+	router := NewRouter()
+	router.SyncProfiles([]string{"primary"})
+	gw := NewGateway(WithGatewayClient(client), WithGatewayRouter(router))
+
+	body := fmt.Sprintf(`{"model":"gemini-2.5-pro","messages":[{"role":"user","content":%q}]}`, prompt)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	gw.HandleChatCompletions(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	wantPrompt := quota.EstimateTokens(prompt)
+	wantCompletion := quota.EstimateTokens(completion)
+	var resp ChatCompletionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Usage.PromptTokens != wantPrompt || resp.Usage.CompletionTokens != wantCompletion || resp.Usage.TotalTokens != wantPrompt+wantCompletion {
+		t.Fatalf("usage: %+v", resp.Usage)
+	}
+
+	series, err := quota.LoadSeries("primary", quota.HistoryQuery{Source: quota.SourceGateway, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series.Samples) != 1 || series.Samples[0].Tokens == nil || !series.Samples[0].Tokens.Estimated {
+		t.Fatalf("series: %+v", series)
+	}
+	if series.Samples[0].Tokens.TotalTokens != wantPrompt+wantCompletion {
+		t.Fatalf("sample tokens: %+v", series.Samples[0].Tokens)
 	}
 }

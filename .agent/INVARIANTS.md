@@ -125,7 +125,7 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
 
 - O access token de uma completion sai do cofre do perfil escolhido. O arquivo do `login` (`antigravity-oauth-token`) tem prioridade. Se ele não existir, vale o `jetski-standalone-oauth-token` gravado pela IDE. `login status` usa a mesma ordem e não devolve o token.
 - Access token expirado é renovado com o refresh token e os dois arquivos são regravados em `0600`. O `Authorization` recebido pelo `serve` não é repassado ao Cloud Code.
-- Perfil sem credencial responde 401 `profile_unauthenticated` e não chama o upstream.
+- Perfil sem credencial responde 401 `profile_unauthenticated` e não chama o upstream. Se o failover esgota o pool só por falta de credencial, a resposta continua 401, não 429. `/v1/messages` usa o mesmo critério com `authentication_error`.
 - `remaining_fraction: 1` não é o estado inicial. Sem leitura do language server, `quota_known` fica falso e a fração fica 0. O `smart` só usa fração medida (semanal e 5h; vale a menor). Cota desconhecida não pontua como cheia, e cota medida 0 não volta a pontuar como 1.
 
 ## 13. Identificador de modelo do gateway

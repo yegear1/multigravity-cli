@@ -335,3 +335,42 @@ func TestGatewayMessagesValidationErrors(t *testing.T) {
 		t.Errorf("unexpected error format: %+v", errResp)
 	}
 }
+
+func TestGatewayMessagesUnauthenticatedProfile(t *testing.T) {
+	hits := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	client := NewClient(WithEndpoints([]string{upstream.URL}), WithHTTPClient(upstream.Client()))
+	gw := NewGateway(
+		WithGatewayClient(client),
+		WithTokenResolver(func(r *http.Request, profile string) (string, error) {
+			return "", nil
+		}),
+	)
+
+	body, _ := json.Marshal(AnthropicMessageRequest{
+		Model:    "claude-sonnet-4-6",
+		Messages: []AnthropicMessage{{Role: "user", Content: "hi"}},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	gw.HandleMessages(w, req)
+
+	if hits != 0 {
+		t.Fatalf("upstream calls = %d", hits)
+	}
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var errResp AnthropicErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
+		t.Fatal(err)
+	}
+	if errResp.Type != "error" || errResp.Error.Type != "authentication_error" {
+		t.Fatalf("error: %+v", errResp)
+	}
+}

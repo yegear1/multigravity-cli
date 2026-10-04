@@ -636,3 +636,197 @@ func TestGatewayRouterManagementEndpoints(t *testing.T) {
 		t.Errorf("expected 0 cooldown profiles after reset, got %d", router.GetStatus().CooldownProfiles)
 	}
 }
+
+func TestGatewayDoesNotForwardInboundAuthorization(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer vault-token" {
+			t.Errorf("upstream Authorization = %q", r.Header.Get("Authorization"))
+		}
+		if strings.Contains(r.Header.Get("Authorization"), "inbound-secret") {
+			t.Errorf("inbound bearer was forwarded")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}}`)
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	client := NewClient(WithEndpoints([]string{upstream.URL}), WithHTTPClient(upstream.Client()))
+	gw := NewGateway(
+		WithGatewayClient(client),
+		WithTokenResolver(func(r *http.Request, profile string) (string, error) {
+			return "vault-token", nil
+		}),
+	)
+
+	body := `{"model":"gemini-2.5-pro","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer inbound-secret")
+	w := httptest.NewRecorder()
+	gw.HandleChatCompletions(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGatewayUnauthenticatedProfile(t *testing.T) {
+	cases := []struct {
+		name     string
+		resolver TokenResolverFunc
+	}{
+		{
+			name: "empty vault",
+			resolver: func(r *http.Request, profile string) (string, error) {
+				return "  ", nil
+			},
+		},
+		{
+			name: "resolver error",
+			resolver: func(r *http.Request, profile string) (string, error) {
+				return "", fmt.Errorf("profile %q is not authenticated", profile)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hits := 0
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits++
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer upstream.Close()
+
+			client := NewClient(WithEndpoints([]string{upstream.URL}), WithHTTPClient(upstream.Client()))
+			gw := NewGateway(WithGatewayClient(client), WithTokenResolver(tc.resolver))
+
+			body := `{"model":"gemini-2.5-pro","messages":[{"role":"user","content":"hi"}]}`
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer inbound-secret")
+			w := httptest.NewRecorder()
+			gw.HandleChatCompletions(w, req)
+
+			if hits != 0 {
+				t.Fatalf("upstream calls = %d", hits)
+			}
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("status %d: %s", w.Code, w.Body.String())
+			}
+			var errResp OpenAIErrorResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
+				t.Fatal(err)
+			}
+			if errResp.Error.Code != "profile_unauthenticated" {
+				t.Fatalf("error code %q", errResp.Error.Code)
+			}
+		})
+	}
+}
+
+func TestGatewayUpstreamErrorDoesNotFailover(t *testing.T) {
+	hits := map[string]int{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		hits[auth]++
+		if auth == "Bearer token-primary" {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"upstream boom"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"response":{"candidates":[{"content":{"parts":[{"text":"should not run"}]}}]}}`)
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	client := NewClient(WithEndpoints([]string{upstream.URL}), WithHTTPClient(upstream.Client()))
+	router := NewRouter(WithRouterStrategy(StrategyPriority))
+	router.SyncProfiles([]string{"primary", "secondary"})
+	gw := NewGateway(
+		WithGatewayClient(client),
+		WithGatewayRouter(router),
+		WithTokenResolver(func(r *http.Request, profile string) (string, error) {
+			return "token-" + profile, nil
+		}),
+	)
+
+	body := `{"model":"gemini-2.5-pro","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	gw.HandleChatCompletions(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var errResp OpenAIErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
+		t.Fatal(err)
+	}
+	if errResp.Error.Code != "upstream_error" {
+		t.Fatalf("error code %q", errResp.Error.Code)
+	}
+	if hits["Bearer token-primary"] != 1 || hits["Bearer token-secondary"] != 0 {
+		t.Fatalf("hits = %+v", hits)
+	}
+}
+
+func TestClientEndpointFailover(t *testing.T) {
+	sseOK := func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"response":{"candidates":[{"content":{"parts":[{"text":"from second"}]}}]}}`)
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+	}
+
+	t.Run("rate limit tries next endpoint", func(t *testing.T) {
+		var firstHits, secondHits int
+		first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			firstHits++
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer first.Close()
+		second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			secondHits++
+			sseOK(w)
+		}))
+		defer second.Close()
+
+		client := NewClient(WithEndpoints([]string{first.URL, second.URL}), WithHTTPClient(http.DefaultClient))
+		var got string
+		_, err := client.StreamGenerateContent(t.Context(), &CloudCodeRequest{Model: "gemini-2.5-flash"}, "tok", func(delta, finish string) error {
+			got += delta
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "from second" || firstHits != 1 || secondHits != 1 {
+			t.Fatalf("delta %q hits %d/%d", got, firstHits, secondHits)
+		}
+	})
+
+	t.Run("other status stops", func(t *testing.T) {
+		var firstHits, secondHits int
+		first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			firstHits++
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("boom"))
+		}))
+		defer first.Close()
+		second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			secondHits++
+			sseOK(w)
+		}))
+		defer second.Close()
+
+		client := NewClient(WithEndpoints([]string{first.URL, second.URL}), WithHTTPClient(http.DefaultClient))
+		_, err := client.StreamGenerateContent(t.Context(), &CloudCodeRequest{Model: "gemini-2.5-flash"}, "tok", nil)
+		if err == nil {
+			t.Fatal("expected upstream error")
+		}
+		if firstHits != 1 || secondHits != 0 {
+			t.Fatalf("hits %d/%d", firstHits, secondHits)
+		}
+	})
+}
