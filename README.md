@@ -397,6 +397,16 @@ aider --model gpt-4o
 
 Multigravity can coordinate autonomous coding agents (Claude Code, Aider, OpenCode, Agy) in background tasks or interactive pseudo-terminals (PTY), isolated in dedicated profiles and ephemeral Git worktrees.
 
+Pick the first matching row.
+
+| Situation | Command |
+|---|---|
+| The result is a git diff to review or merge | `dispatch run --new-worktree` or `dispatch plan` |
+| A human will attach a terminal, or the CLI needs a PTY | `agent run` |
+| The same prompt runs on two or more profiles and the result is a report | `exec` |
+| The only goal is to advance a quota window | `prime` |
+| One prompt on one profile, and none of the above | `headless run` |
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    multigravity dispatch                    │

@@ -408,7 +408,31 @@ Send the Cloud Code wire id. The Antigravity docs label is not the `model` field
 - A completion token comes from the selected profile vault. `antigravity-oauth-token` wins; otherwise use `jetski-standalone-oauth-token`. MUST NOT forward the `serve` `Authorization` header to Cloud Code. A profile with no credential returns 401 `profile_unauthenticated`.
 - Without a language-server quota reading, `quota_known` is false and `remaining_fraction` is 0. `smart` scores only a measured fraction and uses the lower of the weekly and 5-hour windows for that provider. MUST NOT treat an unknown fraction as full.
 
-## 7. Contrast Pairs
+## 7. Runner Selection
+
+Pick the first matching row. Stop. Do not fall through.
+
+| # | Entry condition | Runner |
+|---|---|---|
+| 1 | The deliverable is a git diff that will be reviewed or merged | `dispatch run --new-worktree` or `dispatch plan` |
+| 2 | A human must `agent attach`, or the program needs a PTY | `agent run` |
+| 3 | The same prompt runs on two or more profiles and the result is a report | `exec` |
+| 4 | The only goal is to advance a quota window, the measured `remaining_fraction` is above 0.05, and `prime --check` says the reset is eligible | `prime` |
+| 5 | One prompt, one profile, and no row above matched | `headless run` |
+
+| Runner | Worktree | Gateway (`serve`) | PTY | Quota |
+|---|---|---|---|---|
+| `prime` | MUST NOT create one | MUST NOT send the prompt through `serve` | MUST NOT open one | This is the quota tool. MUST NOT run when the measured fraction is at or below 0.05 |
+| `exec` | MUST NOT create one | MUST NOT send the prompt through `serve` | MUST NOT open one | Uses each profile vault via the headless runner. MUST NOT be used for a single profile |
+| `headless run` | MUST NOT create one | MUST NOT send the prompt through `serve` | MUST NOT open one | Same runner as `exec`, for one profile. The `headless` command also owns `start`, `status`, `logs`, and `stop` of that background server |
+| `dispatch` | Creates or binds the worktree that owns the diff | MAY pass `--gateway` to the agent CLI. The dispatcher is not the completion router | MAY host the agent. The merge unit is still `dispatch diff` | MUST NOT dispatch when the measured fraction is at or below 0.05 |
+| `agent run` | MAY bind an existing worktree. MUST NOT own a new worktree whose diff will be merged | MAY pass `--gateway` to the agent CLI | This is the PTY. `agent attach` is the entry test | MUST NOT be used to prime a quota window |
+
+`exec` on one profile is a valid CLI call. Agents still select `headless run` for that case, because row 3 requires two or more profiles.
+
+When the deliverable is a git diff, `skills/multigravity-orchestrator` stays on `dispatch`.
+
+## 8. Contrast Pairs
 
 ```bash
 # BAD: Blindly deleting or modifying a profile while processes are still running
@@ -447,12 +471,21 @@ multigravity prime --check --5h
 "reasoning_effort": "high"
 ```
 
-## 8. Verification Checklist
+```bash
+# BAD: Editing a repository with exec because several profiles are available
+multigravity exec --all "Refactor auth.go"
+
+# GOOD: A diff that will be merged is dispatch, even when many profiles exist
+multigravity dispatch run --profile work --new-worktree --prompt "Refactor auth.go"
+```
+
+## 9. Verification Checklist
 
 - [ ] Target profile name verified against `^[a-zA-Z0-9][a-zA-Z0-9-]*$`.
 - [ ] Running state checked via `multigravity status` before any destructive or stop action.
 - [ ] Isolation sentinel files checked or updated correctly (`.isolated_mcp`, `.isolated_skills`, `.isolated_config`, `.isolated_gh`).
 - [ ] Quota checks distinguish between the 4 buckets (`gemini-weekly`, `gemini-5h`, `3p-weekly`, `3p-5h`).
+- [ ] The runner is the first matching row in Runner Selection. A git diff uses `dispatch`.
 - [ ] Gateway model is a live wire id. Flash 3.7 and 3.8 levels travel in `thinkingConfig`, not in the upstream `model`.
 - [ ] Completion auth uses the profile vault. The `serve` `Authorization` header is not forwarded. Unknown quota is not scored as full.
 - [ ] AI exports and synchronizations asserted to be token-sanitized.

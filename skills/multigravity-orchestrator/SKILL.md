@@ -103,6 +103,8 @@ multigravity alerts --json
 
 ## 6. Operational Execution Protocol
 
+A git diff that will be merged uses `dispatch` in every phase below. Any other outcome uses the first matching row in `skills/multigravity/SKILL.md` (Runner Selection). This skill does not switch a merge to `exec`, `headless run`, `agent run`, or `prime`.
+
 ### Phase 1: Task Decomposition & DAG Definition
 1. Analyze the user request, affected repositories, and target architectural boundaries.
 2. Identify independent components vs sequential prerequisites.
