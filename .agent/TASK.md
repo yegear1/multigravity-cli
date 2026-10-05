@@ -6,7 +6,7 @@
 
 ## Tarefa Ativa
 
-Nenhuma tarefa em `EM EXECUÇÃO`. A próxima é **[90.1]**.
+Nenhuma tarefa em `EM EXECUÇÃO`. A próxima é **[00.3]**.
 
 ---
 
@@ -16,7 +16,6 @@ Ordem fixa. Uma tarefa por vez. A `[00.1]` saiu da fila em 2026-10-04, sem imple
 
 | ID | Estado | Título |
 |---|---|---|
-| [90.1] | `PRONTO PARA PLANEJAMENTO` | Registro único das rotas HTTP |
 | [00.3] | `PRONTO PARA PLANEJAMENTO` | Arquivar NOTES já consolidadas |
 
 ### [00.2] Lacunas de teste do gateway
@@ -53,6 +52,7 @@ Ordem fixa. Uma tarefa por vez. A `[00.1]` saiu da fila em 2026-10-04, sem imple
 
 | Tarefa | Título | Commit(s) | Data |
 |---|---|---|---|
+| [90.1] | Registro único das rotas HTTP | working tree | 2026-10-04 |
 | [00.2] | Lacunas de teste do gateway | working tree | 2026-10-04 |
 | [02.1] | Árvore de decisão dos runners | working tree | 2026-10-04 |
 

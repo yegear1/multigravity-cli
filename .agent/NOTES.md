@@ -19,6 +19,12 @@
 
 ## Decisões Técnicas Recentes
 
+### 2026-10-04 [Task 90.1] Registro único das rotas HTTP
+
+- **Decisão:** `registerPair` grava o handler em `/api/v1{suffix}` e `/api{suffix}`. `HandleFunc` direto ficou só dentro de `register`.
+- **Sem gêmeo `/api`:** `GET /api/v1/events` (canônico `GET /events`) e o gateway (`/v1/chat/completions`, `/v1/messages`, `/v1/models`, `/v1/router/*` mais o espelho `/api/v1`). Não foram criados `/api/events` nem `/api/chat/completions`.
+- **Coberto agora:** `TestAPIRoutesHaveAliasTwin`.
+
 ### 2026-10-04 [Task 00.2] Lacunas de teste do gateway
 
 - **Descoberto:** perfil sem credencial, com failover ligado, respondia 429 `rate_limit_exceeded` e não 401. O ramo que já distinguia falha de autenticação só rodava no fim do loop; `SelectProfile` esgotava o pool antes.
