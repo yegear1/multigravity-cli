@@ -30,6 +30,7 @@ type Server struct {
 	gateway    *gateway.Gateway
 	mcpServer  *mcp.Server
 	mcpHandler *mcp.HTTPHandler
+	patterns   []string
 }
 
 // NewServer creates a new HTTP server instance with configured routes
