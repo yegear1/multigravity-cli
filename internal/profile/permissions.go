@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // DefaultReadOnlyCommands is the canonical inventory of read-only developer commands
@@ -249,31 +250,44 @@ func SeedDefaultPermissions(configFile string) (bool, error) {
 		rawAllow = []interface{}{}
 	}
 
+	cleanedAllow := make([]interface{}, 0, len(rawAllow))
 	existingSet := make(map[string]struct{})
+	changed := false
+
 	for _, item := range rawAllow {
 		if s, ok := item.(string); ok {
-			existingSet[s] = struct{}{}
+			if strings.HasPrefix(s, "unsandboxed(") {
+				// Deprecated in agy v1.2.13+; convert to command(...) or drop if duplicate
+				cmdName := strings.TrimSuffix(strings.TrimPrefix(s, "unsandboxed("), ")")
+				converted := fmt.Sprintf("command(%s)", cmdName)
+				if _, exists := existingSet[converted]; !exists {
+					existingSet[converted] = struct{}{}
+					cleanedAllow = append(cleanedAllow, converted)
+				}
+				changed = true
+				continue
+			}
+			if _, exists := existingSet[s]; !exists {
+				existingSet[s] = struct{}{}
+				cleanedAllow = append(cleanedAllow, s)
+			} else {
+				changed = true // remove duplicates
+			}
+		} else {
+			cleanedAllow = append(cleanedAllow, item)
 		}
 	}
 
-	changed := false
 	for _, c := range DefaultReadOnlyCommands {
 		cStr := fmt.Sprintf("command(%s)", c)
-		uStr := fmt.Sprintf("unsandboxed(%s)", c)
-
 		if _, exists := existingSet[cStr]; !exists {
-			rawAllow = append(rawAllow, cStr)
+			cleanedAllow = append(cleanedAllow, cStr)
 			existingSet[cStr] = struct{}{}
 			changed = true
 		}
-		if _, exists := existingSet[uStr]; !exists {
-			rawAllow = append(rawAllow, uStr)
-			existingSet[uStr] = struct{}{}
-			changed = true
-		}
 	}
 
-	gpg["allow"] = rawAllow
+	gpg["allow"] = cleanedAllow
 
 	if changed || !fileExists {
 		f, err := os.OpenFile(configFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)

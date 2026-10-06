@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,8 +43,8 @@ func TestSeedDefaultPermissionsNewFile(t *testing.T) {
 		t.Fatalf("expected allow slice")
 	}
 
-	// Each command generates 2 grants (command and unsandboxed)
-	expectedCount := len(DefaultReadOnlyCommands) * 2
+	// Each command generates 1 grant (command only, unsandboxed is deprecated)
+	expectedCount := len(DefaultReadOnlyCommands)
 	if len(allowList) != expectedCount {
 		t.Errorf("expected %d grants, got %d", expectedCount, len(allowList))
 	}
@@ -113,8 +114,57 @@ func TestSeedDefaultPermissionsAdditive(t *testing.T) {
 	if !hasCustom {
 		t.Errorf("pre-existing custom-tool grant was lost!")
 	}
-	if len(allowList) != len(DefaultReadOnlyCommands)*2+1 {
-		t.Errorf("expected %d grants, got %d", len(DefaultReadOnlyCommands)*2+1, len(allowList))
+	if len(allowList) != len(DefaultReadOnlyCommands)+1 {
+		t.Errorf("expected %d grants, got %d", len(DefaultReadOnlyCommands)+1, len(allowList))
+	}
+}
+
+func TestSeedDefaultPermissionsMigratesUnsandboxed(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgFile := filepath.Join(tmpDir, "config.json")
+
+	initialJSON := `{
+  "userSettings": {
+    "globalPermissionGrants": {
+      "allow": [
+        "unsandboxed(git status)",
+        "command(git status)",
+        "unsandboxed(custom-legacy)"
+      ]
+    }
+  }
+}`
+	if err := os.WriteFile(cfgFile, []byte(initialJSON), 0644); err != nil {
+		t.Fatalf("failed to write initial json: %v", err)
+	}
+
+	changed, err := SeedDefaultPermissions(cfgFile)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !changed {
+		t.Errorf("expected changed to be true due to unsandboxed migration")
+	}
+
+	data, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatalf("failed to read config file: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal config json: %v", err)
+	}
+
+	userSettings := parsed["userSettings"].(map[string]interface{})
+	gpg := userSettings["globalPermissionGrants"].(map[string]interface{})
+	allowList := gpg["allow"].([]interface{})
+
+	for _, item := range allowList {
+		s, ok := item.(string)
+		if ok && strings.HasPrefix(s, "unsandboxed(") {
+			t.Errorf("found deprecated unsandboxed grant remaining: %s", s)
+		}
 	}
 }
 
