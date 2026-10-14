@@ -29,12 +29,12 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
-| [03.6] | Governance context injection in `dispatch run` (`AGENTS.md` / `TASK.md`) | working tree | 2026-10-14 |
-| [03.5] | Verification and audit hook in dispatch (`--verify <cmd>`) | working tree | 2026-10-14 |
-| [03.4] | Quota-aware route recommendation CLI command (`multigravity route`) | working tree | 2026-10-14 |
-| [03.3] | Agent process sandboxing via wrapper `agent-guard wrap --repo` | working tree | 2026-10-14 |
-| [03.2] | Command `multigravity dispatch apply <task-id>` to merge approved worktrees | working tree | 2026-10-14 |
-| [00.4] | Align repository governance and agent artifacts with brownfield template | working tree | 2026-10-14 |
+| [03.6] | Governance context injection in `dispatch run` (`AGENTS.md` / `TASK.md`) | [`d534be6`](https://github.com/ye-dev/multigravity-cli/commit/d534be6) | 2026-10-14 |
+| [03.5] | Verification and audit hook in dispatch (`--verify <cmd>`) | [`d534be6`](https://github.com/ye-dev/multigravity-cli/commit/d534be6) | 2026-10-14 |
+| [03.4] | Quota-aware route recommendation CLI command (`multigravity route`) | [`d534be6`](https://github.com/ye-dev/multigravity-cli/commit/d534be6) | 2026-10-14 |
+| [03.3] | Agent process sandboxing via wrapper `agent-guard wrap --repo` | [`d534be6`](https://github.com/ye-dev/multigravity-cli/commit/d534be6) | 2026-10-14 |
+| [03.2] | Command `multigravity dispatch apply <task-id>` to merge approved worktrees | [`d534be6`](https://github.com/ye-dev/multigravity-cli/commit/d534be6) | 2026-10-14 |
+| [00.4] | Align repository governance and agent artifacts with brownfield template | [`d534be6`](https://github.com/ye-dev/multigravity-cli/commit/d534be6) | 2026-10-14 |
 | [03.1] | Native Codex CLI driver in dispatch and agent (`--agent codex`, sandbox and `-C`) | [`e8e0547`](https://github.com/ye-dev/multigravity-cli/commit/e8e0547) | 2026-10-14 |
 | [00.3] | Archive consolidated NOTES into ARCHIVE.md | working tree | 2026-10-14 |
 | [90.1] | Unified registration for dual HTTP route prefixes (`/api/v1` and `/api`) | working tree | 2026-10-04 |
