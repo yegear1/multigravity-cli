@@ -144,4 +144,19 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
 - Os endpoints HTTP MCP (`POST /mcp`, `POST /api/v1/mcp`, `GET /mcp/sse`, `POST /mcp/messages`) são integrados nativamente no daemon `multigravity serve`, permitindo consumo tanto stateless via POST direto quanto stateful via Server-Sent Events (SSE).
 - Comandos legados de gerenciamento de compartilhamento (`multigravity mcp status|share|isolate <perfil>`) preservam 100% de retrocompatibilidade de comportamento e contratos (`--json`).
 
+---
+
+## 15. Ciclo de Vida de Conversas de IA: Arquivamento, Sumários e Project IDs
+
+- **Invariante de Arquivamento/Desarquivamento:**
+  - O estado de arquivamento de conversas é governado em três camadas sincronizadas: SQLite (`conversations/<cid>.db`), anotações de texto (`annotations/<cid>.pbtxt`) e o cache binário de sumários (`agyhub_summaries_proto.pb`).
+  - O Language Server (`--subclient_type hub`) mantém um cache em memória e transmite os dados para o Electron via o stream ConnectRPC `JetboxSubscribeToSummaries`.
+  - **Proibição de Bypass Estático:** É proibido tentar arquivar ou desarquivar conversas apenas alterando o campo `archived` nos arquivos `.pbtxt` quando a IDE/Language Server estiver em execução. O Language Server não reflete alterações externas em `.pbtxt` no stream reativo da UI até receber uma chamada ConnectRPC oficial via `UpdateConversationAnnotations` ou ser completamente reiniciado com sumários sincronizados.
+  - **Canal Oficial de Atualização:** Qualquer comando ou automação de arquivamento/desarquivamento deve chamar `POST /exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations` com o header `X-Codeium-Csrf-Token: <token>`, passando `{"cascadeId": "<cid>", "annotations": {"archived": <bool>}}`.
+- **Invariante de Project ID em Sincronizações entre Perfis:**
+  - As conversas no Antigravity são agrupadas por projeto com base no `projectId` (string UUID v4 de 36 caracteres) presente no blob de metadados da conversa (`trajectory_metadata_blob` no SQLite e `trajectoryMetadata.projectId` em `agyhub_summaries_proto.pb`).
+  - Cada perfil isolado do Multigravity gera UUIDs próprios para os projetos configurados em `~/.gemini/config/projects/<id>.json`.
+  - Conversas sincronizadas entre perfis (`ai sync`) trazem o `projectId` do perfil de origem. Caso o perfil destino use outro ID para o mesmo repositório/workspace, a IDE tratará as conversas como pertencentes a um projeto desconhecido e as ocultará da barra lateral do projeto ativo.
+  - Para garantir a visibilidade das conversas no perfil de destino, o `projectId` deve ser mapeado e atualizado deterministicamente para o UUID do projeto correspondente no destino. Como ambos os IDs são UUIDs padrão de 36 bytes, a substituição direta preserva a estrutura e o comprimento exato dos protobufs.
+
 

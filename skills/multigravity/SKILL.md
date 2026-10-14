@@ -132,7 +132,11 @@ The agent MUST NOT activate this skill when:
    ```bash
    multigravity ai sync <src_profile> <dest_profile>
    ```
-4. Save or restore a profile-and-conversation restore point (tokens stay out of the archive; create and rollback refuse a running profile):
+   > [!NOTE]
+   > Sincronizações entre perfis trazem o `projectId` de origem em `trajectory_metadata_blob` e `agyhub_summaries_proto.pb`. Caso o projeto no perfil de destino possua outro UUID em `~/.gemini/config/projects/`, o `projectId` das conversas migradas deve ser alinhado com o do destino para correta exibição na barra lateral de projetos do ADE.
+4. Alterar estado de arquivamento (ConnectRPC em tempo real):
+   - Para arquivar ou desarquivar conversas com reflexão imediata na IDE gráfica, a chamada oficial do Language Server deve ser utilizada (`POST /exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations` com `X-Codeium-Csrf-Token`). Modificações estáticas em `.pbtxt` são suprimidas pelo cache binário `agyhub_summaries_proto.pb`.
+5. Save or restore a profile-and-conversation restore point (tokens stay out of the archive; create and rollback refuse a running profile):
    ```bash
    multigravity snapshot create <profile>
    multigravity snapshot list <profile>
