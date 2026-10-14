@@ -61,7 +61,7 @@ func newDispatchCmd() *cobra.Command {
 		Use:     "dispatch",
 		Aliases: []string{"dp", "task"},
 		Short:   "Orchestrate AI coding agent tasks with profile isolation and ephemeral worktrees",
-		Long: `Dispatch and supervise autonomous coding agent tasks (Claude Code, Aider, OpenCode, Agy)
+		Long: `Dispatch and supervise autonomous coding agent tasks (Claude Code, Aider, OpenCode, Agy, Codex)
 with profile-isolated credentials, ephemeral git worktrees, and persistent log capture.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDispatchList(cmd, args)
@@ -86,7 +86,7 @@ with profile-isolated credentials, ephemeral git worktrees, and persistent log c
 	runSubCmd.Flags().StringVar(&dpRunProfile, "profile", "", "Profile to use for task execution")
 	runSubCmd.Flags().StringVar(&dpRunRepo, "repo", "", "Target git repository directory")
 	runSubCmd.Flags().StringVarP(&dpPrompt, "prompt", "p", "", "Instruction prompt for the agent")
-	runSubCmd.Flags().StringVar(&dpAgentType, "agent", "", "Agent type (claude, aider, opencode, agy, custom)")
+	runSubCmd.Flags().StringVar(&dpAgentType, "agent", "", "Agent type (claude, aider, opencode, agy, codex, custom)")
 	runSubCmd.Flags().BoolVarP(&dpNewWorktree, "new-worktree", "w", false, "Create a dedicated ephemeral git worktree for the task")
 	runSubCmd.Flags().StringVar(&dpWorktree, "worktree", "", "Associate with an existing worktree ID")
 	runSubCmd.Flags().StringVar(&dpBranch, "branch", "", "Git branch name for newly created worktree")

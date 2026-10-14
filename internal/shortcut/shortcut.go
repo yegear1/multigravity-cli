@@ -230,7 +230,7 @@ func createShortcutLinux(profile string) error {
 export MULTIGRAVITY_HOME=%q
 export MULTIGRAVITY_LAUNCH_WAIT=1
 unset ELECTRON_RUN_AS_NODE
-exec %q %q "$@"
+exec %q %q --disable-gpu "$@"
 `, baseDir, launcherBin, profile)
 
 	if err := os.WriteFile(launcherPath, []byte(launcherContent), 0755); err != nil {

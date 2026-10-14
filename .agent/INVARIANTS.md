@@ -159,4 +159,12 @@ Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam
   - Conversas sincronizadas entre perfis (`ai sync`) trazem o `projectId` do perfil de origem. Caso o perfil destino use outro ID para o mesmo repositório/workspace, a IDE tratará as conversas como pertencentes a um projeto desconhecido e as ocultará da barra lateral do projeto ativo.
   - Para garantir a visibilidade das conversas no perfil de destino, o `projectId` deve ser mapeado e atualizado deterministicamente para o UUID do projeto correspondente no destino. Como ambos os IDs são UUIDs padrão de 36 bytes, a substituição direta preserva a estrutura e o comprimento exato dos protobufs.
 
+---
+
+## 16. Detecção de Processos sem Colisão de Prefixos de Nomes
+
+- **Delimitação Estrita de Caminho (`lineMatchesPath`):** Qualquer rotina de inspeção de processos por perfil (seja via `ps` no POSIX ou PowerShell/WMI no Windows) deve obrigatoriamente validar delimitadores de caminho (`/`, `\`, espaços, aspas, `=`, início e fim de linha) em torno do caminho do perfil (`profileDir`) e do diretório de dados (`userDataDir`).
+- **Prevenção de Falso-Positivo:** Casamentos por substring ingênua (ex.: `strings.Contains`) causam falso-positivo entre perfis cujos nomes são prefixos de outros perfis (ex.: processo ativo do perfil `yegear2` casando indevidamente com o perfil `yegear`). Toda verificação deve utilizar a função pura `lineMatchesPath` para garantir precisão cirúrgica de isolamento.
+
+
 

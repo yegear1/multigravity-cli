@@ -74,7 +74,7 @@ func BuildLaunchCommand(name string, forwardArgs []string) (*exec.Cmd, error) {
 
 	default: // linux, etc.
 		cmdName = appPath
-		cmdArgs = []string{"--user-data-dir", dataDir, "--extensions-dir", extDir}
+		cmdArgs = []string{"--user-data-dir", dataDir, "--extensions-dir", extDir, "--disable-gpu"}
 		cmdArgs = append(cmdArgs, forwardArgs...)
 	}
 

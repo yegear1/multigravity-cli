@@ -30,6 +30,8 @@ func DetectAgentType(command string) string {
 		return "opencode"
 	case strings.Contains(target, "agy") || strings.Contains(target, "antigravity"):
 		return "agy"
+	case strings.Contains(target, "codex"):
+		return "codex"
 	default:
 		return "custom"
 	}
@@ -70,6 +72,7 @@ func BuildAgentEnv(opts CreateSessionOptions) ([]string, error) {
 	envMap["PATH"] = enrichedPATH
 	envMap["REAL_HOME"] = realHome
 	envMap["HOME"] = profileDir
+	envMap["CODEX_HOME"] = filepath.Join(profileDir, ".codex")
 	if opts.Profile != "" && auth.HasVault(profileDir) {
 		envMap["GEMINI_FORCE_FILE_STORAGE"] = "true"
 	}
@@ -115,6 +118,10 @@ func BuildAgentEnv(opts CreateSessionOptions) ([]string, error) {
 			envMap["OPENAI_API_KEY"] = gatewayKey
 		case "opencode":
 			envMap["OPENAI_BASE_URL"] = apiBase
+			envMap["OPENAI_API_KEY"] = gatewayKey
+		case "codex":
+			envMap["OPENAI_BASE_URL"] = apiBase
+			envMap["OPENAI_API_BASE"] = apiBase
 			envMap["OPENAI_API_KEY"] = gatewayKey
 		default:
 			// For generic/custom agents, inject both Anthropic and OpenAI compatible URLs

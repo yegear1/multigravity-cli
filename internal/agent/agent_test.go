@@ -22,6 +22,9 @@ func TestDetectAgentType(t *testing.T) {
 		{"open-code", "opencode"},
 		{"agy", "agy"},
 		{"antigravity", "agy"},
+		{"codex", "codex"},
+		{"/usr/local/bin/codex", "codex"},
+		{"codex.exe", "codex"},
 		{"bash", "custom"},
 		{"sh", "custom"},
 	}
@@ -93,6 +96,60 @@ func TestBuildAgentEnv(t *testing.T) {
 	}
 	if envMap["MULTIGRAVITY_AGENT_TYPE"] != "claude" {
 		t.Errorf("expected MULTIGRAVITY_AGENT_TYPE=claude, got %q", envMap["MULTIGRAVITY_AGENT_TYPE"])
+	}
+}
+
+func TestBuildAgentEnv_Codex(t *testing.T) {
+	tempHome := t.TempDir()
+	profDir := filepath.Join(tempHome, "AntigravityProfiles", "test-codex-prof")
+	if err := os.MkdirAll(profDir, 0755); err != nil {
+		t.Fatalf("failed to create profile dir: %v", err)
+	}
+
+	t.Setenv("MULTIGRAVITY_HOME", filepath.Join(tempHome, "AntigravityProfiles"))
+	t.Setenv("REAL_HOME", tempHome)
+
+	opts := CreateSessionOptions{
+		Profile:    "test-codex-prof",
+		AgentType:  "codex",
+		Command:    "codex",
+		GatewayURL: "http://127.0.0.1:8080",
+		GatewayKey: "codex-test-key",
+	}
+
+	env, err := BuildAgentEnv(opts)
+	if err != nil {
+		t.Fatalf("BuildAgentEnv failed: %v", err)
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	// Verify CODEX_HOME isolation to profile dir
+	expectedCodexHome := filepath.Join(profDir, ".codex")
+	if envMap["CODEX_HOME"] != expectedCodexHome {
+		t.Errorf("expected CODEX_HOME=%q, got %q", expectedCodexHome, envMap["CODEX_HOME"])
+	}
+
+	// Verify Gateway URL injection for Codex (OpenAI-compatible)
+	if envMap["OPENAI_BASE_URL"] != "http://127.0.0.1:8080/v1" {
+		t.Errorf("expected OPENAI_BASE_URL=http://127.0.0.1:8080/v1, got %q", envMap["OPENAI_BASE_URL"])
+	}
+	if envMap["OPENAI_API_BASE"] != "http://127.0.0.1:8080/v1" {
+		t.Errorf("expected OPENAI_API_BASE=http://127.0.0.1:8080/v1, got %q", envMap["OPENAI_API_BASE"])
+	}
+	if envMap["OPENAI_API_KEY"] != "codex-test-key" {
+		t.Errorf("expected OPENAI_API_KEY=codex-test-key, got %q", envMap["OPENAI_API_KEY"])
+	}
+
+	// Verify Multigravity metadata
+	if envMap["MULTIGRAVITY_AGENT_TYPE"] != "codex" {
+		t.Errorf("expected MULTIGRAVITY_AGENT_TYPE=codex, got %q", envMap["MULTIGRAVITY_AGENT_TYPE"])
 	}
 }
 

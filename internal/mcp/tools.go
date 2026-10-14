@@ -141,7 +141,7 @@ func RegisterDefaultTools(s *Server) {
 				},
 				"agent_type": {
 					Type:        "string",
-					Description: "Agent type for command resolution (e.g., 'claude', 'aider', 'opencode', 'agy').",
+					Description: "Agent type for command resolution (e.g., 'claude', 'aider', 'opencode', 'agy', 'codex').",
 				},
 				"background": {
 					Type:        "boolean",
@@ -257,7 +257,7 @@ func RegisterDefaultTools(s *Server) {
 							},
 							"agent_type": {
 								Type:        "string",
-								Description: "Agent runner type (e.g., 'claude', 'aider', 'opencode', 'agy').",
+								Description: "Agent runner type (e.g., 'claude', 'aider', 'opencode', 'agy', 'codex').",
 							},
 							"command": {
 								Type:        "string",

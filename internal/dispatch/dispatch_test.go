@@ -109,6 +109,36 @@ func TestResolveAgentCommand(t *testing.T) {
 	if cmd != "echo hello world" || len(args) != 0 {
 		t.Errorf("unexpected command with spaces: %s %v", cmd, args)
 	}
+
+	// codex with prompt (without cwd)
+	cmd, args = ResolveAgentCommand("codex", "", nil, "fix tests")
+	if cmd != "codex" || len(args) != 4 || args[0] != "exec" || args[1] != "--sandbox" || args[2] != "workspace-write" || args[3] != "fix tests" {
+		t.Errorf("unexpected codex command without cwd: %s %v", cmd, args)
+	}
+
+	// codex with cwd
+	cmd, args = ResolveAgentCommandWithCwd("codex", "", nil, "fix tests", "/my/repo")
+	if cmd != "codex" || len(args) != 6 || args[0] != "exec" || args[1] != "-C" || args[2] != "/my/repo" || args[3] != "--sandbox" || args[4] != "workspace-write" || args[5] != "fix tests" {
+		t.Errorf("unexpected codex command with cwd: %s %v", cmd, args)
+	}
+
+	// codex inferred from command with cwd
+	cmd, args = ResolveAgentCommandWithCwd("", "codex", nil, "fix tests", "/my/repo")
+	if cmd != "codex" || len(args) != 6 || args[0] != "exec" || args[1] != "-C" || args[2] != "/my/repo" || args[3] != "--sandbox" || args[4] != "workspace-write" || args[5] != "fix tests" {
+		t.Errorf("unexpected codex command inferred from command: %s %v", cmd, args)
+	}
+
+	// codex with explicit args does not duplicate -C or -s/--sandbox
+	cmd, args = ResolveAgentCommandWithCwd("codex", "", []string{"exec", "-C", "/custom", "-s", "read-only"}, "fix tests", "/my/repo")
+	if cmd != "codex" || len(args) != 6 || args[0] != "exec" || args[1] != "-C" || args[2] != "/custom" || args[3] != "-s" || args[4] != "read-only" || args[5] != "fix tests" {
+		t.Errorf("unexpected codex command with explicit args: %s %v", cmd, args)
+	}
+
+	// codex with prompt already in args does not duplicate prompt
+	cmd, args = ResolveAgentCommandWithCwd("codex", "", []string{"exec", "-C", "/custom", "fix tests"}, "fix tests", "/my/repo")
+	if cmd != "codex" || len(args) != 6 || args[0] != "exec" || args[1] != "--sandbox" || args[2] != "workspace-write" || args[3] != "-C" || args[4] != "/custom" || args[5] != "fix tests" {
+		t.Errorf("unexpected codex command with existing prompt in args: %s %v", cmd, args)
+	}
 }
 
 func TestDispatchTaskLifecycle(t *testing.T) {
@@ -333,5 +363,70 @@ func TestPruneTasks(t *testing.T) {
 	_, err = taskMgr.GetTask(repoDir, task.ID)
 	if err == nil {
 		t.Errorf("expected task %s to be pruned, but found it", task.ID)
+	}
+}
+
+func TestDispatchCodexWithWorktree(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	var capturedOpts agent.CreateSessionOptions
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		capturedOpts = opts
+		return exec.Command("sh", "-c", "echo 'codex mocked output'")
+	})
+	defer cleanup()
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:          "task-codex-test",
+		Profile:     "dev",
+		RepoPath:    repoDir,
+		AgentType:   "codex",
+		Prompt:      "implement feature X",
+		NewWorktree: true,
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch codex task: %v", err)
+	}
+
+	if task.Command != "codex" {
+		t.Errorf("expected command 'codex', got %q", task.Command)
+	}
+	if task.AgentType != "codex" {
+		t.Errorf("expected agent_type 'codex', got %q", task.AgentType)
+	}
+	if task.WorktreeID == "" || task.WorktreePath == "" {
+		t.Fatalf("expected worktree to be configured on task: %+v", task)
+	}
+
+	// Verify args contain exec, -C <worktreePath>, --sandbox workspace-write, prompt
+	expectedArgs := []string{"exec", "-C", task.WorktreePath, "--sandbox", "workspace-write", "implement feature X"}
+	if len(task.Args) != len(expectedArgs) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedArgs), len(task.Args), task.Args)
+	}
+	for i, arg := range expectedArgs {
+		if task.Args[i] != arg {
+			t.Errorf("arg[%d] = %q; want %q", i, task.Args[i], arg)
+		}
+	}
+
+	if capturedOpts.Cwd != task.WorktreePath {
+		t.Errorf("expected captured Cwd to be %q, got %q", task.WorktreePath, capturedOpts.Cwd)
+	}
+	if capturedOpts.Command != "codex" {
+		t.Errorf("expected captured Command to be 'codex', got %q", capturedOpts.Command)
+	}
+
+	// Wait for completion
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tCur, err := taskMgr.GetTask(repoDir, "task-codex-test")
+		if err == nil && (tCur.Status == StatusCompleted || tCur.Status == StatusFailed) {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
 	}
 }

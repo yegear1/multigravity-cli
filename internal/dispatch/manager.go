@@ -112,8 +112,75 @@ func GenerateTaskID() string {
 	return fmt.Sprintf("task-%d-%s", time.Now().Unix(), hex.EncodeToString(b))
 }
 
+func hasFlag(args []string, flags ...string) bool {
+	for _, a := range args {
+		for _, f := range flags {
+			if a == f || strings.HasPrefix(a, f+"=") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func buildCodexArgs(args []string, prompt, cwd string) []string {
+	if len(args) == 0 {
+		var res []string
+		if prompt != "" {
+			res = append(res, "exec")
+			if cwd != "" {
+				res = append(res, "-C", cwd)
+			}
+			res = append(res, "--sandbox", "workspace-write", prompt)
+		} else {
+			if cwd != "" {
+				res = append(res, "-C", cwd)
+			}
+			res = append(res, "--sandbox", "workspace-write")
+		}
+		return res
+	}
+
+	// Explicit args were provided
+	res := make([]string, 0, len(args)+5)
+	hasExec := len(args) > 0 && args[0] == "exec"
+	if hasExec {
+		res = append(res, "exec")
+		args = args[1:]
+	} else if prompt != "" {
+		res = append(res, "exec")
+	}
+
+	if cwd != "" && !hasFlag(args, "-C", "--cd") {
+		res = append(res, "-C", cwd)
+	}
+	if !hasFlag(args, "-s", "--sandbox") {
+		res = append(res, "--sandbox", "workspace-write")
+	}
+	res = append(res, args...)
+
+	if prompt != "" {
+		hasPrompt := false
+		for _, a := range args {
+			if a == prompt {
+				hasPrompt = true
+				break
+			}
+		}
+		if !hasPrompt {
+			res = append(res, prompt)
+		}
+	}
+	return res
+}
+
 // ResolveAgentCommand infers the executable command and arguments given an agent type and prompt.
 func ResolveAgentCommand(agentType, command string, args []string, prompt string) (string, []string) {
+	return ResolveAgentCommandWithCwd(agentType, command, args, prompt, "")
+}
+
+// ResolveAgentCommandWithCwd infers the executable command and arguments given an agent type, prompt, and working directory.
+func ResolveAgentCommandWithCwd(agentType, command string, args []string, prompt, cwd string) (string, []string) {
 	cmdStr := strings.TrimSpace(command)
 	resArgs := args
 
@@ -139,23 +206,31 @@ func ResolveAgentCommand(agentType, command string, args []string, prompt string
 			if prompt != "" && len(resArgs) == 0 {
 				resArgs = []string{"-p", prompt, "--output-format", "json"}
 			}
+		case "codex":
+			cmdStr = "codex"
+			resArgs = buildCodexArgs(resArgs, prompt, cwd)
 		default:
 			cmdStr = "claude"
 			if prompt != "" && len(resArgs) == 0 {
 				resArgs = []string{"-p", prompt}
 			}
 		}
-	} else if prompt != "" && len(resArgs) == 0 {
+	} else {
 		base := strings.ToLower(filepath.Base(cmdStr))
-		switch base {
-		case "claude":
-			resArgs = []string{"-p", prompt}
-		case "aider":
-			resArgs = []string{"--message", prompt}
-		case "agy":
-			resArgs = []string{"-p", prompt}
-		case "opencode":
-			resArgs = []string{"run", prompt}
+		base = strings.TrimSuffix(base, ".exe")
+		if base == "codex" || strings.ToLower(agentType) == "codex" {
+			resArgs = buildCodexArgs(resArgs, prompt, cwd)
+		} else if prompt != "" && len(resArgs) == 0 {
+			switch base {
+			case "claude":
+				resArgs = []string{"-p", prompt}
+			case "aider":
+				resArgs = []string{"--message", prompt}
+			case "agy":
+				resArgs = []string{"-p", prompt}
+			case "opencode":
+				resArgs = []string{"run", prompt}
+			}
 		}
 	}
 
@@ -318,7 +393,7 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 	}
 
 	// Deduce command and arguments
-	cmdStr, args := ResolveAgentCommand(opts.AgentType, opts.Command, opts.Args, opts.Prompt)
+	cmdStr, args := ResolveAgentCommandWithCwd(opts.AgentType, opts.Command, opts.Args, opts.Prompt, execDir)
 	agentType := opts.AgentType
 	if agentType == "" {
 		agentType = agent.DetectAgentType(cmdStr)

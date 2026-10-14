@@ -46,7 +46,7 @@ func newAgentCmd() *cobra.Command {
 		Use:     "agent",
 		Aliases: []string{"ag"},
 		Short:   "PTY terminal multiplexer and headless runner for AI coding agents",
-		Long: `Execute and multiplex AI coding agents (Claude Code, Aider, OpenCode, Agy)
+		Long: `Execute and multiplex AI coding agents (Claude Code, Aider, OpenCode, Agy, Codex)
 in pseudo-terminal (PTY) environments with identity isolation and multi-account gateway integration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAgentList(cmd, args)
@@ -68,7 +68,7 @@ in pseudo-terminal (PTY) environments with identity isolation and multi-account 
 		},
 		RunE: runAgentRun,
 	}
-	runSubCmd.Flags().StringVar(&agAgentType, "agent", "", "Agent type (claude, aider, opencode, agy, custom)")
+	runSubCmd.Flags().StringVar(&agAgentType, "agent", "", "Agent type (claude, aider, opencode, agy, codex, custom)")
 	runSubCmd.Flags().StringVar(&agWorktree, "worktree", "", "Worktree ID to run inside")
 	runSubCmd.Flags().StringVar(&agCwd, "cwd", "", "Working directory")
 	runSubCmd.Flags().StringVar(&agGateway, "gateway", "", "Gateway base URL (defaults to auto-detecting multigravity serve at http://127.0.0.1:8080/v1)")
@@ -173,7 +173,7 @@ func probeDefaultGateway() string {
 
 func isAgyCommand(agentType, command string) bool {
 	at := strings.ToLower(strings.TrimSpace(agentType))
-	if at == "claude" || at == "aider" || at == "opencode" {
+	if at == "claude" || at == "aider" || at == "opencode" || at == "codex" {
 		return false
 	}
 	base := strings.ToLower(filepath.Base(command))
@@ -185,6 +185,39 @@ func isAgyCommand(agentType, command string) bool {
 		return true
 	}
 	return false
+}
+
+func isCodexCommand(agentType, command string) bool {
+	at := strings.ToLower(strings.TrimSpace(agentType))
+	if at == "codex" {
+		return true
+	}
+	base := strings.ToLower(filepath.Base(command))
+	base = strings.TrimSuffix(base, ".exe")
+	return base == "codex"
+}
+
+func hasFlagInCmd(args []string, flags ...string) bool {
+	for _, a := range args {
+		for _, f := range flags {
+			if a == f || strings.HasPrefix(a, f+"=") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func prepareCodexInteractiveArgs(args []string, cwd string) []string {
+	var res []string
+	if cwd != "" && !hasFlagInCmd(args, "-C", "--cd") {
+		res = append(res, "-C", cwd)
+	}
+	if !hasFlagInCmd(args, "-s", "--sandbox") {
+		res = append(res, "--sandbox", "workspace-write")
+	}
+	res = append(res, args...)
+	return res
 }
 
 func rewriteAgyModelArgs(args []string) ([]string, error) {
@@ -288,6 +321,8 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 		}
 	} else if strings.ToLower(strings.TrimSpace(agAgentType)) == "agy" {
 		command = "agy"
+	} else if strings.ToLower(strings.TrimSpace(agAgentType)) == "codex" {
+		command = "codex"
 	} else {
 		return fmt.Errorf("command is required to start agent session")
 	}
@@ -309,6 +344,13 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 		if wt, err := worktree.GetWorktree(".", agWorktree); err == nil {
 			cwd = wt.Path
 		}
+	}
+
+	if isCodexCommand(agAgentType, command) {
+		if command == "" {
+			command = "codex"
+		}
+		cmdArgs = prepareCodexInteractiveArgs(cmdArgs, cwd)
 	}
 
 	// Auto-detect gateway if empty

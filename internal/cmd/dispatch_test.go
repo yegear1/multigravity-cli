@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ye-dev/multigravity-cli/internal/agent"
 	"github.com/ye-dev/multigravity-cli/internal/dispatch"
 )
 
@@ -659,6 +660,52 @@ func TestDispatchCLIRunProfileAndRepoFlags(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	_, _ = executeCommand(cmd, "delete", task3.ID, "--worktree", "--force", "--json")
 	_ = os.Chdir(origWd)
+}
+
+func TestDispatchCLICodex(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfileForCmd(t, "dev")
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		return exec.Command("sh", "-c", "echo 'codex mock done'")
+	})
+	defer cleanup()
+
+	cmd := newDispatchCmd()
+	out, err := executeCommand(cmd, "run", "dev", "--agent", "codex", "--cwd", repoDir, "--prompt", "build feature", "--detach", "--json")
+	if err != nil {
+		t.Fatalf("failed to dispatch codex task: %v (output: %s)", err, out)
+	}
+
+	var task dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("failed to parse task JSON: %v (output: %s)", err, out)
+	}
+
+	if task.AgentType != "codex" {
+		t.Errorf("expected AgentType 'codex', got %q", task.AgentType)
+	}
+	if task.Command != "codex" {
+		t.Errorf("expected Command 'codex', got %q", task.Command)
+	}
+	expectedArgs := []string{"exec", "-C", repoDir, "--sandbox", "workspace-write", "build feature"}
+	if len(task.Args) != len(expectedArgs) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedArgs), len(task.Args), task.Args)
+	}
+	for i, arg := range expectedArgs {
+		if task.Args[i] != arg {
+			t.Errorf("arg[%d] = %q; want %q", i, task.Args[i], arg)
+		}
+	}
 }
 
 

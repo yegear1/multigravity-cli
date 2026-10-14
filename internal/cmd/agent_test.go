@@ -237,8 +237,31 @@ func TestAgentRun_RewriteModelArgs(t *testing.T) {
 	if isAgyCommand("opencode", "agy") {
 		t.Error("expected agentType 'opencode' to not be agy command")
 	}
-	if isAgyCommand("", "claude") {
-		t.Error("expected 'claude' command to not be agy command")
+	if isAgyCommand("codex", "agy") {
+		t.Error("expected agentType 'codex' to not be agy command")
+	}
+	if isAgyCommand("codex", "codex") {
+		t.Error("expected agentType 'codex' with codex command to not be agy command")
+	}
+	if isAgyCommand("", "codex") {
+		t.Error("expected 'codex' command to not be agy command")
+	}
+	if !isCodexCommand("codex", "") {
+		t.Error("expected agentType 'codex' to be codex command")
+	}
+	if !isCodexCommand("", "/usr/local/bin/codex") {
+		t.Error("expected '/usr/local/bin/codex' to be codex command")
+	}
+
+	// prepareCodexInteractiveArgs tests
+	prep := prepareCodexInteractiveArgs(nil, "/path/to/cwd")
+	if len(prep) != 4 || prep[0] != "-C" || prep[1] != "/path/to/cwd" || prep[2] != "--sandbox" || prep[3] != "workspace-write" {
+		t.Errorf("unexpected prepareCodexInteractiveArgs result: %v", prep)
+	}
+
+	prepExplicit := prepareCodexInteractiveArgs([]string{"-C", "/custom", "-s", "read-only"}, "/path/to/cwd")
+	if len(prepExplicit) != 4 || prepExplicit[1] != "/custom" || prepExplicit[3] != "read-only" {
+		t.Errorf("unexpected prepareCodexInteractiveArgs with explicit flags: %v", prepExplicit)
 	}
 
 	// Integration test via agent run with conflicting models
