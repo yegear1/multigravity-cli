@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -260,5 +261,196 @@ waitEcho:
 	sessions = mgr.ListSessions(SessionFilter{})
 	if len(sessions) != 0 {
 		t.Errorf("expected 0 sessions after prune, got %d", len(sessions))
+	}
+}
+
+func TestSupportsNativeSandbox(t *testing.T) {
+	if !SupportsNativeSandbox("codex") {
+		t.Error("expected codex to support native sandbox")
+	}
+	if !SupportsNativeSandbox("Codex") {
+		t.Error("expected Codex (case-insensitive) to support native sandbox")
+	}
+	for _, runner := range []string{"claude", "aider", "opencode", "agy", "custom", "bash"} {
+		if SupportsNativeSandbox(runner) {
+			t.Errorf("expected runner %q to not support native sandbox", runner)
+		}
+	}
+}
+
+func TestWrapWithAgentGuard(t *testing.T) {
+	// Standard wrapping with default role
+	cmd, args := WrapWithAgentGuard("claude", []string{"-p", "fix bug"}, "/repo/path", "")
+	if cmd != "agent-guard" {
+		t.Errorf("expected cmd 'agent-guard', got %q", cmd)
+	}
+	expectedArgs := []string{"wrap", "--role", "developer", "--repo", "/repo/path", "--", "claude", "-p", "fix bug"}
+	if len(args) != len(expectedArgs) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedArgs), len(args), args)
+	}
+	for i, a := range expectedArgs {
+		if args[i] != a {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], a)
+		}
+	}
+
+	// Custom role
+	cmd, args = WrapWithAgentGuard("aider", []string{"--message", "hi"}, "/repo/path", "auditor")
+	if cmd != "agent-guard" || args[2] != "auditor" {
+		t.Errorf("expected custom role 'auditor', got: %v", args)
+	}
+
+	// Idempotent wrapping (do not wrap twice)
+	cmd2, args2 := WrapWithAgentGuard(cmd, args, "/repo/path", "developer")
+	if cmd2 != cmd || len(args2) != len(args) {
+		t.Errorf("expected idempotent wrap, got %s %v", cmd2, args2)
+	}
+}
+
+func TestValidatePathWithinRepo(t *testing.T) {
+	repoDir := "/home/user/project"
+
+	// Paths inside repo
+	validPaths := []string{
+		"file.txt",
+		"src/main.go",
+		"./src/main.go",
+		"/home/user/project/file.txt",
+		"/home/user/project/sub/dir/nested.go",
+	}
+	for _, p := range validPaths {
+		if err := ValidatePathWithinRepo(repoDir, p); err != nil {
+			t.Errorf("expected path %q to be valid inside %q, got err: %v", p, repoDir, err)
+		}
+	}
+
+	// Paths outside repo
+	invalidPaths := []string{
+		"../outside.txt",
+		"../../etc/passwd",
+		"/etc/passwd",
+		"/home/user/other-project",
+		"/home/user/project/../../escape",
+	}
+	for _, p := range invalidPaths {
+		if err := ValidatePathWithinRepo(repoDir, p); err == nil {
+			t.Errorf("expected path %q to fail validation against %q, but got nil", p, repoDir)
+		}
+	}
+}
+
+func TestInterceptSubshellMutation(t *testing.T) {
+	repoDir := "/home/user/project"
+
+	// Valid subshell operations within repository root
+	validCmds := []string{
+		"echo hello",
+		"cat README.md",
+		"touch file.txt",
+		"touch src/main.go",
+		"echo 'data' > output.log",
+		"echo 'more' >> logs/run.log",
+		"rm -rf ./build",
+		"cp src/a.go src/b.go",
+		"mv old.txt new.txt",
+		"mkdir -p internal/foo",
+		"git status",
+		"git -C ./submodule status",
+		"sed -i 's/a/b/' file.txt",
+	}
+	for _, cmd := range validCmds {
+		if err := InterceptSubshellMutation(repoDir, cmd); err != nil {
+			t.Errorf("expected subshell command %q to be allowed, got: %v", cmd, err)
+		}
+	}
+
+	// Blocked subshell mutations attempting writes outside repository root
+	blockedCmds := []struct {
+		cmd  string
+		desc string
+	}{
+		{"touch /tmp/evil.txt", "absolute path mutation outside repo"},
+		{"touch ../outside.txt", "relative traversal mutation outside repo"},
+		{"rm -rf /var/log", "destructive rm outside repo"},
+		{"rm ../file.txt", "destructive rm via path traversal"},
+		{"cp file.txt /etc/hosts", "copying outside repo"},
+		{"mv file.txt ../stolen.txt", "moving outside repo"},
+		{"mkdir -p /root/secret", "creating directory outside repo"},
+		{"echo 'hack' > /etc/shadow", "output redirection outside repo"},
+		{"echo 'bad' >> ../other.log", "append redirection outside repo"},
+		{"git -C /other/repo commit -m 'oops'", "git targeting outside repo"},
+		{"git --git-dir=/other/repo/.git commit", "git dir outside repo"},
+		{"sed -i 's/a/b/' ../outside.txt", "sed in-place outside repo"},
+		{"echo OK; rm -rf /etc", "chained command containing mutation outside repo"},
+		{"ls && touch /tmp/bad", "&& chained mutation outside repo"},
+	}
+
+	for _, tc := range blockedCmds {
+		if err := InterceptSubshellMutation(repoDir, tc.cmd); err == nil {
+			t.Errorf("expected command %q (%s) to be intercepted and blocked, but got nil", tc.cmd, tc.desc)
+		}
+	}
+}
+
+func TestStartSession_SandboxWrapping(t *testing.T) {
+	mgr := NewManager()
+	testRepo := t.TempDir()
+
+	var capturedOpts CreateSessionOptions
+	cleanup := SetTestHooks(func(opts CreateSessionOptions) *exec.Cmd {
+		capturedOpts = opts
+		return exec.Command("sh", "-c", "echo 'dummy'")
+	})
+	defer cleanup()
+
+	// 1. Non-native runner (claude) with Sandbox: true gets wrapped with agent-guard
+	inst, err := mgr.StartSession(CreateSessionOptions{
+		AgentType: "claude",
+		Command:   "claude",
+		Args:      []string{"-p", "hello"},
+		Cwd:       testRepo,
+		RepoPath:  testRepo,
+		Sandbox:   true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start session: %v", err)
+	}
+
+	info := inst.GetInfo()
+	if info.Command != "agent-guard" {
+		t.Errorf("expected command 'agent-guard', got %q", info.Command)
+	}
+	expectedArgs := []string{"wrap", "--role", "developer", "--repo", testRepo, "--", "claude", "-p", "hello"}
+	if len(info.Args) != len(expectedArgs) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedArgs), len(info.Args), info.Args)
+	}
+	for i, a := range expectedArgs {
+		if info.Args[i] != a {
+			t.Errorf("info.Args[%d] = %q, want %q", i, info.Args[i], a)
+		}
+	}
+	if capturedOpts.Command != "agent-guard" {
+		t.Errorf("expected captured Command to be 'agent-guard', got %q", capturedOpts.Command)
+	}
+
+	// 2. Native runner (codex) with Sandbox: true does NOT get wrapped with agent-guard
+	instCodex, err := mgr.StartSession(CreateSessionOptions{
+		AgentType: "codex",
+		Command:   "codex",
+		Args:      []string{"exec", "--sandbox", "workspace-write", "fix bug"},
+		Cwd:       testRepo,
+		RepoPath:  testRepo,
+		Sandbox:   true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start codex session: %v", err)
+	}
+
+	infoCodex := instCodex.GetInfo()
+	if infoCodex.Command != "codex" {
+		t.Errorf("expected codex command to NOT be wrapped with agent-guard, got %q", infoCodex.Command)
+	}
+	if capturedOpts.Command != "codex" {
+		t.Errorf("expected captured Command to be 'codex', got %q", capturedOpts.Command)
 	}
 }

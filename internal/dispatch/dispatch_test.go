@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -428,5 +429,510 @@ func TestDispatchCodexWithWorktree(t *testing.T) {
 			break
 		}
 		time.Sleep(30 * time.Millisecond)
+	}
+}
+
+func TestTaskManager_ApplyTask_Success(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:          "task-apply-test",
+		Profile:     "dev",
+		RepoPath:    repoDir,
+		Command:     "echo",
+		Args:        []string{"agent task done"},
+		NewWorktree: true,
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch task: %v", err)
+	}
+
+	// Wait for task to complete
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tCur, err := taskMgr.GetTask(repoDir, task.ID)
+		if err == nil && tCur.Status == StatusCompleted {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	// Simulate agent modifications in the worktree:
+	// 1. Modify README.md
+	readmePath := filepath.Join(task.WorktreePath, "README.md")
+	if err := os.WriteFile(readmePath, []byte("# Test Repo\n\nAdded feature description\n"), 0644); err != nil {
+		t.Fatalf("failed to modify README in worktree: %v", err)
+	}
+
+	// 2. Create new file
+	featPath := filepath.Join(task.WorktreePath, "feature.txt")
+	if err := os.WriteFile(featPath, []byte("new feature content\n"), 0644); err != nil {
+		t.Fatalf("failed to create feature.txt in worktree: %v", err)
+	}
+
+	// Test DryRun
+	dryRes, err := taskMgr.ApplyTask(repoDir, task.ID, ApplyOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("expected dry-run apply to succeed, got error: %v", err)
+	}
+	if !dryRes.DryRun {
+		t.Errorf("expected DryRun true, got false")
+	}
+	if dryRes.FilesApplied != 2 {
+		t.Errorf("expected 2 files applied, got %d", dryRes.FilesApplied)
+	}
+
+	// Ensure base repo files are UNCHANGED during dry run
+	baseReadme, _ := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	if strings.Contains(string(baseReadme), "Added feature description") {
+		t.Errorf("base README was modified during dry-run")
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "feature.txt")); !os.IsNotExist(err) {
+		t.Errorf("base feature.txt exists after dry-run")
+	}
+
+	// Now execute real ApplyTask
+	applyRes, err := taskMgr.ApplyTask(repoDir, task.ID, ApplyOptions{DryRun: false})
+	if err != nil {
+		t.Fatalf("ApplyTask failed: %v", err)
+	}
+	if applyRes.DryRun {
+		t.Errorf("expected DryRun false, got true")
+	}
+	if !applyRes.Pruned {
+		t.Errorf("expected Pruned true, got false")
+	}
+	if applyRes.FilesApplied != 2 {
+		t.Errorf("expected 2 files applied, got %d", applyRes.FilesApplied)
+	}
+
+	// Verify base repo now has the applied changes
+	baseReadmeAfter, _ := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	if !strings.Contains(string(baseReadmeAfter), "Added feature description") {
+		t.Errorf("base README was not updated after apply")
+	}
+	baseFeatAfter, err := os.ReadFile(filepath.Join(repoDir, "feature.txt"))
+	if err != nil || string(baseFeatAfter) != "new feature content\n" {
+		t.Errorf("base feature.txt content incorrect: %v, content: %q", err, string(baseFeatAfter))
+	}
+
+	// Verify worktree directory is removed from disk
+	if _, err := os.Stat(task.WorktreePath); !os.IsNotExist(err) {
+		t.Errorf("worktree path %s still exists after apply prune", task.WorktreePath)
+	}
+
+	// Verify repeated apply fails cleanly
+	_, err = taskMgr.ApplyTask(repoDir, task.ID, ApplyOptions{})
+	if err == nil {
+		t.Errorf("expected error when applying an already applied task, got nil")
+	}
+}
+
+func TestTaskManager_ApplyTask_ValidationErrors(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	// 1. Non-existent task
+	_, err := taskMgr.ApplyTask(repoDir, "task-does-not-exist", ApplyOptions{})
+	if err == nil {
+		t.Errorf("expected error for non-existent task, got nil")
+	}
+
+	// 2. Task without worktree
+	taskNoWT, err := taskMgr.Dispatch(DispatchOptions{
+		ID:       "task-no-wt",
+		Profile:  "dev",
+		RepoPath: repoDir,
+		Command:  "echo",
+		Args:     []string{"hello"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	_, err = taskMgr.ApplyTask(repoDir, taskNoWT.ID, ApplyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "does not have an ephemeral worktree") {
+		t.Errorf("expected worktree missing error, got: %v", err)
+	}
+
+	// 3. Task with empty diff (no changes made in worktree)
+	taskEmptyDiff, err := taskMgr.Dispatch(DispatchOptions{
+		ID:          "task-empty-diff",
+		Profile:     "dev",
+		RepoPath:    repoDir,
+		Command:     "echo",
+		Args:        []string{"noop"},
+		NewWorktree: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+
+	_, err = taskMgr.ApplyTask(repoDir, taskEmptyDiff.ID, ApplyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "no changes to apply") {
+		t.Errorf("expected 'no changes to apply' error, got: %v", err)
+	}
+}
+
+func TestDispatchSandboxNonNative(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	var capturedOpts agent.CreateSessionOptions
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		capturedOpts = opts
+		return exec.Command("sh", "-c", "echo 'claude sandboxed'")
+	})
+	defer cleanup()
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:        "task-sandbox-claude",
+		Profile:   "dev",
+		RepoPath:  repoDir,
+		AgentType: "claude",
+		Prompt:    "fix syntax error",
+		Sandbox:   true,
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch sandboxed task: %v", err)
+	}
+
+	if task.Command != "agent-guard" {
+		t.Errorf("expected command 'agent-guard', got %q", task.Command)
+	}
+	if !task.Sandbox {
+		t.Errorf("expected task.Sandbox to be true")
+	}
+
+	// Verify args match agent-guard wrap --role developer --repo <repoDir> -- claude -p "fix syntax error"
+	expectedPrefix := []string{"wrap", "--role", "developer", "--repo", repoDir, "--", "claude", "-p", "fix syntax error"}
+	if len(task.Args) != len(expectedPrefix) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedPrefix), len(task.Args), task.Args)
+	}
+	for i, arg := range expectedPrefix {
+		if task.Args[i] != arg {
+			t.Errorf("task.Args[%d] = %q; want %q", i, task.Args[i], arg)
+		}
+	}
+
+	if capturedOpts.Command != "agent-guard" {
+		t.Errorf("expected captured Command to be 'agent-guard', got %q", capturedOpts.Command)
+	}
+}
+
+func TestDispatchSandboxNativeCodex(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	var capturedOpts agent.CreateSessionOptions
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		capturedOpts = opts
+		return exec.Command("sh", "-c", "echo 'codex native sandboxed'")
+	})
+	defer cleanup()
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:        "task-sandbox-codex",
+		Profile:   "dev",
+		RepoPath:  repoDir,
+		AgentType: "codex",
+		Prompt:    "run build",
+		Sandbox:   true,
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch sandboxed codex task: %v", err)
+	}
+
+	// Codex has native sandbox flags; should NOT be wrapped with agent-guard
+	if task.Command != "codex" {
+		t.Errorf("expected command 'codex', got %q", task.Command)
+	}
+
+	// Verify native sandbox args: exec -C <repoDir> --sandbox workspace-write "run build"
+	expectedArgs := []string{"exec", "-C", repoDir, "--sandbox", "workspace-write", "run build"}
+	if len(task.Args) != len(expectedArgs) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedArgs), len(task.Args), task.Args)
+	}
+	for i, arg := range expectedArgs {
+		if task.Args[i] != arg {
+			t.Errorf("task.Args[%d] = %q; want %q", i, task.Args[i], arg)
+		}
+	}
+
+	if capturedOpts.Command != "codex" {
+		t.Errorf("expected captured Command to be 'codex', got %q", capturedOpts.Command)
+	}
+}
+
+func TestDispatchSandboxSubshellMutationIntercept(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+
+	// Valid in-repo command
+	if err := agent.InterceptSubshellMutation(repoDir, "echo 'hello' > test.txt"); err != nil {
+		t.Errorf("expected valid in-repo command to pass, got: %v", err)
+	}
+
+	// Subshell mutation attempting write outside target repo root
+	outsideFile := filepath.Join(filepath.Dir(repoDir), "escape.txt")
+	cmdOutside := fmt.Sprintf("touch %s", outsideFile)
+	err := agent.InterceptSubshellMutation(repoDir, cmdOutside)
+	if err == nil {
+		t.Errorf("expected subshell mutation outside repo root to be intercepted, but got nil")
+	}
+}
+
+func TestDispatchVerifySuccess(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:          "task-verify-success",
+		Profile:     "dev",
+		RepoPath:    repoDir,
+		NewWorktree: true,
+		Command:     "sh",
+		Args:        []string{"-c", "echo 'feature code' > feature.go"},
+		Verify:      "cat feature.go",
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch task with verify: %v", err)
+	}
+	if task.ID != "task-verify-success" {
+		t.Errorf("expected ID task-verify-success, got %s", task.ID)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	var completedTask *Task
+	for time.Now().Before(deadline) {
+		tCur, err := taskMgr.GetTask(repoDir, "task-verify-success")
+		if err == nil && (tCur.Status == StatusCompleted || tCur.Status == StatusFailed || tCur.Status == StatusAuditFailed) {
+			completedTask = tCur
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if completedTask == nil {
+		t.Fatal("timed out waiting for task to complete")
+	}
+
+	if completedTask.Status != StatusCompleted {
+		t.Fatalf("expected StatusCompleted, got %s (error: %s, output: %s)", completedTask.Status, completedTask.Error, completedTask.VerificationOutput)
+	}
+	if completedTask.VerificationExitCode != 0 {
+		t.Errorf("expected VerificationExitCode 0, got %d", completedTask.VerificationExitCode)
+	}
+	if !strings.Contains(completedTask.VerificationOutput, "feature code") {
+		t.Errorf("expected VerificationOutput to contain 'feature code', got %q", completedTask.VerificationOutput)
+	}
+	if completedTask.Verify != "cat feature.go" {
+		t.Errorf("expected Verify 'cat feature.go', got %q", completedTask.Verify)
+	}
+
+	// Verify log contains verification output
+	logs, err := taskMgr.GetTaskLogs(repoDir, "task-verify-success", 0)
+	if err != nil {
+		t.Fatalf("failed to get task logs: %v", err)
+	}
+	if !strings.Contains(string(logs), "=== Verification (cat feature.go) ===") {
+		t.Errorf("expected logs to contain verification header, got: %s", string(logs))
+	}
+}
+
+func TestDispatchVerifyFailure(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:          "task-verify-failure",
+		Profile:     "dev",
+		RepoPath:    repoDir,
+		NewWorktree: true,
+		Command:     "sh",
+		Args:        []string{"-c", "echo 'broken code' > broken.go"},
+		Verify:      "sh -c 'echo \"syntax error in broken.go\" >&2 && exit 42'",
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch task with failing verify: %v", err)
+	}
+	if task.ID != "task-verify-failure" {
+		t.Errorf("expected ID task-verify-failure, got %s", task.ID)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	var completedTask *Task
+	for time.Now().Before(deadline) {
+		tCur, err := taskMgr.GetTask(repoDir, "task-verify-failure")
+		if err == nil && (tCur.Status == StatusCompleted || tCur.Status == StatusFailed || tCur.Status == StatusAuditFailed) {
+			completedTask = tCur
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if completedTask == nil {
+		t.Fatal("timed out waiting for task to complete")
+	}
+
+	if completedTask.Status != StatusAuditFailed {
+		t.Fatalf("expected StatusAuditFailed, got %s", completedTask.Status)
+	}
+	if completedTask.VerificationExitCode != 42 {
+		t.Errorf("expected VerificationExitCode 42, got %d", completedTask.VerificationExitCode)
+	}
+	if !strings.Contains(completedTask.VerificationOutput, "syntax error in broken.go") {
+		t.Errorf("expected VerificationOutput to capture stderr error, got %q", completedTask.VerificationOutput)
+	}
+	if !strings.Contains(completedTask.Error, "42") {
+		t.Errorf("expected Error to contain exit code 42, got %q", completedTask.Error)
+	}
+
+	// ApplyTask MUST reject audit_failed tasks
+	_, applyErr := taskMgr.ApplyTask(repoDir, "task-verify-failure", ApplyOptions{})
+	if applyErr == nil {
+		t.Fatalf("expected ApplyTask to reject audit_failed task, but it succeeded")
+	}
+	if !strings.Contains(applyErr.Error(), "audit_failed") {
+		t.Errorf("expected ApplyTask error to mention 'audit_failed', got %q", applyErr.Error())
+	}
+}
+
+func TestDispatchGovernanceInjection(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	// Create governance files in repo
+	if err := os.WriteFile(filepath.Join(repoDir, "AGENTS.md"), []byte("# Rules\nFollow guidelines."), 0644); err != nil {
+		t.Fatalf("failed to write AGENTS.md: %v", err)
+	}
+	agentDir := filepath.Join(repoDir, ".agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatalf("failed to create .agent: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "TASK.md"), []byte("## Active Task\n### 📌 Task [03.6]: Test active\n## Log\n"), 0644); err != nil {
+		t.Fatalf("failed to write TASK.md: %v", err)
+	}
+
+	var capturedOpts agent.CreateSessionOptions
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		capturedOpts = opts
+		return exec.Command("sh", "-c", "echo 'agent done'")
+	})
+	defer cleanup()
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:        "task-gov-inject",
+		Profile:   "dev",
+		RepoPath:  repoDir,
+		AgentType: "claude",
+		Prompt:    "implement governance check",
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch task: %v", err)
+	}
+
+	if !task.Governance {
+		t.Errorf("expected task.Governance to be true")
+	}
+	if task.Metadata["governance"] != "injected" {
+		t.Errorf("expected task.Metadata['governance'] = 'injected', got %q", task.Metadata["governance"])
+	}
+	// task.Prompt preserves original prompt
+	if task.Prompt != "implement governance check" {
+		t.Errorf("expected task.Prompt to preserve original prompt, got %q", task.Prompt)
+	}
+
+	// Args and captured session options receive synthesized prompt
+	if len(task.Args) != 2 || task.Args[0] != "-p" {
+		t.Fatalf("unexpected task.Args: %+v", task.Args)
+	}
+	if !strings.Contains(task.Args[1], "[PROJECT GOVERNANCE CONTEXT]") {
+		t.Errorf("expected prompt arg to contain governance heading, got %q", task.Args[1])
+	}
+	if !strings.Contains(task.Args[1], "Task [03.6]: Test active") {
+		t.Errorf("expected prompt arg to contain active task excerpt, got %q", task.Args[1])
+	}
+	if !strings.Contains(task.Args[1], "[TASK INSTRUCTION]\nimplement governance check") {
+		t.Errorf("expected prompt arg to contain base prompt, got %q", task.Args[1])
+	}
+
+	// Environment variable injection
+	if capturedOpts.Env["MULTIGRAVITY_GOVERNANCE"] != "true" {
+		t.Errorf("expected MULTIGRAVITY_GOVERNANCE=true, got %q", capturedOpts.Env["MULTIGRAVITY_GOVERNANCE"])
+	}
+	if capturedOpts.Env["MULTIGRAVITY_GOVERNANCE_AGENTS"] == "" {
+		t.Errorf("expected MULTIGRAVITY_GOVERNANCE_AGENTS to be set")
+	}
+	if capturedOpts.Env["MULTIGRAVITY_GOVERNANCE_TASK"] == "" {
+		t.Errorf("expected MULTIGRAVITY_GOVERNANCE_TASK to be set")
+	}
+}
+
+func TestDispatchGovernanceOptOut(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	// Create governance files in repo
+	if err := os.WriteFile(filepath.Join(repoDir, "AGENTS.md"), []byte("# Rules\n"), 0644); err != nil {
+		t.Fatalf("failed to write AGENTS.md: %v", err)
+	}
+
+	var capturedOpts agent.CreateSessionOptions
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		capturedOpts = opts
+		return exec.Command("sh", "-c", "echo 'agent done'")
+	})
+	defer cleanup()
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:           "task-gov-optout",
+		Profile:      "dev",
+		RepoPath:     repoDir,
+		AgentType:    "claude",
+		Prompt:       "bypass governance",
+		NoGovernance: true,
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch task: %v", err)
+	}
+
+	if task.Governance {
+		t.Errorf("expected task.Governance to be false when NoGovernance=true")
+	}
+	if task.Metadata["governance"] != "disabled" {
+		t.Errorf("expected task.Metadata['governance'] = 'disabled', got %q", task.Metadata["governance"])
+	}
+	if len(task.Args) != 2 || task.Args[1] != "bypass governance" {
+		t.Errorf("expected prompt argument to remain untouched: %+v", task.Args)
+	}
+	if capturedOpts.Env["MULTIGRAVITY_GOVERNANCE"] != "" {
+		t.Errorf("expected MULTIGRAVITY_GOVERNANCE to be unset, got %q", capturedOpts.Env["MULTIGRAVITY_GOVERNANCE"])
 	}
 }

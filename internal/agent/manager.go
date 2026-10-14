@@ -64,11 +64,30 @@ func (m *Manager) StartSession(opts CreateSessionOptions) (*SessionInstance, err
 		return nil, fmt.Errorf("failed to build agent environment: %w", err)
 	}
 
+	agentType := opts.AgentType
+	if agentType == "" {
+		agentType = DetectAgentType(opts.Command)
+	}
+
+	command := opts.Command
+	args := opts.Args
+
+	if opts.Sandbox && !SupportsNativeSandbox(agentType) {
+		repoPath := opts.RepoPath
+		if repoPath == "" {
+			repoPath = opts.Cwd
+		}
+		command, args = WrapWithAgentGuard(command, args, repoPath, opts.Role)
+	}
+
 	var cmd *exec.Cmd
 	if cmdBuilderHook != nil {
-		cmd = cmdBuilderHook(opts)
+		optsCopy := opts
+		optsCopy.Command = command
+		optsCopy.Args = args
+		cmd = cmdBuilderHook(optsCopy)
 	} else {
-		cmd = exec.Command(opts.Command, opts.Args...)
+		cmd = exec.Command(command, args...)
 	}
 	if cmd.Env == nil {
 		cmd.Env = env
@@ -96,11 +115,6 @@ func (m *Manager) StartSession(opts CreateSessionOptions) (*SessionInstance, err
 		pid = cmd.Process.Pid
 	}
 
-	agentType := opts.AgentType
-	if agentType == "" {
-		agentType = DetectAgentType(opts.Command)
-	}
-
 	now := time.Now()
 	sessionID := GenerateSessionID()
 
@@ -108,10 +122,13 @@ func (m *Manager) StartSession(opts CreateSessionOptions) (*SessionInstance, err
 		ID:         sessionID,
 		Profile:    opts.Profile,
 		AgentType:  agentType,
-		Command:    opts.Command,
-		Args:       opts.Args,
+		Command:    command,
+		Args:       args,
 		Cwd:        opts.Cwd,
 		WorktreeID: opts.WorktreeID,
+		RepoPath:   opts.RepoPath,
+		Sandbox:    opts.Sandbox,
+		Role:       opts.Role,
 		Status:     StatusRunning,
 		ExitCode:   -1,
 		PID:        pid,

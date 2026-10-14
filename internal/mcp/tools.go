@@ -151,6 +151,14 @@ func RegisterDefaultTools(s *Server) {
 					Type:        "object",
 					Description: "Custom environment variables key-value map to pass into the task session.",
 				},
+				"verify": {
+					Type:        "string",
+					Description: "Verification command to execute inside worktree upon agent completion (e.g. 'go test ./...'). If non-zero exit code, marks task audit_failed.",
+				},
+				"governance": {
+					Type:        "boolean",
+					Description: "Inject project governance directives (AGENTS.md, TASK.md) into agent prompt and environment (defaults to false for MCP dispatch).",
+				},
 			},
 			Required: []string{"command", "profile"},
 		},
@@ -185,17 +193,19 @@ func RegisterDefaultTools(s *Server) {
 		newWorktree := (wtID == "" && branch != "")
 
 		opts := dispatch.DispatchOptions{
-			Command:     cmdStr,
-			Args:        getStringSlice(args, "args"),
-			Prompt:      getString(args, "prompt"),
-			Profile:     prof,
-			RepoPath:    repo,
-			Branch:      branch,
-			WorktreeID:  wtID,
-			NewWorktree: newWorktree,
-			AgentType:   getString(args, "agent_type"),
-			Detached:    getBool(args, "background"),
-			Env:         getStringMap(args, "env"),
+			Command:      cmdStr,
+			Args:         getStringSlice(args, "args"),
+			Prompt:       getString(args, "prompt"),
+			Profile:      prof,
+			RepoPath:     repo,
+			Branch:       branch,
+			WorktreeID:   wtID,
+			NewWorktree:  newWorktree,
+			AgentType:    getString(args, "agent_type"),
+			Detached:     getBool(args, "background"),
+			Env:          getStringMap(args, "env"),
+			Verify:       getString(args, "verify"),
+			NoGovernance: !getBool(args, "governance"),
 		}
 
 		mgr := dispatch.GetDefaultTaskManager()

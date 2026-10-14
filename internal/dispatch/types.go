@@ -8,50 +8,61 @@ import (
 type TaskStatus string
 
 const (
-	StatusPending   TaskStatus = "pending"
-	StatusRunning   TaskStatus = "running"
-	StatusCompleted TaskStatus = "completed"
-	StatusFailed    TaskStatus = "failed"
-	StatusCancelled TaskStatus = "cancelled"
+	StatusPending     TaskStatus = "pending"
+	StatusRunning     TaskStatus = "running"
+	StatusCompleted   TaskStatus = "completed"
+	StatusFailed      TaskStatus = "failed"
+	StatusCancelled   TaskStatus = "cancelled"
+	StatusAuditFailed TaskStatus = "audit_failed"
 )
 
 // Task models a persistent dispatched agent task execution with its worktree, profile, and logs.
 type Task struct {
-	ID              string            `json:"id"`
-	Profile         string            `json:"profile"`
-	Status          TaskStatus        `json:"status"`
-	Prompt          string            `json:"prompt,omitempty"`
-	AgentType       string            `json:"agent_type,omitempty"`
-	Command         string            `json:"command"`
-	Args            []string          `json:"args,omitempty"`
-	RepoPath        string            `json:"repo_path,omitempty"`
-	WorktreeID      string            `json:"worktree_id,omitempty"`
-	WorktreePath    string            `json:"worktree_path,omitempty"`
-	Branch          string            `json:"branch,omitempty"`
-	BaseCommit      string            `json:"base_commit,omitempty"`
-	HeadCommit      string            `json:"head_commit,omitempty"`
-	SessionID       string            `json:"session_id,omitempty"`
-	PID             int               `json:"pid,omitempty"`
-	ExitCode        int               `json:"exit_code"`
-	CreatedAt       time.Time         `json:"created_at"`
-	StartedAt       time.Time         `json:"started_at"`
-	EndedAt         *time.Time        `json:"ended_at,omitempty"`
-	DurationSeconds float64           `json:"duration_seconds,omitempty"`
-	LogPath         string            `json:"log_path,omitempty"`
-	Error           string            `json:"error,omitempty"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
+	ID                   string            `json:"id"`
+	Profile              string            `json:"profile"`
+	Status               TaskStatus        `json:"status"`
+	Prompt               string            `json:"prompt,omitempty"`
+	AgentType            string            `json:"agent_type,omitempty"`
+	Command              string            `json:"command"`
+	Args                 []string          `json:"args,omitempty"`
+	RepoPath             string            `json:"repo_path,omitempty"`
+	WorktreeID           string            `json:"worktree_id,omitempty"`
+	WorktreePath         string            `json:"worktree_path,omitempty"`
+	Sandbox              bool              `json:"sandbox,omitempty"`
+	Role                 string            `json:"role,omitempty"`
+	Verify               string            `json:"verify,omitempty"`
+	VerificationOutput   string            `json:"verification_output,omitempty"`
+	VerificationExitCode int               `json:"verification_exit_code,omitempty"`
+	Governance           bool              `json:"governance,omitempty"`
+	Branch               string            `json:"branch,omitempty"`
+	BaseCommit           string            `json:"base_commit,omitempty"`
+	HeadCommit           string            `json:"head_commit,omitempty"`
+	SessionID            string            `json:"session_id,omitempty"`
+	PID                  int               `json:"pid,omitempty"`
+	ExitCode             int               `json:"exit_code"`
+	CreatedAt            time.Time         `json:"created_at"`
+	StartedAt            time.Time         `json:"started_at"`
+	EndedAt              *time.Time        `json:"ended_at,omitempty"`
+	DurationSeconds      float64           `json:"duration_seconds,omitempty"`
+	LogPath              string            `json:"log_path,omitempty"`
+	Error                string            `json:"error,omitempty"`
+	Metadata             map[string]string `json:"metadata,omitempty"`
 }
 
 // DispatchOptions specifies parameters for launching a new dispatched agent task.
 type DispatchOptions struct {
-	ID          string            `json:"id,omitempty"`
-	Profile     string            `json:"profile"`
-	RepoPath    string            `json:"repo_path,omitempty"`
-	Prompt      string            `json:"prompt,omitempty"`
-	AgentType   string            `json:"agent_type,omitempty"`
-	Command     string            `json:"command,omitempty"`
-	Args        []string          `json:"args,omitempty"`
-	WorktreeID  string            `json:"worktree_id,omitempty"`
+	ID           string            `json:"id,omitempty"`
+	Profile      string            `json:"profile"`
+	RepoPath     string            `json:"repo_path,omitempty"`
+	Prompt       string            `json:"prompt,omitempty"`
+	AgentType    string            `json:"agent_type,omitempty"`
+	Command      string            `json:"command,omitempty"`
+	Args         []string          `json:"args,omitempty"`
+	Sandbox      bool              `json:"sandbox,omitempty"`
+	Role         string            `json:"role,omitempty"`
+	Verify       string            `json:"verify,omitempty"`
+	NoGovernance bool              `json:"no_governance,omitempty"`
+	WorktreeID   string            `json:"worktree_id,omitempty"`
 	NewWorktree bool              `json:"new_worktree,omitempty"`
 	Branch      string            `json:"branch,omitempty"`
 	BaseCommit  string            `json:"base_commit,omitempty"`
@@ -147,7 +158,29 @@ type TaskDashboardSummary struct {
 	Completed    int       `json:"completed"`
 	Failed       int       `json:"failed"`
 	Cancelled    int       `json:"cancelled"`
+	AuditFailed  int       `json:"audit_failed,omitempty"`
 	RecentTasks  []Task    `json:"recent_tasks"`
 	ActiveTasks  []Task    `json:"active_tasks"`
 	GeneratedAt  time.Time `json:"generated_at"`
+}
+
+// ApplyOptions specifies configuration for applying a task's ephemeral worktree diff into the base repository.
+type ApplyOptions struct {
+	RepoPath string `json:"repo_path,omitempty"`
+	DryRun   bool   `json:"dry_run,omitempty"`
+	NoPrune  bool   `json:"no_prune,omitempty"`
+	ThreeWay bool   `json:"three_way,omitempty"`
+}
+
+// ApplyResult represents the outcome of applying a task diff to the base repository working tree.
+type ApplyResult struct {
+	TaskID       string          `json:"task_id"`
+	WorktreeID   string          `json:"worktree_id"`
+	BaseRepoPath string          `json:"base_repo_path"`
+	FilesApplied int             `json:"files_applied"`
+	Additions    int             `json:"additions"`
+	Deletions    int             `json:"deletions"`
+	Structured   *StructuredDiff `json:"structured,omitempty"`
+	DryRun       bool            `json:"dry_run"`
+	Pruned       bool            `json:"pruned"`
 }

@@ -706,7 +706,384 @@ func TestDispatchCLICodex(t *testing.T) {
 			t.Errorf("arg[%d] = %q; want %q", i, task.Args[i], arg)
 		}
 	}
+	time.Sleep(150 * time.Millisecond)
 }
 
+func TestDispatchCLIApply(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfileForCmd(t, "dev")
 
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newDispatchCmd()
+
+	// 1. Dispatch a task with an ephemeral worktree
+	out, err := executeCommand(cmd, "run", "dev", "--new-worktree", "--detach", "--json", "--", "sh", "-c", "echo 'cli dispatch apply test' && sleep 0.1")
+	if err != nil {
+		t.Fatalf("failed to dispatch task with worktree: %v (output: %s)", err, out)
+	}
+
+	var task dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("failed to parse task JSON: %v (output: %s)", err, out)
+	}
+	if task.WorktreePath == "" {
+		t.Fatalf("expected worktree path on task")
+	}
+
+	// Wait for task completion
+	mgr := dispatch.GetDefaultTaskManager()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tCur, err := mgr.GetTask(repoDir, task.ID)
+		if err == nil && tCur.Status == dispatch.StatusCompleted {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Simulate worktree edits by the agent
+	appliedFile := filepath.Join(task.WorktreePath, "cli_applied.txt")
+	if err := os.WriteFile(appliedFile, []byte("cli apply content\n"), 0644); err != nil {
+		t.Fatalf("failed to write file in worktree: %v", err)
+	}
+
+	// 2. Test apply with --dry-run and --json
+	out, err = executeCommand(cmd, "apply", task.ID, "--dry-run", "--json")
+	if err != nil {
+		t.Fatalf("failed to run dispatch apply --dry-run: %v (output: %s)", err, out)
+	}
+
+	var dryResult dispatch.ApplyResult
+	if err := json.Unmarshal([]byte(out), &dryResult); err != nil {
+		t.Fatalf("failed to parse dry-run JSON: %v (output: %s)", err, out)
+	}
+	if !dryResult.DryRun {
+		t.Errorf("expected DryRun true, got false")
+	}
+	if dryResult.FilesApplied != 1 {
+		t.Errorf("expected 1 file applied, got %d", dryResult.FilesApplied)
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "cli_applied.txt")); !os.IsNotExist(err) {
+		t.Errorf("file should not exist in base repo during dry run")
+	}
+
+	// 3. Test apply with --no-prune (terminal text output)
+	out, err = executeCommand(cmd, "apply", task.ID, "--no-prune")
+	if err != nil {
+		t.Fatalf("failed to run dispatch apply --no-prune: %v (output: %s)", err, out)
+	}
+	if !strings.Contains(out, "applied cleanly") {
+		t.Errorf("expected output to contain 'applied cleanly', got: %s", out)
+	}
+	if !strings.Contains(out, "--no-prune") {
+		t.Errorf("expected output to mention '--no-prune', got: %s", out)
+	}
+
+	// Verify file now exists in base repo
+	content, err := os.ReadFile(filepath.Join(repoDir, "cli_applied.txt"))
+	if err != nil || string(content) != "cli apply content\n" {
+		t.Errorf("base repo file content mismatch: %v, got %q", err, string(content))
+	}
+
+	// Verify worktree still exists because of --no-prune
+	if _, err := os.Stat(task.WorktreePath); os.IsNotExist(err) {
+		t.Errorf("worktree should still exist with --no-prune")
+	}
+
+	// 4. Test repeated apply fails
+	_, err = executeCommand(cmd, "apply", task.ID)
+	if err == nil {
+		t.Errorf("expected error applying already applied task, got nil")
+	}
+
+	// 5. Test apply with real prune and --json on a second task
+	out, err = executeCommand(cmd, "run", "dev", "--new-worktree", "--detach", "--json", "--", "sh", "-c", "echo 'cli dispatch apply test 2' && sleep 0.1")
+	if err != nil {
+		t.Fatalf("failed to dispatch task 2: %v", err)
+	}
+	var task2 dispatch.Task
+	_ = json.Unmarshal([]byte(out), &task2)
+
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tCur, err := mgr.GetTask(repoDir, task2.ID)
+		if err == nil && tCur.Status == dispatch.StatusCompleted {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if err := os.WriteFile(filepath.Join(task2.WorktreePath, "file2.txt"), []byte("file2 content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err = executeCommand(cmd, "apply", task2.ID, "--json")
+	if err != nil {
+		t.Fatalf("failed to apply task 2: %v (output: %s)", err, out)
+	}
+	var apply2Result dispatch.ApplyResult
+	if err := json.Unmarshal([]byte(out), &apply2Result); err != nil {
+		t.Fatalf("failed to parse apply2 JSON: %v", err)
+	}
+	if !apply2Result.Pruned {
+		t.Errorf("expected task 2 to be pruned")
+	}
+	if _, err := os.Stat(task2.WorktreePath); !os.IsNotExist(err) {
+		t.Errorf("task 2 worktree directory should be deleted from disk")
+	}
+}
+
+func TestDispatchCLISandbox(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfileForCmd(t, "dev")
+
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		return exec.Command("sh", "-c", "echo 'sandbox test done'")
+	})
+	defer cleanup()
+
+	cmd := newDispatchCmd()
+
+	// 1. Non-native runner (claude) with --sandbox is wrapped with agent-guard
+	out, err := executeCommand(cmd, "run", "dev", "--repo", repoDir, "--sandbox", "--agent", "claude", "-p", "fix bug", "--detach", "--json")
+	if err != nil {
+		t.Fatalf("failed to dispatch sandboxed task via CLI: %v (out: %s)", err, out)
+	}
+
+	var task dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+
+	if task.Command != "agent-guard" {
+		t.Errorf("expected task.Command to be 'agent-guard', got %q", task.Command)
+	}
+	if !task.Sandbox {
+		t.Errorf("expected task.Sandbox to be true")
+	}
+	if len(task.Args) < 7 || task.Args[0] != "wrap" || task.Args[1] != "--role" || task.Args[2] != "developer" {
+		t.Errorf("unexpected task.Args: %v", task.Args)
+	}
+
+	// 2. Native runner (codex) with --sandbox maintains native command
+	outCodex, err := executeCommand(cmd, "run", "dev", "--repo", repoDir, "--sandbox", "--agent", "codex", "-p", "fix bug", "--detach", "--json")
+	if err != nil {
+		t.Fatalf("failed to dispatch sandboxed codex task via CLI: %v (out: %s)", err, outCodex)
+	}
+
+	var taskCodex dispatch.Task
+	if err := json.Unmarshal([]byte(outCodex), &taskCodex); err != nil {
+		t.Fatalf("failed to parse codex task JSON: %v", err)
+	}
+
+	if taskCodex.Command != "codex" {
+		t.Errorf("expected taskCodex.Command to be 'codex', got %q", taskCodex.Command)
+	}
+	time.Sleep(200 * time.Millisecond)
+}
+
+func TestDispatchCLIRunVerify(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfileForCmd(t, "dev")
+
+	// 1. Success verification in background with --detach
+	cmd := newDispatchCmd()
+	out, err := executeCommand(cmd, "run", "dev", "--repo", repoDir, "--new-worktree", "--verify", "echo 'audit passed'", "--detach", "--json", "--", "sh", "-c", "echo 'code' > file.txt")
+	if err != nil {
+		t.Fatalf("failed to run dispatch with --verify: %v (out: %s)", err, out)
+	}
+
+	var task dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+	if task.Verify != "echo 'audit passed'" {
+		t.Errorf("expected task.Verify to be %q, got %q", "echo 'audit passed'", task.Verify)
+	}
+
+	mgr := dispatch.GetDefaultTaskManager()
+	deadline := time.Now().Add(5 * time.Second)
+	var completedTask *dispatch.Task
+	for time.Now().Before(deadline) {
+		tCur, err := mgr.GetTask(repoDir, task.ID)
+		if err == nil && (tCur.Status == dispatch.StatusCompleted || tCur.Status == dispatch.StatusFailed || tCur.Status == dispatch.StatusAuditFailed) {
+			completedTask = tCur
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if completedTask == nil {
+		t.Fatal("timed out waiting for task to complete")
+	}
+	if completedTask.Status != dispatch.StatusCompleted {
+		t.Errorf("expected StatusCompleted, got %s", completedTask.Status)
+	}
+	if !strings.Contains(completedTask.VerificationOutput, "audit passed") {
+		t.Errorf("expected VerificationOutput to contain 'audit passed', got %q", completedTask.VerificationOutput)
+	}
+
+	// 2. Failure verification: status becomes audit_failed and status/list/dashboard reflect it
+	cmd2 := newDispatchCmd()
+	out2, err := executeCommand(cmd2, "run", "dev", "--repo", repoDir, "--new-worktree", "--verify", "sh -c 'echo \"linter error\" >&2 && exit 7'", "--detach", "--json", "--", "sh", "-c", "echo 'code' > bad.txt")
+	if err != nil {
+		t.Fatalf("failed to run dispatch with failing verify: %v (out: %s)", err, out2)
+	}
+
+	var task2 dispatch.Task
+	if err := json.Unmarshal([]byte(out2), &task2); err != nil {
+		t.Fatalf("failed to parse task2 JSON: %v", err)
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	var completedTask2 *dispatch.Task
+	for time.Now().Before(deadline) {
+		tCur, err := mgr.GetTask(repoDir, task2.ID)
+		if err == nil && (tCur.Status == dispatch.StatusCompleted || tCur.Status == dispatch.StatusFailed || tCur.Status == dispatch.StatusAuditFailed) {
+			completedTask2 = tCur
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if completedTask2 == nil {
+		t.Fatal("timed out waiting for task2 to complete")
+	}
+	if completedTask2.Status != dispatch.StatusAuditFailed {
+		t.Errorf("expected StatusAuditFailed, got %s", completedTask2.Status)
+	}
+	if completedTask2.VerificationExitCode != 7 {
+		t.Errorf("expected VerificationExitCode 7, got %d", completedTask2.VerificationExitCode)
+	}
+	if !strings.Contains(completedTask2.VerificationOutput, "linter error") {
+		t.Errorf("expected VerificationOutput to contain 'linter error', got %q", completedTask2.VerificationOutput)
+	}
+
+	// 3. Status command shows verification details
+	cmdStatus := newDispatchCmd()
+	statusOut, err := executeCommand(cmdStatus, "status", task2.ID)
+	if err != nil {
+		t.Fatalf("failed to execute status: %v", err)
+	}
+	if !strings.Contains(statusOut, "audit_failed") {
+		t.Errorf("expected status output to contain 'audit_failed', got: %s", statusOut)
+	}
+	if !strings.Contains(statusOut, "Verify Cmd:") {
+		t.Errorf("expected status output to contain 'Verify Cmd:', got: %s", statusOut)
+	}
+	if !strings.Contains(statusOut, "Verify Exit: 7") {
+		t.Errorf("expected status output to contain 'Verify Exit: 7', got: %s", statusOut)
+	}
+
+	// 4. List command formats audit_failed
+	cmdList := newDispatchCmd()
+	listOut, err := executeCommand(cmdList, "list")
+	if err != nil {
+		t.Fatalf("failed to execute list: %v", err)
+	}
+	if !strings.Contains(listOut, "audit_failed") {
+		t.Errorf("expected list output to contain 'audit_failed', got: %s", listOut)
+	}
+
+	// 5. Foreground run with failing verify returns error and reports audit failure
+	cmdForeground := newDispatchCmd()
+	fgOut, fgErr := executeCommand(cmdForeground, "run", "dev", "--repo", repoDir, "--verify", "sh -c 'exit 3'", "--", "sh", "-c", "echo 'done'")
+	if fgErr == nil {
+		t.Fatalf("expected foreground run with failing verify to return error, got nil (out: %s)", fgOut)
+	}
+	if !strings.Contains(fgErr.Error(), "audit verification failed with exit code 3") {
+		t.Errorf("expected error to mention 'audit verification failed with exit code 3', got: %v (out: %s)", fgErr, fgOut)
+	}
+}
+
+func TestDispatchCLIRunGovernance(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfilesForCmd(t, "dev")
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+
+	// Create AGENTS.md in repoDir
+	if err := os.WriteFile(filepath.Join(repoDir, "AGENTS.md"), []byte("# Guidelines\nChesterton's fence."), 0644); err != nil {
+		t.Fatalf("failed to write AGENTS.md: %v", err)
+	}
+
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		return exec.Command("sh", "-c", "echo 'cmd agent done'")
+	})
+	defer cleanup()
+
+	// 1. Default run should inject governance
+	cmdDefault := newDispatchCmd()
+	outDefault, err := executeCommand(cmdDefault, "run", "dev", "--repo", repoDir, "-p", "fix auth issue", "--detach", "--json")
+	if err != nil {
+		t.Fatalf("dispatch run default failed: %v", err)
+	}
+	var taskDefault dispatch.Task
+	if err := json.Unmarshal([]byte(outDefault), &taskDefault); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+	if !taskDefault.Governance {
+		t.Errorf("expected taskDefault.Governance to be true")
+	}
+	if taskDefault.Metadata["governance"] != "injected" {
+		t.Errorf("expected metadata['governance'] = 'injected', got %q", taskDefault.Metadata["governance"])
+	}
+
+	// Status command output reflects governance
+	cmdStatus := newDispatchCmd()
+	statusOut, err := executeCommand(cmdStatus, "status", taskDefault.ID)
+	if err != nil {
+		t.Fatalf("failed to execute status: %v", err)
+	}
+	if !strings.Contains(statusOut, "Governance:") || !strings.Contains(statusOut, "injected") {
+		t.Errorf("expected status to mention 'Governance: injected', got: %s", statusOut)
+	}
+
+	// 2. Run with --no-governance bypasses injection
+	cmdNoGov := newDispatchCmd()
+	outNoGov, err := executeCommand(cmdNoGov, "run", "dev", "--repo", repoDir, "-p", "fix auth issue", "--no-governance", "--detach", "--json")
+	if err != nil {
+		t.Fatalf("dispatch run with --no-governance failed: %v", err)
+	}
+	var taskNoGov dispatch.Task
+	if err := json.Unmarshal([]byte(outNoGov), &taskNoGov); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+	if taskNoGov.Governance {
+		t.Errorf("expected taskNoGov.Governance to be false")
+	}
+	if taskNoGov.Metadata["governance"] != "disabled" {
+		t.Errorf("expected metadata['governance'] = 'disabled', got %q", taskNoGov.Metadata["governance"])
+	}
+
+	// Status command output reflects disabled governance
+	cmdStatusNoGov := newDispatchCmd()
+	statusNoGovOut, err := executeCommand(cmdStatusNoGov, "status", taskNoGov.ID)
+	if err != nil {
+		t.Fatalf("failed to execute status: %v", err)
+	}
+	if !strings.Contains(statusNoGovOut, "Governance:") || !strings.Contains(statusNoGovOut, "disabled") {
+		t.Errorf("expected status to mention 'Governance: disabled', got: %s", statusNoGovOut)
+	}
+
+	// Wait for background tasks to terminate cleanly
+	for i := 0; i < 50; i++ {
+		t1, _ := dispatch.GetDefaultTaskManager().GetTask(repoDir, taskDefault.ID)
+		t2, _ := dispatch.GetDefaultTaskManager().GetTask(repoDir, taskNoGov.ID)
+		if (t1 == nil || t1.Status != dispatch.StatusRunning) && (t2 == nil || t2.Status != dispatch.StatusRunning) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
 

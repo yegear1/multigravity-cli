@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -23,11 +25,47 @@ import (
 )
 
 var (
-	validTaskIDRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`)
-	taskMu           sync.RWMutex
-	defaultMgr       *TaskManager
-	defaultMgrOnce   sync.Once
+	validTaskIDRegex  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`)
+	taskMu            sync.RWMutex
+	defaultMgr        *TaskManager
+	defaultMgrOnce    sync.Once
+	verifyCommandHook func(dir, cmdStr string) ([]byte, int, error)
 )
+
+// SetVerifyCommandHook allows tests to override verification command execution.
+func SetVerifyCommandHook(hook func(dir, cmdStr string) ([]byte, int, error)) {
+	verifyCommandHook = hook
+}
+
+func defaultExecuteVerifyCommand(dir, cmdStr string) ([]byte, int, error) {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd.exe", "/c", cmdStr)
+	} else {
+		cmd = exec.Command("sh", "-c", cmdStr)
+	}
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.CombinedOutput()
+	exitCode := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+	return out, exitCode, err
+}
+
+func executeVerifyCommand(dir, cmdStr string) ([]byte, int, error) {
+	if verifyCommandHook != nil {
+		return verifyCommandHook(dir, cmdStr)
+	}
+	return defaultExecuteVerifyCommand(dir, cmdStr)
+}
 
 // TaskManager coordinates task dispatching, worktree isolation, log capture, and status queries.
 type TaskManager struct {
@@ -392,11 +430,30 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		_ = worktree.EnsureGitExclude(repoRoot, ".multigravity/")
 	}
 
+	promptToRun := opts.Prompt
+	taskEnv := opts.Env
+	governanceInjected := false
+
+	if !opts.NoGovernance {
+		gov := DiscoverGovernance(execDir, repoRoot)
+		if gov != nil && gov.Found() {
+			governanceInjected = true
+			if promptToRun != "" {
+				promptToRun = SynthesizePrompt(promptToRun, gov)
+			}
+			taskEnv = InjectGovernanceEnv(taskEnv, gov)
+		}
+	}
+
 	// Deduce command and arguments
-	cmdStr, args := ResolveAgentCommandWithCwd(opts.AgentType, opts.Command, opts.Args, opts.Prompt, execDir)
+	cmdStr, args := ResolveAgentCommandWithCwd(opts.AgentType, opts.Command, opts.Args, promptToRun, execDir)
 	agentType := opts.AgentType
 	if agentType == "" {
 		agentType = agent.DetectAgentType(cmdStr)
+	}
+
+	if opts.Sandbox && !agent.SupportsNativeSandbox(agentType) {
+		cmdStr, args = agent.WrapWithAgentGuard(cmdStr, args, execDir, opts.Role)
 	}
 
 	tasksDir := getTasksDir(repoRoot)
@@ -411,6 +468,16 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 	}
 	now := time.Now().UTC()
 
+	metadata := make(map[string]string)
+	for k, v := range opts.Metadata {
+		metadata[k] = v
+	}
+	if governanceInjected {
+		metadata["governance"] = "injected"
+	} else if opts.NoGovernance {
+		metadata["governance"] = "disabled"
+	}
+
 	task := &Task{
 		ID:           taskID,
 		Profile:      opts.Profile,
@@ -422,13 +489,17 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		RepoPath:     repoRoot,
 		WorktreeID:   wtID,
 		WorktreePath: wtPath,
+		Sandbox:      opts.Sandbox,
+		Role:         opts.Role,
+		Verify:       opts.Verify,
+		Governance:   governanceInjected,
 		Branch:       branch,
 		BaseCommit:   baseCommit,
 		ExitCode:     -1,
 		CreatedAt:    now,
 		StartedAt:    now,
 		LogPath:      logPath,
-		Metadata:     opts.Metadata,
+		Metadata:     metadata,
 	}
 
 	// Persist initial state
@@ -454,7 +525,10 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		Args:       args,
 		Cwd:        execDir,
 		WorktreeID: wtID,
-		Env:        opts.Env,
+		RepoPath:   execDir,
+		Sandbox:    opts.Sandbox,
+		Role:       opts.Role,
+		Env:        taskEnv,
 		GatewayURL: opts.GatewayURL,
 		GatewayKey: opts.GatewayKey,
 		Detached:   true,
@@ -531,13 +605,17 @@ func (m *TaskManager) watchSession(inst *agent.SessionInstance, task *Task, task
 	task.ExitCode = info.ExitCode
 	task.DurationSeconds = ended.Sub(task.StartedAt).Seconds()
 
+	agentSucceeded := false
 	if task.Status != StatusCancelled {
 		if info.Status == agent.StatusStopped {
 			task.Status = StatusCancelled
-		} else if info.ExitCode == 0 {
-			task.Status = StatusCompleted
-		} else {
+		} else if info.ExitCode != 0 {
 			task.Status = StatusFailed
+		} else {
+			agentSucceeded = true
+			if strings.TrimSpace(task.Verify) == "" {
+				task.Status = StatusCompleted
+			}
 		}
 	}
 
@@ -548,6 +626,45 @@ func (m *TaskManager) watchSession(inst *agent.SessionInstance, task *Task, task
 		}
 	}
 	m.mu.Unlock()
+
+	// Execute verification hook if agent succeeded and verify command was configured
+	if agentSucceeded && strings.TrimSpace(task.Verify) != "" {
+		verifyDir := task.WorktreePath
+		if verifyDir == "" {
+			verifyDir = task.RepoPath
+		}
+		if verifyDir == "" {
+			verifyDir, _ = os.Getwd()
+		}
+
+		out, exitCode, vErr := executeVerifyCommand(verifyDir, task.Verify)
+		verifyEnded := time.Now().UTC()
+
+		m.mu.Lock()
+		task.EndedAt = &verifyEnded
+		task.DurationSeconds = verifyEnded.Sub(task.StartedAt).Seconds()
+		task.VerificationOutput = string(out)
+		task.VerificationExitCode = exitCode
+		if exitCode != 0 || vErr != nil {
+			task.Status = StatusAuditFailed
+			if vErr != nil && exitCode == 0 {
+				task.Error = fmt.Sprintf("verification execution error: %v", vErr)
+			} else {
+				task.Error = fmt.Sprintf("verification command failed with exit code %d", exitCode)
+			}
+		} else {
+			task.Status = StatusCompleted
+		}
+		m.mu.Unlock()
+
+		// Append verification output to log file
+		if task.LogPath != "" {
+			if f, err := os.OpenFile(task.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+				_, _ = fmt.Fprintf(f, "\n=== Verification (%s) ===\n%s\n", task.Verify, string(out))
+				_ = f.Close()
+			}
+		}
+	}
 
 	// Persist finalized task state
 	_ = saveTaskFile(taskDir, task)
@@ -575,7 +692,7 @@ func (m *TaskManager) WaitForTask(ctx context.Context, repoPath, id string) (*Ta
 		m.waitMu.Unlock()
 		return nil, err
 	}
-	if t.Status == StatusCompleted || t.Status == StatusFailed || t.Status == StatusCancelled {
+	if t.Status == StatusCompleted || t.Status == StatusFailed || t.Status == StatusCancelled || t.Status == StatusAuditFailed {
 		m.waitMu.Unlock()
 		return t, nil
 	}
@@ -849,6 +966,136 @@ func (m *TaskManager) GetTaskFiles(repoPath, id string) ([]DiffFile, error) {
 	return sd.Files, nil
 }
 
+// ApplyTask applies changes from a completed task's ephemeral worktree into the base repository working tree.
+func (m *TaskManager) ApplyTask(repoPath, id string, opts ApplyOptions) (*ApplyResult, error) {
+	if err := ValidateTaskID(id); err != nil {
+		return nil, err
+	}
+
+	task, err := m.GetTask(repoPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Validate status is completed
+	if task.Status != StatusCompleted {
+		return nil, fmt.Errorf("task %q is in %s state (must be completed to apply)", id, task.Status)
+	}
+
+	// 2. Validate worktree exists
+	if task.WorktreeID == "" || task.WorktreePath == "" {
+		return nil, fmt.Errorf("task %q does not have an ephemeral worktree", id)
+	}
+
+	if task.Metadata != nil && task.Metadata["applied"] == "true" {
+		return nil, fmt.Errorf("task %q has already been applied", id)
+	}
+
+	if _, err := os.Stat(task.WorktreePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("ephemeral worktree directory for task %q does not exist: %s", id, task.WorktreePath)
+	}
+
+	// Determine base repository root
+	repoRoot := task.RepoPath
+	if repoRoot == "" {
+		if opts.RepoPath != "" {
+			if r, err := worktree.FindRepoRoot(opts.RepoPath); err == nil {
+				repoRoot = r
+			}
+		} else if cwd, err := os.Getwd(); err == nil {
+			if r, err := worktree.FindRepoRoot(cwd); err == nil {
+				repoRoot = r
+			}
+		}
+	}
+	if repoRoot == "" {
+		repoRoot = filepath.Dir(filepath.Dir(filepath.Dir(task.WorktreePath)))
+	}
+
+	// 3. Obtain unified diff from worktree
+	baseCommit := task.BaseCommit
+	diff, err := worktree.GitDiff(task.WorktreePath, baseCommit, false, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute worktree diff: %w", err)
+	}
+
+	if strings.TrimSpace(diff) == "" {
+		return nil, fmt.Errorf("task %q has no changes to apply", id)
+	}
+
+	// Parse structured diff for reporting
+	structured := ParseUnifiedDiff(diff)
+
+	// 4. Pre-flight check with git apply --check
+	if err := worktree.GitApply(repoRoot, diff, true, opts.ThreeWay); err != nil {
+		return nil, fmt.Errorf("patch pre-flight check failed: %w", err)
+	}
+
+	// If dry run, return early without modifying files or removing worktree
+	if opts.DryRun {
+		return &ApplyResult{
+			TaskID:       id,
+			WorktreeID:   task.WorktreeID,
+			BaseRepoPath: repoRoot,
+			FilesApplied: structured.Summary.FilesChanged,
+			Additions:    structured.Summary.Additions,
+			Deletions:    structured.Summary.Deletions,
+			Structured:   structured,
+			DryRun:       true,
+			Pruned:       false,
+		}, nil
+	}
+
+	// 5. Apply patch to base repository working tree
+	if err := worktree.GitApply(repoRoot, diff, false, opts.ThreeWay); err != nil {
+		return nil, fmt.Errorf("failed to apply patch to %s: %w", repoRoot, err)
+	}
+
+	// 6. Prune and remove the ephemeral worktree if !opts.NoPrune
+	pruned := false
+	if !opts.NoPrune {
+		_ = worktree.RemoveWorktree(repoRoot, task.WorktreeID, worktree.RemoveOptions{
+			Force:        true,
+			DeleteBranch: true,
+		})
+		_ = worktree.PruneWorktrees(repoRoot)
+		pruned = true
+	}
+
+	// 7. Update task metadata and persist
+	m.mu.Lock()
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]string)
+	}
+	task.Metadata["applied"] = "true"
+	task.Metadata["applied_at"] = time.Now().UTC().Format(time.RFC3339)
+	m.mu.Unlock()
+
+	taskDir := filepath.Join(getTasksDir(repoRoot), id)
+	_ = saveTaskFile(taskDir, task)
+
+	taskMu.Lock()
+	if manifest, err := m.loadManifest(repoRoot); err == nil {
+		manifest.Tasks[id] = *task
+		_ = m.saveManifest(repoRoot, manifest)
+	}
+	taskMu.Unlock()
+
+	m.emitEvent("applied", task)
+
+	return &ApplyResult{
+		TaskID:       id,
+		WorktreeID:   task.WorktreeID,
+		BaseRepoPath: repoRoot,
+		FilesApplied: structured.Summary.FilesChanged,
+		Additions:    structured.Summary.Additions,
+		Deletions:    structured.Summary.Deletions,
+		Structured:   structured,
+		DryRun:       false,
+		Pruned:       pruned,
+	}, nil
+}
+
 // GetDashboardSummary aggregates execution metrics, counts, and recent tasks for GUI dashboards.
 func (m *TaskManager) GetDashboardSummary(repoPath string) (*TaskDashboardSummary, error) {
 	tasks, err := m.ListTasks(repoPath, TaskFilter{})
@@ -874,6 +1121,8 @@ func (m *TaskManager) GetDashboardSummary(repoPath string) (*TaskDashboardSummar
 			summary.Failed++
 		case StatusCancelled:
 			summary.Cancelled++
+		case StatusAuditFailed:
+			summary.AuditFailed++
 		}
 	}
 

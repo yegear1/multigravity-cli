@@ -367,3 +367,44 @@ func GitCommitCount(repoRoot, from, to string) (ahead, behind int, err error) {
 	}
 	return 0, 0, nil
 }
+
+// GitApply applies a unified diff patch to the working tree of repoDir.
+// If checkOnly is true, it verifies whether the patch can be applied cleanly without modifying files.
+func GitApply(repoDir string, patch string, checkOnly, threeWay bool) error {
+	if strings.TrimSpace(patch) == "" {
+		return nil
+	}
+	if !strings.HasSuffix(patch, "\n") {
+		patch += "\n"
+	}
+	args := []string{"apply", "--whitespace=nowarn"}
+	if checkOnly {
+		args = append(args, "--check")
+	}
+	if threeWay {
+		args = append(args, "-3")
+	}
+	args = append(args, "-")
+
+	cmd := exec.Command("git", args...)
+	if repoDir != "" {
+		cmd.Dir = repoDir
+	}
+	cmd.Stdin = strings.NewReader(patch)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg == "" {
+			errMsg = strings.TrimSpace(stdout.String())
+		}
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+		return fmt.Errorf("git %s: %s", strings.Join(args, " "), errMsg)
+	}
+	return nil
+}

@@ -32,6 +32,8 @@ var (
 	agFilterProf string
 	agFilterStat string
 	agFilterType string
+	agRepo       string
+	agSandbox    bool
 
 	agGreen  = color.New(color.FgGreen).SprintFunc()
 	agYellow = color.New(color.FgYellow).SprintFunc()
@@ -71,6 +73,8 @@ in pseudo-terminal (PTY) environments with identity isolation and multi-account 
 	runSubCmd.Flags().StringVar(&agAgentType, "agent", "", "Agent type (claude, aider, opencode, agy, codex, custom)")
 	runSubCmd.Flags().StringVar(&agWorktree, "worktree", "", "Worktree ID to run inside")
 	runSubCmd.Flags().StringVar(&agCwd, "cwd", "", "Working directory")
+	runSubCmd.Flags().StringVar(&agRepo, "repo", "", "Target repository directory for boundary enforcement")
+	runSubCmd.Flags().BoolVar(&agSandbox, "sandbox", false, "Enforce filesystem and execution boundaries via agent-guard")
 	runSubCmd.Flags().StringVar(&agGateway, "gateway", "", "Gateway base URL (defaults to auto-detecting multigravity serve at http://127.0.0.1:8080/v1)")
 	runSubCmd.Flags().StringVar(&agGatewayKey, "gateway-key", "", "Gateway authentication key")
 	runSubCmd.Flags().BoolVarP(&agDetach, "detach", "d", false, "Run in background and print session ID")
@@ -346,11 +350,21 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	repoPath := agRepo
+	if repoPath == "" {
+		repoPath = cwd
+	}
+	if repoPath == "" {
+		repoPath, _ = os.Getwd()
+	}
+
 	if isCodexCommand(agAgentType, command) {
 		if command == "" {
 			command = "codex"
 		}
 		cmdArgs = prepareCodexInteractiveArgs(cmdArgs, cwd)
+	} else if agSandbox {
+		command, cmdArgs = agent.WrapWithAgentGuard(command, cmdArgs, repoPath, "developer")
 	}
 
 	// Auto-detect gateway if empty
@@ -376,6 +390,8 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 		Args:       cmdArgs,
 		Cwd:        cwd,
 		WorktreeID: agWorktree,
+		RepoPath:   repoPath,
+		Sandbox:    agSandbox,
 		GatewayURL: gatewayURL,
 		GatewayKey: agGatewayKey,
 		Rows:       rows,
@@ -569,6 +585,12 @@ func runAgentStatus(cmd *cobra.Command, args []string) error {
 	}
 	if info.Cwd != "" {
 		fmt.Printf("  Cwd:         %s\n", info.Cwd)
+	}
+	if info.RepoPath != "" {
+		fmt.Printf("  Repo:        %s\n", info.RepoPath)
+	}
+	if info.Sandbox {
+		fmt.Printf("  Sandbox:     true (agent-guard)\n")
 	}
 	fmt.Printf("  Dimensions:  %dx%d (rows x cols)\n", info.Rows, info.Cols)
 	fmt.Printf("  Started:     %s\n", info.StartedAt.Format(time.RFC3339))

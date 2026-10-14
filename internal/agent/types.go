@@ -21,6 +21,9 @@ type Session struct {
 	Args        []string      `json:"args,omitempty"`
 	Cwd         string        `json:"cwd"`
 	WorktreeID  string        `json:"worktree_id,omitempty"`
+	RepoPath    string        `json:"repo_path,omitempty"`
+	Sandbox     bool          `json:"sandbox,omitempty"`
+	Role        string        `json:"role,omitempty"`
 	Status      SessionStatus `json:"status"`
 	ExitCode    int           `json:"exit_code"`
 	PID         int           `json:"pid"`
@@ -40,6 +43,9 @@ type CreateSessionOptions struct {
 	Args       []string          `json:"args,omitempty"`
 	Cwd        string            `json:"cwd,omitempty"`
 	WorktreeID string            `json:"worktree_id,omitempty"`
+	RepoPath   string            `json:"repo_path,omitempty"`
+	Sandbox    bool              `json:"sandbox,omitempty"`
+	Role       string            `json:"role,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`
 	GatewayURL string            `json:"gateway_url,omitempty"`
 	GatewayKey string            `json:"gateway_key,omitempty"`

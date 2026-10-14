@@ -2,8 +2,9 @@ package cmd
 
 import (
 	"fmt"
-
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/ye-dev/multigravity-cli/internal/config"
@@ -66,6 +67,13 @@ granular sharing of MCP servers, skills, read-only permissions, and developer cr
 
 // Execute runs the root command
 func Execute() error {
+	if len(os.Args) > 0 {
+		base := strings.ToLower(filepath.Base(os.Args[0]))
+		base = strings.TrimSuffix(base, ".exe")
+		if base == "agent-guard" {
+			rootCmd.SetArgs(append([]string{"agent-guard"}, os.Args[1:]...))
+		}
+	}
 	return rootCmd.Execute()
 }
 
@@ -100,6 +108,7 @@ func init() {
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(newMCPServerRootCmd())
+	rootCmd.AddCommand(newAgentGuardCmd())
 
 	// Shell completion dynamic profile args
 	workspaceCmd.ValidArgsFunction = profileArgsCompletion

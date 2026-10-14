@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -281,3 +282,69 @@ func TestAgentRun_RewriteModelArgs(t *testing.T) {
 	}
 }
 
+func TestAgentCLISandbox(t *testing.T) {
+	tempHome := t.TempDir()
+	profDir := filepath.Join(tempHome, "AntigravityProfiles", "sandbox-prof")
+	_ = os.MkdirAll(profDir, 0755)
+	t.Setenv("MULTIGRAVITY_HOME", filepath.Join(tempHome, "AntigravityProfiles"))
+	t.Setenv("REAL_HOME", tempHome)
+
+	testRepo := t.TempDir()
+
+	var capturedOpts agent.CreateSessionOptions
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		capturedOpts = opts
+		return exec.Command("sh", "-c", "echo 'sandboxed agent'")
+	})
+	defer cleanup()
+
+	cmd := newAgentCmd()
+	cmd.SetArgs([]string{"run", "sandbox-prof", "--sandbox", "--repo", testRepo, "--detach", "--json", "--", "claude", "-p", "hello"})
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("agent run --sandbox failed: %v", err)
+	}
+
+	if capturedOpts.Command != "agent-guard" {
+		t.Errorf("expected command 'agent-guard', got %q", capturedOpts.Command)
+	}
+	expectedArgs := []string{"wrap", "--role", "developer", "--repo", testRepo, "--", "claude", "-p", "hello"}
+	if len(capturedOpts.Args) != len(expectedArgs) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedArgs), len(capturedOpts.Args), capturedOpts.Args)
+	}
+	for i, a := range expectedArgs {
+		if capturedOpts.Args[i] != a {
+			t.Errorf("capturedOpts.Args[%d] = %q, want %q", i, capturedOpts.Args[i], a)
+		}
+	}
+}
+
+func TestAgentGuardCLI(t *testing.T) {
+	testRepo := t.TempDir()
+
+	// 1. Success case: command within repo
+	guardCmd := newAgentGuardCmd()
+	guardCmd.SetArgs([]string{"wrap", "--role", "developer", "--repo", testRepo, "--", "echo", "inside-repo"})
+	buf := new(bytes.Buffer)
+	guardCmd.SetOut(buf)
+
+	if err := guardCmd.Execute(); err != nil {
+		t.Fatalf("agent-guard wrap inside repo failed: %v", err)
+	}
+
+	// 2. Blocked case: mutation outside repo
+	outsidePath := filepath.Join(filepath.Dir(testRepo), "unauthorized.txt")
+	guardCmdFail := newAgentGuardCmd()
+	guardCmdFail.SetArgs([]string{"wrap", "--role", "developer", "--repo", testRepo, "--", "touch", outsidePath})
+
+	err := guardCmdFail.Execute()
+	if err == nil {
+		t.Fatal("expected agent-guard wrap to block mutation outside repo root, but got nil")
+	}
+	if !strings.Contains(err.Error(), "subshell execution violation") {
+		t.Errorf("expected 'subshell execution violation' in error, got: %v", err)
+	}
+}

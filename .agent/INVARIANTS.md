@@ -1,170 +1,175 @@
-# INVARIANTS.md — Invariantes e Regras Intocáveis do Sistema
+# INVARIANTS.md — System Invariants and Untouchable Rules
 
-> 🧱 **O Princípio do Muro de Chesterton:**
-> *"Nunca remova uma regra, filtro ou trecho de código estranho até descobrir por que ele foi colocado ali."*
+> 🧱 **Chesterton's Fence Principle:**
+> *"Never remove a rule, filter, or unusual piece of code until you understand why it was put there."*
 >
-> Este arquivo é a fonte da verdade para **comportamentos, peculiaridades e contratos do sistema legado** que PARECEM errados, redundantes ou feios à primeira vista, mas que **NÃO DEVEM SER ALTERADOS** sem aprovação explícita e justificada do desenvolvedor.
+> This file is the source of truth for **legacy system behaviors, platform quirks, and rigid contracts** that may appear redundant, suboptimal, or unusual at first glance, but **MUST NOT BE CHANGED** without explicit user consent.
 
 ---
 
-## 1. Contratos de Nomenclatura e Argumentos da CLI
+## How to Use this File (for the Agent)
 
-| Ponto de Contato | Regra Inquebrável | Motivo / Impacto |
+1. **Check before any change:** Always consult this file before planning changes to profile structures, launchers, authentication, or gateway routes.
+2. **Document implicit rules upon discovery:** When investigating bugs or platform edge cases, document findings here immediately.
+3. **Do not confuse with `NOTES.md`:** `NOTES.md` tracks recent active decisions and temporary contracts. `INVARIANTS.md` tracks **strict constraints and untouchable legacy quirks**.
+
+---
+
+## 1. CLI Naming and Argument Contracts
+
+| Touchpoint | Invariant Rule | Rationale / Impact |
 | :--- | :--- | :--- |
-| `validate_name` | `^[a-zA-Z0-9][a-zA-Z0-9-]*$` | Nomes de perfis criam pastas no SO e arquivos `.desktop`/`.app`/`.lnk`. Espaços ou símbolos quebram escaping de shell e caminhos do XDG. |
-| Invocação de Perfil | `multigravity <nome> [args...]` | O primeiro argumento quando não coincide com um comando interno deve ser interpretado como nome de perfil para lançamento imediato com passthrough de argumentos. |
-| Flags do Antigravity | `--user-data-dir` e `--extensions-dir` | São as flags canônicas do Electron/Code OSS para isolamento de dados do usuário e extensões. Não alterar para flags customizadas. |
+| `validate_name` | `^[a-zA-Z0-9][a-zA-Z0-9-]*$` | Profile names map directly to OS directories and `.desktop`/`.app`/`.lnk` files. Spaces or symbols break shell escaping and XDG path specifications. |
+| Profile Invocation | `multigravity <name> [args...]` | When the first argument does not match an internal command, it MUST be dispatched as a profile launch with argument passthrough. |
+| Antigravity Flags | `--user-data-dir` and `--extensions-dir` | Canonical Electron / Code OSS flags for user data and extension isolation. NEVER replace with non-standard flags. |
 
 ---
 
-## 2. Variáveis de Ambiente e Diretórios Canônicos
+## 2. Environment Variables & Canonical Directories
 
-- **`MULTIGRAVITY_HOME`:** Diretório base de armazenamento de perfis. Default: `$HOME/AntigravityProfiles` (ou `$USERPROFILE\AntigravityProfiles`).
-- **`MULTIGRAVITY_APP`:** Permite sobrescrever o caminho exato do executável da IDE.
-- **Isolamento de `HOME`:**
-  - O Antigravity grava configurações do assistente de IA em `~/.gemini` e `~/.antigravity`.
-  - Redirecionar `HOME` para o diretório do perfil é a forma como o CLI força o isolamento dessas pastas.
-  - **Atenção:** Qualquer tentativa de remover a exportação de `HOME` sem alternativa quebrará o isolamento de sessões de IA. Por isso, a solução correta para Git/SSH é **preservar os dotfiles essenciais (`.gitconfig`, `.ssh`) via symlink** dentro do perfil, e não deixar de isolar o `HOME`.
+- **`MULTIGRAVITY_HOME`:** Base storage directory for profiles. Default: `$HOME/AntigravityProfiles` (or `%USERPROFILE%\AntigravityProfiles`).
+- **`MULTIGRAVITY_APP`:** Allows overriding the exact executable path of the IDE.
+- **`HOME` Isolation:**
+  - Antigravity writes AI assistant configurations to `~/.gemini` and `~/.antigravity`.
+  - Redirecting `HOME` to the profile directory is how the CLI strictly isolates AI sessions and token storage.
+  - **Caution:** Removing `HOME` redirection breaks AI session isolation. The correct solution for Git/SSH access is **preserving essential host dotfiles (`.gitconfig`, `.ssh`) via symlink** inside the profile, never bypassing `HOME` isolation.
 
 ---
 
-## 3. Comportamento Específico de Plataforma
+## 3. Platform-Specific Behavior
 
 ### macOS (Darwin)
-- **Keychains:** `Library/Keychains` deve ser linkado para `$HOME/Library/Keychains` se não existir, caso contrário o macOS recusa salvar credenciais de forma persistente.
-- **Atalhos:** Criados em `$HOME/Applications/Multigravity <nome>.app` contendo estrutura padrão de bundle macOS com `Contents/MacOS/run`, `Info.plist` e `Contents/Resources/icon.icns` (gravado a partir do asset embutido via `//go:embed`).
+- **Keychains:** `Library/Keychains` MUST be symlinked to `$HOME/Library/Keychains` if absent; otherwise macOS refuses to persist credentials.
+- **Shortcuts:** Created at `$HOME/Applications/Multigravity <name>.app` matching canonical macOS bundle structure with `Contents/MacOS/run`, `Info.plist`, and embedded `Contents/Resources/icon.icns` (`//go:embed`).
 
 ### Linux
-- **XDG Base Directory:** `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME` e `XDG_STATE_HOME` devem apontar para as respectivas subpastas dentro do perfil para não poluir o sistema.
-- **Atalhos:** Gerados em `~/.local/share/applications/multigravity-<nome>.desktop` apontando para o wrapper script em `~/.local/share/multigravity/launchers/<nome>.sh` e referenciando deterministicamente o ícone em `~/.local/share/multigravity/icon.png` (extraído dos assets embutidos via `//go:embed`). O wrapper exporta `MULTIGRAVITY_LAUNCH_WAIT=1` e remove `ELECTRON_RUN_AS_NODE` antes do `exec`: o WSL (`wslg.exe`) encerra a sessão gráfica se o processo do atalho sair na hora, e Cursor/VS Code exportam `ELECTRON_RUN_AS_NODE=1`, o que faz o binário Electron recusar `--user-data-dir`. Atalhos do Windows criados pelo WSLg não podem usar `--cd "~"`: o WSL atual responde `Wsl/E_INVALIDARG`. O diretório tem de ser absoluto (`/home/<user>`).
+- **XDG Base Directory:** `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME` MUST point to dedicated subdirectories inside the profile to prevent host pollution.
+- **Shortcuts:** Generated in `~/.local/share/applications/multigravity-<name>.desktop` pointing to wrapper script `~/.local/share/multigravity/launchers/<name>.sh` with icon at `~/.local/share/multigravity/icon.png`. The wrapper exports `MULTIGRAVITY_LAUNCH_WAIT=1` and strips `ELECTRON_RUN_AS_NODE` prior to `exec`: WSL (`wslg.exe`) terminates GUI sessions if shortcut processes exit prematurely, while Cursor/VS Code export `ELECTRON_RUN_AS_NODE=1`, causing Electron binaries to reject `--user-data-dir`. WSL shortcuts cannot use `--cd "~"` (`Wsl/E_INVALIDARG`); absolute paths (`/home/<user>`) are mandatory.
 
 ### Windows
-- **Variáveis de Usuário:** `$env:USERPROFILE`, `$env:APPDATA` e `$env:LOCALAPPDATA` devem ser apontados para as subpastas correspondentes dentro de `$PROFILE_DIR`.
-- **Atalhos:** `.lnk` gerados em `$env:APPDATA\Microsoft\Windows\Start Menu\Programs\` com `IconLocation` apontando para `%APPDATA%\multigravity\icon.ico` (extraído dos assets embutidos via `//go:embed`).
+- **User Environment:** `$env:USERPROFILE`, `$env:APPDATA`, and `$env:LOCALAPPDATA` MUST point to profile subfolders.
+- **Shortcuts:** `.lnk` files created in `$env:APPDATA\Microsoft\Windows\Start Menu\Programs\` with `IconLocation` pointing to `%APPDATA%\multigravity\icon.ico` (extracted from embedded assets).
 
 ---
 
-## 4. Compartilhamento de MCP (Model Context Protocol)
+## 4. MCP (Model Context Protocol) Sharing
 
-- **Configuração Global vs Tokens:** O Antigravity armazena as definições dos servidores MCP em `~/.gemini/config/mcp_config.json` e schemas em `~/.gemini/antigravity/mcp`. Os tokens de autenticação (ex: `jetski-standalone-oauth-token`) residem na raiz de `~/.gemini/`, e **NÃO** dentro de `~/.gemini/config/`.
-- **Symlink Seguro:** Vincular `~/.gemini/config/mcp_config.json` e `~/.gemini/antigravity/mcp` por symlink (ou Junction no Windows) **NÃO** expõe as credenciais de autenticação da IA do usuário host.
-- **Opt-out (.isolated_mcp):** Qualquer perfil contendo o arquivo sentinela `.isolated_mcp` não deve ser sobrescrito nem receber links para o host, mantendo configuração e schemas totalmente privados e isolados.
-
----
-
-## 5. Compartilhamento de Skills e Plugins
-
-- **Customizações Globais vs Tokens:** Skills residem em `~/.gemini/config/skills/` e Plugins em `~/.gemini/config/plugins/`. Tratam-se apenas de arquivos de instrução markdown (`SKILL.md`), scripts e templates (`plugin.json`), sem nenhum token ou credencial.
-- **Symlink Seguro:** Vincular `~/.gemini/config/skills` e `~/.gemini/config/plugins` por symlink (ou Junction no Windows) permite compartilhar o ecossistema de habilidades do assistente sem expor sessões ou credenciais.
-- **Opt-out (.isolated_skills):** Perfis contendo o arquivo sentinela `.isolated_skills` mantêm suas pastas `skills/` e `plugins/` totalmente isoladas e privadas.
+- **Global Config vs Tokens:** Antigravity stores MCP server configurations in `~/.gemini/config/mcp_config.json` and tool schemas in `~/.gemini/antigravity/mcp`. Authentication tokens (e.g. `jetski-standalone-oauth-token`) live at the root of `~/.gemini/`, **NOT** inside `config/`.
+- **Safe Symlinks:** Symlinking `mcp_config.json` and `antigravity/mcp` does **NOT** expose host AI authentication tokens.
+- **Opt-out (`.isolated_mcp`):** Any profile containing the `.isolated_mcp` sentinel file MUST retain private MCP definitions without host linking.
 
 ---
 
-## 6. Compartilhamento de Configuração e Permissões (`config.json`)
+## 5. Skills and Plugins Sharing
 
-- **Permissões Globais do Assistente:** As permissões de execução (aprovações persistidas de ferramentas MCP, comandos shell e Git concedidas via *"Always allow"*) são salvas em `~/.gemini/config/config.json` no campo `.userSettings.globalPermissionGrants.allow`.
-- **Inexistência de Credenciais:** O `config.json` armazena apenas preferências de interface (ex: `conversationWidth`, `themeMode`) e o array de grants de segurança. Tokens OAuth ou senhas nunca são gravados neste arquivo.
-- **Symlink Seguro e Tempo Real:** Vincular `~/.gemini/config/config.json` por symlink garante que concessões concedidas em qualquer janela reflitam imediatamente em todos os outros perfis em tempo real.
-- **Opt-out (.isolated_config):** Qualquer perfil contendo o arquivo sentinela `.isolated_config` mantém seu próprio `config.json` desvinculado do host.
-- **Preservação de Dados:** Migrações ou trocas para modo compartilhado via CLI realizam backup prévio (`config.json.bak`) de arquivos existentes.
-- **Injeção Canônica de Permissões Read-Only:** Perfis criados, lançados ou semeados via `multigravity config seed` garantem a presença de permissões padrão em *"Always allow"* (`command(...)` para sandbox e `unsandboxed(...)` para bypass) para comandos estritamente de leitura (Git, POSIX, inspeção do sistema, npm/pnpm/uv/python, linters/formatters como ruff/pyright/eslint, e inspeção local do Docker sem comandos mutativos). Essa injeção é aditiva, preservando quaisquer concessões manuais existentes sem duplicatas.
+- **Global Customizations vs Tokens:** Skills reside in `~/.gemini/config/skills/` and Plugins in `~/.gemini/config/plugins/` as markdown playbooks (`SKILL.md`), scripts, and templates without credentials.
+- **Safe Symlinks:** Symlinking `skills` and `plugins` shares capability playbooks without exposing sessions or tokens.
+- **Opt-out (`.isolated_skills`):** Profiles containing `.isolated_skills` keep their `skills/` and `plugins/` directories strictly isolated.
 
 ---
 
-## 7. Compartilhamento de Credenciais de Dev e Preservação de PATH
+## 6. Configuration & Permissions Sharing (`config.json`)
 
-- **Git e GitHub CLI (`gh`):** A autenticação do `gh` (`~/.config/gh` no Linux/macOS ou `%APPDATA%\GitHub CLI` no Windows) e o arquivo `~/.git-credentials` são compartilhados por symlink/junction por padrão para permitir pull/push e operações dev no terminal integrado sem atrito.
-- **Opt-out granular (.isolated_gh):** Perfis contendo o arquivo sentinela `.isolated_gh` ou `.isolated_dotfiles` mantêm suas credenciais do GitHub CLI estritamente isoladas, permitindo perfis dedicados a múltiplas contas/identidades.
-- **Preservação de PATH de Usuário:** O Antigravity enriquece o `PATH` com os diretórios de binários de usuário do host (`~/.local/bin`, `~/.cargo/bin`, etc.) no momento do lançamento (`launch_profile`), assegurando acesso aos executáveis do usuário sem quebrar o isolamento de `HOME`.
+- **Global Assistant Permissions:** Execution grants (persistent approvals for MCP tools, shell commands, and Git via *"Always allow"*) reside in `~/.gemini/config/config.json` under `.userSettings.globalPermissionGrants.allow`.
+- **Zero Credentials:** `config.json` holds only UI preferences (e.g. `themeMode`, `conversationWidth`) and permission grants. OAuth tokens are never stored here.
+- **Real-Time Symlinking:** Symlinking `config.json` ensures permissions granted in one profile reflect across all profiles instantly.
+- **Opt-out (`.isolated_config`):** Profiles with `.isolated_config` retain private `config.json` instances.
+- **Read-Only Permission Seeding:** Seeded profiles guarantee canonical read-only commands (`git`, posix utilities, linters, `docker ps/inspect`) in "Always allow" without duplicates.
 
 ---
 
-## 8. Mapeamento Canônico de Diretórios do Antigravity
+## 7. Developer Auth Sharing & PATH Preservation
 
-Mapa de referência de onde a IDE Antigravity e seus subsistemas de IA armazenam dados, credenciais, configurações e artefatos (relativos ao `$HOME` do perfil ou do host):
+- **Git & GitHub CLI (`gh`):** GitHub CLI auth (`~/.config/gh` or `%APPDATA%\GitHub CLI`) and `~/.git-credentials` are shared via symlink by default to enable git operations in integrated terminals.
+- **Opt-out (`.isolated_gh` / `.isolated_dotfiles`):** Profiles with these sentinels keep GitHub CLI auth strictly isolated for separate corporate/personal identities.
+- **PATH Preservation:** Antigravity enriches `PATH` with host user binary directories (`~/.local/bin`, `~/.cargo/bin`, etc.) at launch time (`launch_profile`), ensuring binary access without breaking `HOME` isolation.
 
-| Recurso | Caminho Canônico no Antigravity | Finalidade / Conteúdo | Isolamento / Sensibilidade |
+---
+
+## 8. Canonical Antigravity Directory Mapping
+
+Reference mapping of where Antigravity and AI subsystems store data, tokens, and artifacts relative to `$HOME`:
+
+| Resource | Canonical Path in Antigravity | Purpose / Content | Isolation / Sensitivity |
 | :--- | :--- | :--- | :--- |
-| **Skills** | `~/.gemini/config/skills/<skill-name>/SKILL.md` | Playbooks markdown, instruções, scripts e recursos dos agentes. | Seguro compartilhar via symlink (sem credenciais). Opt-out: `.isolated_skills`. |
-| **Plugins** | `~/.gemini/config/plugins/<plugin-name>/` | Plugins da IDE e manifests de extensão de IA. | Seguro compartilhar via symlink. Opt-out: `.isolated_skills`. |
-| **Permissões / Always Allow** | `~/.gemini/config/config.json` | Array `.userSettings.globalPermissionGrants.allow` com comandos aprovados (`command(...)`, `unsandboxed(...)`). | Seguro compartilhar via symlink (apenas preferências e grants, zero tokens). Opt-out: `.isolated_config`. |
-| **MCP Config** | `~/.gemini/config/mcp_config.json` | Definições e endpoints de servidores MCP globais. | Seguro compartilhar via symlink. Opt-out: `.isolated_mcp`. |
-| **MCP Schemas** | `~/.gemini/antigravity/mcp/<server>/` | Schemas de ferramentas locais e specs de chamadas MCP gerados pela IDE. | Seguro compartilhar via symlink. Opt-out: `.isolated_mcp`. |
-| **Auth Tokens (OAuth / IA)** | Raiz de `~/.gemini/` (`jetski-standalone-oauth-token`, `installation_id`) + Keyrings/Keychains do SO | Tokens de autenticação de sessão e login de IA. | **ESTRITAMENTE ISOLADO.** Fica fora de `config/`. Nunca compartilhar nem exportar em backups. |
-| **Conversas, Chats e Brains** | `~/.gemini/antigravity/` (`conversations/*.db`, `brain/<uuid>/*`, `annotations/*.pbtxt`) | Histórico de chats, planos, logs de passos e memórias das sessões de agentes. | Manipulado via `multigravity ai export/sync/import` com sanitização automática de tokens. `multigravity snapshot` grava um ponto de restauração do perfil e dessas conversas em `$MULTIGRAVITY_HOME/.snapshots/`; tokens e árvores de credencial ficam fora do pacote e são preservados no rollback. Create e rollback recusam perfil em execução. |
-| **Configurações UI da IDE** | `$MULTIGRAVITY_HOME/<perfil>/User/settings.json` | Tema, fontes, atalhos e preferências de editor do perfil. | Específico de cada perfil. |
-| **Dev Auth (Git & GitHub CLI)** | `~/.config/gh/` (ou `%APPDATA%\GitHub CLI`), `~/.git-credentials`, `~/.gitconfig`, `~/.ssh` | Identidade dev, chaves SSH, configs Git e sessão CLI do GitHub. | Compartilhado por symlink para usabilidade dev; opt-out granular via `.isolated_gh` ou `.isolated_dotfiles`. |
+| **Skills** | `~/.gemini/config/skills/<name>/SKILL.md` | Agent playbooks, scripts, instructions | Safe to share via symlink. Opt-out: `.isolated_skills`. |
+| **Plugins** | `~/.gemini/config/plugins/<name>/` | IDE plugins and AI extension manifests | Safe to share via symlink. Opt-out: `.isolated_skills`. |
+| **Permissions** | `~/.gemini/config/config.json` | `.globalPermissionGrants.allow` grants | Safe to share via symlink (zero tokens). Opt-out: `.isolated_config`. |
+| **MCP Config** | `~/.gemini/config/mcp_config.json` | Server endpoints and definitions | Safe to share via symlink. Opt-out: `.isolated_mcp`. |
+| **MCP Schemas** | `~/.gemini/antigravity/mcp/<server>/` | Local tool schemas and RPC specs | Safe to share via symlink. Opt-out: `.isolated_mcp`. |
+| **Auth Tokens** | Root of `~/.gemini/` (`jetski-standalone-oauth-token`, `installation_id`) + OS Keyrings | Session tokens and AI login state | **STRICTLY ISOLATED.** Outside `config/`. NEVER share or export. |
+| **Conversations** | `~/.gemini/antigravity/` (`conversations/*.db`, `brain/<uuid>/*`) | Chat logs, plans, agent memory | Managed via `multigravity ai export/sync/import` with token scrubbing. Snapshots store restore points under `$MULTIGRAVITY_HOME/.snapshots/`. |
+| **IDE Settings** | `$MULTIGRAVITY_HOME/<profile>/User/settings.json` | Theme, editor font, shortcuts | Profile-specific. |
+| **Dev Auth** | `~/.config/gh/`, `~/.git-credentials`, `~/.gitconfig`, `~/.ssh` | Git identity, SSH keys, GitHub CLI | Shared by default for dev ergonomics; opt-out via `.isolated_gh`. |
 
 ---
 
-## 9. Proibição de Manipulação Global de Keyring / Credential Manager
+## 9. Prohibition of Global Keyring / Credential Manager Manipulation
 
-- **Muro de Chesterton:** Ferramentas comunitárias simplificadas (como `blugthek/Multigravity`) alternam contas sobrescrevendo dinamicamente a entrada global do Windows Credential Manager (`gemini:antigravity` via `advapi32.dll`) ou do Keychain antes de cada chamada e restaurando em seguida.
-- **Por que é Estritamente Proibido no Multigravity:**
-  1. **Inviabilidade Concorrente:** O keyring do SO é um recurso global compartilhado por usuário. Múltiplos agentes ou janelas rodando simultaneamente geram condições de corrida incontroláveis, corrompendo as credenciais ativas.
-  2. **Risco Crítico de Perda de Sessão:** Caso o processo sofra crash, interrupção forçada (`kill -9`, falta de energia) ou timeout antes do teardown, o perfil primário do usuário perde sua credencial original e fica deslogado ou apontando para uma conta secundária.
-  3. **Isolamento de Processo é Superior:** O `multigravity-cli` isola perfis via `--user-data-dir`, `--extensions-dir` e ambientes isolados de `$HOME` / `%USERPROFILE%`. Cada perfil mantém sua própria sessão independente, permitindo N instâncias da IDE ou agentes headless rodando simultaneamente sem qualquer sobreposição.
-- **Cofre de arquivo do perfil (`multigravity login`):** A autenticação headless grava o refresh token apenas em `<perfil>/.gemini/antigravity-cli/antigravity-oauth-token` e na cópia `<perfil>/.gemini/jetski-standalone-oauth-token` (modo `0600`). O comando não chama CredWrite, Keychain nem Secret Service do host. Quando esse arquivo existe, o ambiente isolado do perfil exporta `GEMINI_FORCE_FILE_STORAGE=true` para o `agy` ler o cofre do perfil.
-- **`multigravity exec` não é um motor novo:** O fan-out concorrente só chama o runner headless já existente (`RunAgentPrompt`) por perfil, com pool de workers. Não alterna o keyring do host, não provisiona worktree e não fala com o gateway. Despacho com worktree/PTY continua em `dispatch`; completions continuam no gateway.
-
----
-
-## 10. Log da IDE gráfica
-
-- O processo Electron grava em `<user-data-dir>/logs/main.log` (`Electron Logs` no próprio arquivo). O language server embutido na IDE grava o vizinho `language_server.log`.
-- `multigravity logs` e `GET /api/v1/profiles/{name}/ide/logs` leem somente `main.log`. O language server gerenciado continua em `headless logs`; a saída de tarefa continua em `dispatch logs`.
-- A linha de spawn em `main.log` contém `--csrf_token` e `--host_bridge_token`. Qualquer leitura exposta pela CLI ou pela API redige esses valores. Não copiar o arquivo cru para stdout, JSON ou SSE. A proibição de expor ou serializar o token CSRF vale também para `multigravity quota`, `multigravity quota --json`, a ferramenta MCP `quota_summary` e os endpoints `GET /api/v1/quota*` (o campo permanece estritamente em memória para consumo do processo local).
-
-## 11. Catálogo de MCP e skills
-
-- `multigravity catalog` e `GET /api/v1/catalog` só leem. Não alteram sentinelas, symlinks nem `mcp share` / `skills share`.
-- O relatório lista servidores, skills e plugins e repete o modo já exposto por `mcp status` / `skills status` (`shared`, `isolated`, `standalone`, `none`).
-- Campos `env`, `headers` e `args` de `mcp_config.json` ficam de fora do texto e do JSON. Query string e usuário de URL também ficam de fora. JSON inválido não é ecoado no diagnóstico.
-
-## 12. Credencial do gateway e cota do roteador
-
-- O access token de uma completion sai do cofre do perfil escolhido. O arquivo do `login` (`antigravity-oauth-token`) tem prioridade. Se ele não existir, vale o `jetski-standalone-oauth-token` gravado pela IDE. `login status` usa a mesma ordem e não devolve o token.
-- Access token expirado é renovado com o refresh token e os dois arquivos são regravados em `0600`. O `Authorization` recebido pelo `serve` não é repassado ao Cloud Code.
-- Perfil sem credencial responde 401 `profile_unauthenticated` e não chama o upstream. Se o failover esgota o pool só por falta de credencial, a resposta continua 401, não 429. `/v1/messages` usa o mesmo critério com `authentication_error`.
-- `remaining_fraction: 1` não é o estado inicial. Sem leitura do language server, `quota_known` fica falso e a fração fica 0. O `smart` só usa fração medida (semanal e 5h; vale a menor). Cota desconhecida não pontua como cheia, e cota medida 0 não volta a pontuar como 1.
-
-## 13. Identificador de modelo do gateway
-
-- O rótulo da documentação e do seletor não é o campo `model`. A lista válida é a resposta de `POST /v1internal:fetchAvailableModels` no Cloud Code, com o token do perfil.
-- Um id presente em `SupportedModels` segue intacto para o upstream. A heurística que reduz nomes soltos com `flash` ou `pro` para `gemini-2.5-flash` / `gemini-2.5-pro` não se aplica a esses ids.
-- `gemini-3.1-pro-high` está aposentado no catálogo ao vivo. O substituto que a própria lista declara, e que responde, é `gemini-pro-agent` (rótulo Gemini 3.1 Pro High).
-- Gemini 3.6 Flash Low/Medium/High são `gemini-3.6-flash-low`, `gemini-3.6-flash-medium` e `gemini-3.6-flash-high`. O padrão do menu verificado é `gemini-3.6-flash-high`.
-- Gemini 3.7 e 3.8 não têm variante `low`/`medium`/`high` nessa lista. Os ids que respondem são `gemini-3.7-flash-tiered` e `gemini-3.8-flash-tiered`. Os nomes `gemini-3.8-flash-low`, `gemini-3.8-flash-medium` e `gemini-3.8-flash-high` (e os equivalentes 3.7) são aliases: o `model` upstream continua o id tiered, e o sufixo vira `request.generationConfig.thinkingConfig.thinkingLevel` (`LOW`, `MEDIUM`, `HIGH`). O mesmo vale para `reasoning_effort` no pedido OpenAI, que tem prioridade sobre o sufixo. O id tiered sem sufixo e sem `reasoning_effort` não envia `thinkingConfig`; o padrão do modelo é `MEDIUM`. `MINIMAL` não é enviado: o Cloud Code rejeita esse nível no Flash 3.7 e 3.8. Gemini 3.6 continua com o nível no próprio id e não recebe `thinkingConfig`.
-- Claude Opus 4.6 (Thinking) no menu é `claude-opus-4-6-thinking`, não `claude-opus-4-6`.
-
-## 14. Servidor MCP Nativo (internal/mcp)
-
-- O transporte stdio (`multigravity mcp serve` / `multigravity mcp-server`) reserva `stdout` estritamente para mensagens JSON-RPC em linha única delimitadas por `\n`. Qualquer log, aviso ou banner deve ser emitido exclusivamente em `stderr`.
-- O handshake MCP segue a especificação `2024-11-05`, reportando erros de execução de ferramenta com `isError: true` no payload `CallToolResult` em vez de abortar a conexão JSON-RPC.
-- Os endpoints HTTP MCP (`POST /mcp`, `POST /api/v1/mcp`, `GET /mcp/sse`, `POST /mcp/messages`) são integrados nativamente no daemon `multigravity serve`, permitindo consumo tanto stateless via POST direto quanto stateful via Server-Sent Events (SSE).
-- Comandos legados de gerenciamento de compartilhamento (`multigravity mcp status|share|isolate <perfil>`) preservam 100% de retrocompatibilidade de comportamento e contratos (`--json`).
+- **Chesterton's Fence:** Simplistic community tools dynamically overwrite the global OS Credential Manager entry (`gemini:antigravity`) before each call and restore it afterward.
+- **Why Strictly Prohibited in Multigravity:**
+  1. **Concurrency Hazard:** OS keyrings are global singletons per OS user. Running concurrent agents triggers race conditions, corrupting credentials.
+  2. **Session Loss Risk:** Crashes, hard kills (`kill -9`), or timeouts leave the host unauthenticated or logged into secondary accounts.
+  3. **Process Isolation is Superior:** Multigravity isolates via `--user-data-dir`, `--extensions-dir`, and independent `$HOME` directories.
+- **Profile File Vault (`multigravity login`):** Headless authentication stores refresh tokens exclusively in `<profile>/.gemini/antigravity-cli/antigravity-oauth-token` and `<profile>/.gemini/jetski-standalone-oauth-token` (mode `0600`). When this vault exists, the isolated environment sets `GEMINI_FORCE_FILE_STORAGE=true`. The host credential manager is never touched.
+- **`multigravity exec` Concurrency:** Fan-out runs existing headless runners per profile. It does not touch the host keyring or alter worktrees.
 
 ---
 
-## 15. Ciclo de Vida de Conversas de IA: Arquivamento, Sumários e Project IDs
+## 10. IDE Graphical Logs and Token Redaction
 
-- **Invariante de Arquivamento/Desarquivamento:**
-  - O estado de arquivamento de conversas é governado em três camadas sincronizadas: SQLite (`conversations/<cid>.db`), anotações de texto (`annotations/<cid>.pbtxt`) e o cache binário de sumários (`agyhub_summaries_proto.pb`).
-  - O Language Server (`--subclient_type hub`) mantém um cache em memória e transmite os dados para o Electron via o stream ConnectRPC `JetboxSubscribeToSummaries`.
-  - **Proibição de Bypass Estático:** É proibido tentar arquivar ou desarquivar conversas apenas alterando o campo `archived` nos arquivos `.pbtxt` quando a IDE/Language Server estiver em execução. O Language Server não reflete alterações externas em `.pbtxt` no stream reativo da UI até receber uma chamada ConnectRPC oficial via `UpdateConversationAnnotations` ou ser completamente reiniciado com sumários sincronizados.
-  - **Canal Oficial de Atualização:** Qualquer comando ou automação de arquivamento/desarquivamento deve chamar `POST /exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations` com o header `X-Codeium-Csrf-Token: <token>`, passando `{"cascadeId": "<cid>", "annotations": {"archived": <bool>}}`.
-- **Invariante de Project ID em Sincronizações entre Perfis:**
-  - As conversas no Antigravity são agrupadas por projeto com base no `projectId` (string UUID v4 de 36 caracteres) presente no blob de metadados da conversa (`trajectory_metadata_blob` no SQLite e `trajectoryMetadata.projectId` em `agyhub_summaries_proto.pb`).
-  - Cada perfil isolado do Multigravity gera UUIDs próprios para os projetos configurados em `~/.gemini/config/projects/<id>.json`.
-  - Conversas sincronizadas entre perfis (`ai sync`) trazem o `projectId` do perfil de origem. Caso o perfil destino use outro ID para o mesmo repositório/workspace, a IDE tratará as conversas como pertencentes a um projeto desconhecido e as ocultará da barra lateral do projeto ativo.
-  - Para garantir a visibilidade das conversas no perfil de destino, o `projectId` deve ser mapeado e atualizado deterministicamente para o UUID do projeto correspondente no destino. Como ambos os IDs são UUIDs padrão de 36 bytes, a substituição direta preserva a estrutura e o comprimento exato dos protobufs.
+- Electron logs to `<user-data-dir>/logs/main.log`. The embedded language server logs to `language_server.log`.
+- `multigravity logs` and `GET /api/v1/profiles/{name}/ide/logs` read strictly `main.log`.
+- The spawn line in `main.log` contains `--csrf_token` and `--host_bridge_token`. Any exposed reading MUST redact these values to `[redacted]`.
+- **Prohibition on CSRF Serialization:** CSRF tokens MUST NEVER be exposed or serialized in `multigravity quota`, `multigravity quota --json`, the `quota_summary` MCP tool, or `GET /api/v1/quota*` endpoints.
 
 ---
 
-## 16. Detecção de Processos sem Colisão de Prefixos de Nomes
+## 11. MCP & Skills Catalog
 
-- **Delimitação Estrita de Caminho (`lineMatchesPath`):** Qualquer rotina de inspeção de processos por perfil (seja via `ps` no POSIX ou PowerShell/WMI no Windows) deve obrigatoriamente validar delimitadores de caminho (`/`, `\`, espaços, aspas, `=`, início e fim de linha) em torno do caminho do perfil (`profileDir`) e do diretório de dados (`userDataDir`).
-- **Prevenção de Falso-Positivo:** Casamentos por substring ingênua (ex.: `strings.Contains`) causam falso-positivo entre perfis cujos nomes são prefixos de outros perfis (ex.: processo ativo do perfil `yegear2` casando indevidamente com o perfil `yegear`). Toda verificação deve utilizar a função pura `lineMatchesPath` para garantir precisão cirúrgica de isolamento.
+- `multigravity catalog` and `GET /api/v1/catalog` are strictly read-only.
+- Environment variables, headers, and arguments from `mcp_config.json` MUST be redacted from text and JSON output. URL query strings and user credentials are stripped.
 
+---
 
+## 12. Gateway Credentials & Router Quotas
 
+- Access tokens for completions originate from the profile vault: `antigravity-oauth-token` takes priority over `jetski-standalone-oauth-token`.
+- Inbound `Authorization` headers received by `serve` are never forwarded upstream.
+- Unauthenticated profiles return HTTP 401 `profile_unauthenticated` (or `authentication_error` on `/v1/messages`). If failover exhausts the pool solely due to missing credentials, the status code MUST remain 401, NOT 429.
+- `remaining_fraction: 1` is not the initial state. Without language server telemetry, `quota_known` is false and fraction is 0. Quota 0 never reverts to 1.
+
+---
+
+## 13. Gateway Model Identifiers
+
+- Supported model IDs match the live response of `POST /v1internal:fetchAvailableModels` in Cloud Code.
+- `gemini-3.1-pro-high` is replaced upstream by `gemini-pro-agent`.
+- Gemini 3.6 variants use IDs `gemini-3.6-flash-low`, `gemini-3.6-flash-medium`, and `gemini-3.6-flash-high`.
+- Gemini 3.7 and 3.8 tiered IDs are `gemini-3.7-flash-tiered` and `gemini-3.8-flash-tiered`. Model suffixes (`-low`, `-medium`, `-high`) and OpenAI `reasoning_effort` map to `generationConfig.thinkingConfig.thinkingLevel` (`LOW`, `MEDIUM`, `HIGH`). `MINIMAL` is rejected upstream and must not be sent.
+
+---
+
+## 14. Native MCP Server (`internal/mcp`)
+
+- Stdio transport (`multigravity mcp serve`) reserves `stdout` strictly for single-line JSON-RPC messages separated by `\n`. All diagnostics and logs MUST go to `stderr`.
+- MCP handshake follows specification `2024-11-05`, reporting execution errors with `isError: true` in `CallToolResult` rather than aborting the connection.
+- HTTP transport supports stateless `POST /mcp` and stateful SSE streams.
+
+---
+
+## 15. AI Conversation Lifecycle: Archival & Project IDs
+
+- **Archival Invariant:**
+  - Archiving state is maintained across SQLite (`conversations/<cid>.db`), text annotations (`annotations/<cid>.pbtxt`), and binary summary caches (`agyhub_summaries_proto.pb`).
+  - When the profile is running, modifying `.pbtxt` directly is ignored by the in-memory cache. Archival operations MUST call `POST /exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations` over ConnectRPC using the local CSRF token.
+- **Project ID Mapping (`ai sync`):**
+  - Project IDs are 36-character UUID v4 strings stored in protobuf blobs.
+  - Sinking conversations into a target profile requires updating the `projectId` to match the target's workspace UUID (`~/.gemini/config/projects/<id>.json`). Direct 36-byte replacement preserves protobuf wire integrity.
+
+---
+
+## 16. Process Detection Without Prefix Collisions
+
+- **Strict Path Delimitation (`lineMatchesPath`):** Process inspection routines (POSIX `ps` or Windows WMI/PowerShell) MUST validate boundary delimiters (`/`, `\`, spaces, quotes, `=`, line boundaries) around `profileDir` and `userDataDir`.
+- **Prefix Collision Prevention:** Substring matching causes false positives between profiles where one is a prefix of another (e.g. `yegear2` active falsely reporting `yegear` as active). All checks MUST use `lineMatchesPath`.

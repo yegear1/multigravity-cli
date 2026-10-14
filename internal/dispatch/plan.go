@@ -33,6 +33,7 @@ type SubtaskSpec struct {
 	Env        map[string]string `json:"env,omitempty"`
 	GatewayURL string            `json:"gateway_url,omitempty"`
 	GatewayKey string            `json:"gateway_key,omitempty"`
+	Verify     string            `json:"verify,omitempty"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
@@ -232,6 +233,7 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					Env:         st.Env,
 					GatewayURL:  st.GatewayURL,
 					GatewayKey:  st.GatewayKey,
+					Verify:      st.Verify,
 					Detached:    true,
 					Metadata:    st.Metadata,
 				}
