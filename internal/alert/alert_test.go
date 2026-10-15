@@ -119,6 +119,77 @@ func TestEvaluateMissingProfile(t *testing.T) {
 	}
 }
 
+func TestEvaluateQuotaNearingDepletion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "work"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 0.08 is <= 0.10 (nearing depletion) but > 0.05 (critical)
+	recordQuota(t, "work", "gemini-weekly", 0.08)
+
+	report, err := Evaluate("work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %+v", report.Alerts)
+	}
+	if report.Alerts[0].Kind != KindQuotaNearingDepletion {
+		t.Fatalf("expected KindQuotaNearingDepletion, got %s", report.Alerts[0].Kind)
+	}
+	if report.Alerts[0].RemainingFraction == nil || *report.Alerts[0].RemainingFraction != 0.08 {
+		t.Fatalf("expected 0.08, got %+v", report.Alerts[0].RemainingFraction)
+	}
+}
+
+func TestEvaluateTokenBudgetExceededAndBurnRate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "work"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfgPath := filepath.Join(home, ".multigravity", "throttle-policy.json")
+	restore := quota.SetTestThrottleConfigPath(cfgPath)
+	defer restore()
+
+	cfg := &quota.ThrottleConfig{
+		DefaultPolicy: quota.ThrottlePolicy{
+			MaxTokensPerHour:    1000,
+			MaxTokensPerMinute:  20,
+			DepletionThreshold:  0.10,
+			AutoThrottleEnabled: true,
+		},
+		Profiles: make(map[string]quota.ThrottlePolicy),
+	}
+	if err := quota.SaveThrottleConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Record 1500 tokens in the past hour
+	if err := quota.RecordTokens("work", quota.SourceGateway, "gemini-3.8-flash-tiered", 500, 1000, 1500, false); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Evaluate("work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 1500 tokens in 1h window:
+	// tokens_burned = 1500 >= 1000 -> KindTokenBudgetExceeded
+	// tokens_per_min = 1500 / 60 = 25 >= 20 -> KindTokenBurnRateHigh
+	if len(report.Alerts) != 2 {
+		t.Fatalf("expected 2 alerts, got %+v", report.Alerts)
+	}
+	if report.Alerts[0].Kind != KindTokenBudgetExceeded || report.Alerts[0].TokensBurned != 1500 {
+		t.Fatalf("unexpected budget alert: %+v", report.Alerts[0])
+	}
+	if report.Alerts[1].Kind != KindTokenBurnRateHigh || report.Alerts[1].BudgetLimit != 20 {
+		t.Fatalf("unexpected burn rate alert: %+v", report.Alerts[1])
+	}
+}
+
 func recordQuota(t *testing.T, profileName, bucketID string, fraction float64) {
 	t.Helper()
 	err := quota.RecordQuotaSnapshot(profileName, &quota.QuotaSummaryResponse{

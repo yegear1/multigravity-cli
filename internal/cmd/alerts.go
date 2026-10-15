@@ -42,6 +42,9 @@ func newAlertsCmd() *cobra.Command {
 				if item.PID != 0 {
 					fmt.Fprintf(cmd.OutOrStdout(), "  pid=%d", item.PID)
 				}
+				if item.TokensBurned > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "  tokens=%d", item.TokensBurned)
+				}
 				fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", item.Message)
 			}
 			return nil

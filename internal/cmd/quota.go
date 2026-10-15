@@ -64,6 +64,9 @@ func newQuotaCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&quotaJSON, "json", false, "Output quota summary in JSON format")
 	cmd.AddCommand(newQuotaHistoryCmd())
+	cmd.AddCommand(newQuotaCalibrationCmd())
+	cmd.AddCommand(newQuotaBurnCmd())
+	cmd.AddCommand(newQuotaThrottleCmd())
 	return cmd
 }
 
@@ -169,6 +172,50 @@ func writeQuotaHistoryText(cmd *cobra.Command, series *quota.Series) {
 			fmt.Fprintf(out, "  %s  %s\n", ts, sample.Source)
 		}
 	}
+}
+
+func newQuotaCalibrationCmd() *cobra.Command {
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "calibration",
+		Short: "Show automated token estimation calibration heuristics and metrics",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			stats := quota.GetCalibrationStats()
+			if asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(stats)
+			}
+
+			out := cmd.OutOrStdout()
+			fmt.Fprintln(out, "Automated Token Estimation Calibration:")
+			fmt.Fprintf(out, "  Observations:     %d samples\n", stats.Samples)
+			fmt.Fprintf(out, "  Effective Ratio:  %.2f runes/token (baseline: %.2f)\n", stats.RunesPerToken, quota.DefaultRunesPerToken)
+			if stats.PromptRunesPerToken > 0 {
+				fmt.Fprintf(out, "  Prompt Ratio:     %.2f runes/token\n", stats.PromptRunesPerToken)
+			}
+			if stats.CompletionRunesPerToken > 0 {
+				fmt.Fprintf(out, "  Completion Ratio: %.2f runes/token\n", stats.CompletionRunesPerToken)
+			}
+			fmt.Fprintf(out, "  Cumulative Data:  %d runes, %d tokens\n", stats.TotalRunes, stats.TotalTokens)
+			if stats.LastCalibrated != "" {
+				fmt.Fprintf(out, "  Last Calibrated:  %s\n", stats.LastCalibrated)
+			}
+
+			if len(stats.Models) > 0 {
+				fmt.Fprintln(out, "\nPer-Model Calibrated Ratios:")
+				for model, mc := range stats.Models {
+					fmt.Fprintf(out, "  - %-24s %d samples, %.2f runes/token\n", model, mc.Samples, mc.RunesPerToken)
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output calibration stats in JSON format")
+	return cmd
 }
 
 var quotaCmd = newQuotaCmd()

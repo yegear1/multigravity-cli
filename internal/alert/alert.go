@@ -12,14 +12,17 @@ import (
 )
 
 const (
-	KindQuotaCritical = "quota_critical"
-	KindQuotaDrop     = "quota_drop"
-	KindOrphanProcess = "orphan_process"
+	KindQuotaCritical        = "quota_critical"
+	KindQuotaNearingDepletion = "quota_nearing_depletion"
+	KindQuotaDrop            = "quota_drop"
+	KindTokenBudgetExceeded  = "token_budget_exceeded"
+	KindTokenBurnRateHigh    = "token_burn_rate_high"
+	KindOrphanProcess        = "orphan_process"
 )
 
 // Alert is one proactive notification. Quota kinds read the stored series
 // and the same remaining-fraction line used by warm-up. Orphan kind is the
-// headless manager reap of a dead PID.
+// headless manager reap of a dead PID. Token kinds track burn rate and budget.
 type Alert struct {
 	Kind              string   `json:"kind"`
 	Profile           string   `json:"profile"`
@@ -28,6 +31,9 @@ type Alert struct {
 	RemainingFraction *float64 `json:"remaining_fraction,omitempty"`
 	PreviousFraction  *float64 `json:"previous_fraction,omitempty"`
 	PID               int      `json:"pid,omitempty"`
+	TokensBurned      int      `json:"tokens_burned,omitempty"`
+	TokenBurnRate     float64  `json:"token_burn_rate,omitempty"`
+	BudgetLimit       int      `json:"budget_limit,omitempty"`
 	ObservedAt        string   `json:"observed_at"`
 }
 
@@ -43,14 +49,28 @@ func Evaluate(profileName string) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
+	throttleCfg, _ := quota.LoadThrottleConfig()
+	if throttleCfg == nil {
+		throttleCfg = quota.DefaultThrottleConfig()
+	}
+
 	report := &Report{Alerts: []Alert{}}
 	mgr := headless.NewManager()
+	now := time.Now()
 	for _, name := range names {
-		quotaAlerts, err := quotaAlertsFor(name)
+		policy := throttleCfg.PolicyForProfile(name)
+
+		quotaAlerts, err := quotaAlertsFor(name, policy)
 		if err != nil {
 			return nil, err
 		}
 		report.Alerts = append(report.Alerts, quotaAlerts...)
+
+		tokenAlerts, err := tokenAlertsFor(name, policy, now)
+		if err != nil {
+			return nil, err
+		}
+		report.Alerts = append(report.Alerts, tokenAlerts...)
 
 		reaped, err := mgr.ReapStale(name)
 		if err != nil {
@@ -92,7 +112,7 @@ func profileNames(profileName string) ([]string, error) {
 	return []string{profileName}, nil
 }
 
-func quotaAlertsFor(profileName string) ([]Alert, error) {
+func quotaAlertsFor(profileName string, policy quota.ThrottlePolicy) ([]Alert, error) {
 	series, err := quota.LoadSeries(profileName, quota.HistoryQuery{
 		Source: quota.SourceQuota,
 		Limit:  2,
@@ -116,6 +136,7 @@ func quotaAlertsFor(profileName string) ([]Alert, error) {
 		}
 	}
 	observed := latest.Timestamp.UTC().Format(time.RFC3339)
+	depletionThreshold := policy.EffectiveDepletionThreshold()
 	var alerts []Alert
 	for _, bucket := range latest.Buckets {
 		if bucket.RemainingFraction <= quota.MinRemainingFraction {
@@ -125,6 +146,16 @@ func quotaAlertsFor(profileName string) ([]Alert, error) {
 				Profile:           profileName,
 				BucketID:          bucket.BucketID,
 				Message:           fmt.Sprintf("%s remaining quota is %.0f%% (threshold %.0f%%)", bucket.BucketID, remaining*100, quota.MinRemainingFraction*100),
+				RemainingFraction: &remaining,
+				ObservedAt:        observed,
+			})
+		} else if bucket.RemainingFraction <= depletionThreshold {
+			remaining := bucket.RemainingFraction
+			alerts = append(alerts, Alert{
+				Kind:              KindQuotaNearingDepletion,
+				Profile:           profileName,
+				BucketID:          bucket.BucketID,
+				Message:           fmt.Sprintf("%s remaining quota is %.0f%% (nearing depletion threshold %.0f%%)", bucket.BucketID, remaining*100, depletionThreshold*100),
 				RemainingFraction: &remaining,
 				ObservedAt:        observed,
 			})
@@ -150,15 +181,56 @@ func quotaAlertsFor(profileName string) ([]Alert, error) {
 	return alerts, nil
 }
 
+func tokenAlertsFor(profileName string, policy quota.ThrottlePolicy, now time.Time) ([]Alert, error) {
+	burn, err := quota.CalculateTokenBurnRate(profileName, time.Hour, now)
+	if err != nil {
+		return nil, err
+	}
+	if burn.TokensBurned == 0 {
+		return nil, nil
+	}
+	observed := now.UTC().Format(time.RFC3339)
+	var alerts []Alert
+	if policy.MaxTokensPerHour > 0 && burn.TokensBurned >= policy.MaxTokensPerHour {
+		alerts = append(alerts, Alert{
+			Kind:          KindTokenBudgetExceeded,
+			Profile:       profileName,
+			Message:       fmt.Sprintf("hourly token budget exceeded: burned %d tokens in past hour (limit %d)", burn.TokensBurned, policy.MaxTokensPerHour),
+			TokensBurned:  burn.TokensBurned,
+			TokenBurnRate: burn.TokensPerHour,
+			BudgetLimit:   policy.MaxTokensPerHour,
+			ObservedAt:    observed,
+		})
+	}
+	if policy.MaxTokensPerMinute > 0 && burn.TokensPerMinute >= float64(policy.MaxTokensPerMinute) {
+		alerts = append(alerts, Alert{
+			Kind:          KindTokenBurnRateHigh,
+			Profile:       profileName,
+			Message:       fmt.Sprintf("token burn rate high: %.1f tokens/min (limit %d)", burn.TokensPerMinute, policy.MaxTokensPerMinute),
+			TokensBurned:  burn.TokensBurned,
+			TokenBurnRate: burn.TokensPerMinute,
+			BudgetLimit:   policy.MaxTokensPerMinute,
+			ObservedAt:    observed,
+		})
+	}
+	return alerts, nil
+}
+
 func kindRank(kind string) int {
 	switch kind {
 	case KindQuotaCritical:
 		return 0
-	case KindQuotaDrop:
+	case KindQuotaNearingDepletion:
 		return 1
-	case KindOrphanProcess:
+	case KindQuotaDrop:
 		return 2
-	default:
+	case KindTokenBudgetExceeded:
 		return 3
+	case KindTokenBurnRateHigh:
+		return 4
+	case KindOrphanProcess:
+		return 5
+	default:
+		return 6
 	}
 }

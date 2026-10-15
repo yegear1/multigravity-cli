@@ -324,6 +324,17 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			activeStrategy = g.router.GetStrategy()
 		}
 
+		throttleDelay := node.GetThrottleDelay()
+		isThrottled := node.IsCurrentlyThrottled() && throttleDelay > 0
+		if isThrottled {
+			select {
+			case <-time.After(throttleDelay):
+			case <-r.Context().Done():
+				g.writeError(w, http.StatusRequestTimeout, "Request timed out while awaiting throttle pacing", "api_error", "throttle_timeout")
+				return
+			}
+		}
+
 		// ── Non-streaming mode ──────────────────────────────────────────────────
 		if !req.Stream {
 			var contentBuilder strings.Builder
@@ -355,6 +366,10 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			w.Header().Set("X-Failover-Count", strconv.Itoa(failoverCount))
 			w.Header().Set("X-Remaining-Profiles", strconv.Itoa(g.router.AvailableCount()))
 			w.Header().Set("X-Routing-Strategy", string(activeStrategy))
+			if isThrottled {
+				w.Header().Set("X-Throttled", "true")
+				w.Header().Set("X-Throttle-Delay", throttleDelay.String())
+			}
 
 			resp := ChatCompletionResponse{
 				ID:      completionID,
@@ -395,6 +410,10 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 				w.Header().Set("X-Failover-Count", strconv.Itoa(failoverCount))
 				w.Header().Set("X-Remaining-Profiles", strconv.Itoa(g.router.AvailableCount()))
 				w.Header().Set("X-Routing-Strategy", string(activeStrategy))
+				if isThrottled {
+					w.Header().Set("X-Throttled", "true")
+					w.Header().Set("X-Throttle-Delay", throttleDelay.String())
+				}
 				w.WriteHeader(http.StatusOK)
 				flusher.Flush()
 				headersWritten = true

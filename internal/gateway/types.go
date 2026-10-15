@@ -237,6 +237,8 @@ type ProfileNodeStatus struct {
 	ConsecutiveErrors int     `json:"consecutive_errors"`
 	LastUsed          *string `json:"last_used,omitempty"`
 	LastError         string  `json:"last_error,omitempty"`
+	IsThrottled       bool    `json:"is_throttled,omitempty"`
+	ThrottleDelay     string  `json:"throttle_delay,omitempty"`
 }
 
 // SetStrategyRequest allows changing the active routing strategy via JSON

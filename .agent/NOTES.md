@@ -19,6 +19,68 @@
 
 ## Active Technical Contracts & Decisions
 
+### 2026-10-15 [Task 04.1] Dynamic Token Quota Budget Alerts and Auto-Throttle Policies
+
+- **Context:** Automated threshold alerts for token burn rates, quota depletion velocity, and auto-throttling when profiles near quota depletion.
+- **Active Contracts:**
+  - `internal/quota`:
+    - `throttle.go`: introduces `TokenBurnRate` (`TokensBurned`, `TokensPerMinute`, `TokensPerHour`, `SampleCount`), `ThrottlePolicy` (`DepletionThreshold` [default 10%], `ThrottleDelayMs` [default 1000ms], `MaxTokensPerHour`, `MaxTokensPerMinute`, `AutoThrottleEnabled`), and `ThrottleConfig` with fleet defaults and per-profile overrides.
+    - Helpers: `CalculateTokenBurnRate`, `CalculateFleetBurnRates`, `LoadThrottleConfig`, `SaveThrottleConfig`, `DefaultThrottleConfig`. Persistence under `$MULTIGRAVITY_HOME/.multigravity/throttle-policy.json`.
+  - `internal/alert`:
+    - `alert.go`: adds alert kinds `KindQuotaNearingDepletion` (`"quota_nearing_depletion"`), `KindTokenBudgetExceeded` (`"token_budget_exceeded"`), and `KindTokenBurnRateHigh` (`"token_burn_rate_high"`).
+    - `Alert` payload extends backward-compatibly with `TokensBurned`, `TokenBurnRate`, and `BudgetLimit`.
+  - `internal/gateway`:
+    - `router.go`: `ProfileNode` tracks `ThrottleDelay` and `IsThrottled`. `Score` penalizes nearing-depletion profiles (-400.0) so healthy nodes are prioritized. In `SelectProfile`, auto-throttle sets pacing delay when selecting depleted profiles.
+    - `gateway.go` & `anthropic.go`: pacing delay (`time.After`) applied on throttled nodes; sets response headers `X-Throttled: true` and `X-Throttle-Delay: <delay>`.
+  - `internal/cmd`:
+    - `alerts.go`: surfaces token burn counts when alert reports them.
+    - `quota_burn.go`: adds subcommands `multigravity quota burn [profile] [--window <dur>] [--json]` and `multigravity quota throttle [profile] [--json]`.
+
+### 2026-10-15 [Task 03.9] Automated Token Estimation Calibration Against Live Cloud Code Responses
+
+- **Context:** Automated calibration of token estimation heuristics against live Cloud Code and Language Server response metrics, refining the static `(n + 3) / 4` approximation dynamically across models and prompt/completion segments.
+- **Active Contracts:**
+  - `internal/quota`:
+    - `calibration.go`: introduces `TokenCalibrator` with Bayesian prior baseline (`DefaultRunesPerToken = 4.0`, weight: 20 tokens / 80 runes), clamped within `[1.0, 8.0]` runes/token. Tracks overall and per-model statistics (`ModelCalibration`) across prompt and completion segments.
+    - Package-level helpers: `CalibrateTokens`, `EstimateTokens` (delegating to active calibrator while preserving exact integer ceiling for uncalibrated baseline), `EstimateTokensForModel`, `EstimateSegmentTokens`, `GetCalibrationStats`, `ResetCalibration`.
+    - Persistence: stores calibrated heuristics in `$MULTIGRAVITY_HOME/.multigravity/token-calibration.json` with dynamic path resolution and isolated in-memory test instances.
+  - `internal/gateway`:
+    - `usage.go`: `resolveUsage` accepts `model` and utilizes segment-aware calibrated estimates (`quota.EstimateSegmentTokens`). In `recordGatewayUsage`, when live `UpstreamUsage` is observed from Cloud Code SSE lines with valid token counts (`!estimated`), triggers `quota.CalibrateTokens(model, promptText, promptTokens, completionText, completionTokens)`.
+  - `internal/headless`:
+    - `runner.go`: `noteHeadlessTokens` feeds ground-truth tokens observed from `agy` CLI executions into `quota.CalibrateTokens`.
+  - `internal/cmd`:
+    - `quota.go`: introduces subcommand `multigravity quota calibration [--json]` reporting observation counts, effective ratio, prompt/completion breakdown, cumulative runes/tokens, and per-model ratios.
+
+### 2026-10-15 [Task 03.8] Interactive Terminal Multiplexing Enhancements for Windows PTY
+
+- **Context:** Enhanced pseudo-terminal (PTY) session multiplexing, terminal resize handling, and interactive session attachment across Windows and Unix platforms.
+- **Active Contracts:**
+  - `internal/agent`:
+    - `pty_windows.go`: added ConPTY (`windowsConPTY`) support via `windows.CreatePseudoConsole`, `windows.ResizePseudoConsole`, and `windows.ClosePseudoConsole` with `STARTUPINFOEX` and `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`. Gracefully falls back to pipe-backed PTY (`windowsPipePTY`) with dimension tracking if ConPTY is unavailable.
+    - `agent_test.go`: cross-platform execution for `TestManagerSessionLifecycle` supporting Windows `cmd.exe` and Unix `sh`, plus `TestSessionMultipleSubscribersAndResize` asserting multiplexed output chunk delivery and dynamic resize propagation across `Manager` and `SessionInstance`.
+    - `pty_windows_test.go`: unit tests verifying Windows pipe and ConPTY lifecycle, read/write, and dimension fallback behaviors.
+  - `internal/tui`:
+    - `multiplexer.go`: decoupled interactive session multiplexing (`MultiplexSession`), handling raw mode (`term.MakeRaw`), stdout streaming, stdin forwarding, and resize coordination.
+    - `resize_unix.go`: POSIX resize watcher listening on `syscall.SIGWINCH` and querying `term.GetSize`.
+    - `resize_windows.go`: Windows resize watcher monitoring console screen buffer dimension changes (150ms interval) via `term.GetSize`.
+    - `multiplexer_test.go`: unit tests for `MultiplexSession` output streaming, stdin forwarding, exit code propagation, and `WatchResize` lifecycle.
+  - `internal/cmd`:
+    - `agent.go`: refactored `attachInteractive` to delegate cleanly to `tui.MultiplexSession`, eliminating duplicate goroutines and removing obsolete `signal_unix.go` and `signal_windows.go`.
+
+### 2026-10-15 [Task 03.7] Task Retry with Verification Feedback Loop (`--retry <n>`)
+
+- **Context:** Automated task retry loop when post-session verification commands fail (`--verify <cmd>`), injecting verification output into consecutive agent sessions while preserving ephemeral worktrees without polluting branch history.
+- **Active Contracts:**
+  - `internal/dispatch`:
+    - `Task` & `DispatchOptions`: added `Retry int` and `Task.RetryCount int`.
+    - `SynthesizeRetryPrompt(originalPrompt, verifyCmd, verifyOutput string, attempt, maxRetries int)`: synthesizes prompt with verification failure header, command, output, and original instructions.
+    - `watchSession`: loops across verification failures while `RetryCount < Retry`. Re-resolves command/sandbox, starts consecutive agent sessions in the existing worktree, logs retry banners (`=== Retrying Task (attempt X/Y) ===`), and preserves the same branch/worktree. If retries are exhausted, transitions to `StatusAuditFailed`.
+  - `internal/cmd`:
+    - `multigravity dispatch run`: adds `--retry <n>` flag. In foreground mode, transparently streams output across consecutive retry sessions. In detached mode, displays `Retry: <n>`.
+    - `multigravity dispatch status`: displays `Retry: <n> (used: <count>)` when `task.Retry > 0`.
+  - `internal/mcp`:
+    - `dispatch_task`: exposes optional `retry` integer parameter (defaults to 0).
+
 ### 2026-10-14 [Task 03.6] Governance Context Injection in `dispatch run` (`AGENTS.md` / `TASK.md`)
 
 - **Context:** Automatically inject project governance directives (`AGENTS.md`, `.agent/TASK.md`, `.agent/NOTES.md`) into autonomous dispatch prompts and agent environments.

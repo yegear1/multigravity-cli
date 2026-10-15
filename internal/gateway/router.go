@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
 
 var (
@@ -56,7 +58,23 @@ type ProfileNode struct {
 	TotalFailovers    int64
 	LastUsed          time.Time
 	LastError         string
+	ThrottleDelay     time.Duration
+	IsThrottled       bool
 	mu                sync.RWMutex
+}
+
+// GetThrottleDelay returns the active throttle delay assigned to this profile
+func (p *ProfileNode) GetThrottleDelay() time.Duration {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.ThrottleDelay
+}
+
+// IsCurrentlyThrottled returns true if the profile is actively flagged for throttling
+func (p *ProfileNode) IsCurrentlyThrottled() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.IsThrottled
 }
 
 // IsCoolingDown returns whether the profile is currently under rate-limit cooldown
@@ -105,6 +123,11 @@ func (p *ProfileNode) Score(now time.Time) float64 {
 		score = 1
 	}
 
+	// Penalty for profiles nearing depletion (threshold <= 0.10)
+	if p.QuotaKnown && p.RemainingFraction <= quota.DefaultDepletionThreshold {
+		score -= 400.0 // heavily penalize nearing-depletion nodes so healthy profiles are prioritized
+	}
+
 	// Penalty for recent consecutive errors
 	score -= float64(p.ConsecutiveErrors) * 100.0
 
@@ -136,6 +159,7 @@ type Router struct {
 	rrIndex         uint64
 	tokenResolver   TokenResolverFunc
 	nowFn           func() time.Time
+	throttleConfig  *quota.ThrottleConfig
 }
 
 // RouterOption defines configuration options for Router
@@ -171,6 +195,31 @@ func WithRouterTokenResolver(fn TokenResolverFunc) RouterOption {
 	}
 }
 
+// WithRouterThrottleConfig sets the throttle policy configuration
+func WithRouterThrottleConfig(cfg *quota.ThrottleConfig) RouterOption {
+	return func(r *Router) {
+		if cfg != nil {
+			r.throttleConfig = cfg
+		}
+	}
+}
+
+// SetThrottleConfig updates the router's throttle configuration
+func (r *Router) SetThrottleConfig(cfg *quota.ThrottleConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if cfg != nil {
+		r.throttleConfig = cfg
+	}
+}
+
+// GetThrottleConfig returns the router's active throttle configuration
+func (r *Router) GetThrottleConfig() *quota.ThrottleConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.throttleConfig
+}
+
 // NewRouter creates a new multi-account router instance
 func NewRouter(opts ...RouterOption) *Router {
 	r := &Router{
@@ -180,6 +229,10 @@ func NewRouter(opts ...RouterOption) *Router {
 		defaultCooldown: 60 * time.Second,
 		failoverEnabled: true,
 		nowFn:           time.Now,
+		throttleConfig:  quota.DefaultThrottleConfig(),
+	}
+	if cfg, err := quota.LoadThrottleConfig(); err == nil && cfg != nil {
+		r.throttleConfig = cfg
 	}
 
 	for _, opt := range opts {
@@ -343,6 +396,7 @@ func (r *Router) SelectProfile(
 			if !node.IsCoolingDown(now) {
 				node.mu.Lock()
 				node.LastUsed = now
+				r.applyThrottleState(node)
 				node.mu.Unlock()
 				r.stickyProfile = reqProf
 				return node, nil
@@ -419,11 +473,28 @@ func (r *Router) SelectProfile(
 	if chosen != nil {
 		chosen.mu.Lock()
 		chosen.LastUsed = now
+		r.applyThrottleState(chosen)
 		chosen.mu.Unlock()
 		r.stickyProfile = chosen.Name
 	}
 
 	return chosen, nil
+}
+
+func (r *Router) applyThrottleState(node *ProfileNode) {
+	if r.throttleConfig == nil {
+		node.IsThrottled = false
+		node.ThrottleDelay = 0
+		return
+	}
+	pol := r.throttleConfig.PolicyForProfile(node.Name)
+	if pol.AutoThrottleEnabled && node.QuotaKnown && node.RemainingFraction <= pol.EffectiveDepletionThreshold() {
+		node.IsThrottled = true
+		node.ThrottleDelay = pol.ThrottleDelay()
+	} else {
+		node.IsThrottled = false
+		node.ThrottleDelay = 0
+	}
 }
 
 func pickHighestScore(candidates []*ProfileNode, now time.Time) *ProfileNode {
@@ -565,6 +636,11 @@ func (r *Router) GetStatus() RouterStatus {
 			resetTimeStr = node.ResetTime.UTC().Format(time.RFC3339)
 		}
 
+		var throttleDelayStr string
+		if node.ThrottleDelay > 0 {
+			throttleDelayStr = node.ThrottleDelay.String()
+		}
+
 		pStatus := ProfileNodeStatus{
 			Name:              node.Name,
 			Status:            nodeStatus,
@@ -580,6 +656,8 @@ func (r *Router) GetStatus() RouterStatus {
 			ConsecutiveErrors: node.ConsecutiveErrors,
 			LastUsed:          lastUsedStr,
 			LastError:         node.LastError,
+			IsThrottled:       node.IsThrottled,
+			ThrottleDelay:     throttleDelayStr,
 		}
 		node.mu.RUnlock()
 

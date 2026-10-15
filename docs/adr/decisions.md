@@ -84,3 +84,11 @@ type: architectural-decision-log
 
 ### [Spec 03.6] Governance Context Injection
 - **Objective:** Automatically inject governance awareness (`AGENTS.md`, `.agent/TASK.md`) into agent prompts when dispatched into target repositories.
+
+### [Spec 03.7] Task Retry with Verification Feedback Loop (`--retry <n>`)
+- **Objective:** Automatically retry tasks when post-session verification commands fail, feeding verification failure output into subsequent prompt sessions without polluting branch history.
+- **Mechanics:**
+  - Flag `--retry <n>` in `dispatch run` and `Retry` in `DispatchOptions` / `Task`.
+  - Reuses the existing ephemeral git worktree and branch in place across retry attempts.
+  - Generates feedback prompts via `SynthesizeRetryPrompt` embedding the verification command, exit code, failure output, and original task instructions.
+  - Updates `Task.RetryCount`, logs retry markers (`=== Retrying Task (attempt X/Y) ===`), and exposes live streaming across retry sessions.

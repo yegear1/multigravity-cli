@@ -7,21 +7,19 @@
 
 ## Active Task
 
-### 📌 Task [03.7]: Task retry with verification feedback loop (`--retry <n>`)
+### 📌 Task [04.1]: Dynamic token quota budget alerts and auto-throttle policies
 
-- **Description:** Implement automated task retries when verification fails, feeding verification output back into consecutive agent prompt sessions.
-- **Systems Involved:** `dispatch`, `cmd`
+- **Description:** Implement dynamic token quota budget threshold alerts and automated request throttling when quotas are nearing depletion.
+- **Systems Involved:** `quota`, `gateway`, `alert`
 - **Action Type:**
   - [ ] Read-only / Documentation
   - [x] Source code changes
-- **Status:** READY FOR PLANNING
+- **Status:** COMPLETED
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] Support `--retry <n>` option in `dispatch run` and `DispatchOptions`.
-- [ ] Feed verification failure output into agent retry prompt.
-- [ ] Preserve ephemeral worktree across retries without polluting branch history.
-- [ ] Automated tests in `internal/dispatch` and `internal/cmd` pass with exit code 0.
+- [x] Track remaining token burn rates against configured threshold alerts.
+- [x] Automated tests pass with exit code 0.
 
 ---
 
@@ -29,6 +27,10 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [04.1] | Dynamic token quota budget alerts and auto-throttle policies | [`257b63f`](https://github.com/ye-dev/multigravity-cli/commit/257b63f) | 2026-10-15 |
+| [03.9] | Automated token estimation calibration against live Cloud Code responses | [`1ba96de`](https://github.com/ye-dev/multigravity-cli/commit/1ba96de) | 2026-10-15 |
+| [03.8] | Interactive terminal multiplexing enhancements for Windows PTY | [`855a815`](https://github.com/ye-dev/multigravity-cli/commit/855a815) | 2026-10-15 |
+| [03.7] | Task retry with verification feedback loop (`--retry <n>`) | [`01da780`](https://github.com/ye-dev/multigravity-cli/commit/01da780) | 2026-10-15 |
 | [03.6] | Governance context injection in `dispatch run` (`AGENTS.md` / `TASK.md`) | [`d534be6`](https://github.com/ye-dev/multigravity-cli/commit/d534be6) | 2026-10-14 |
 | [03.5] | Verification and audit hook in dispatch (`--verify <cmd>`) | [`d534be6`](https://github.com/ye-dev/multigravity-cli/commit/d534be6) | 2026-10-14 |
 | [03.4] | Quota-aware route recommendation CLI command (`multigravity route`) | [`d534be6`](https://github.com/ye-dev/multigravity-cli/commit/d534be6) | 2026-10-14 |
@@ -45,7 +47,7 @@
 
 ## Backlog (Upcoming, in priority order)
 
-- [ ] **[03.8]** Interactive terminal multiplexing enhancements for Windows PTY — `[tui]`, `[agent]`
+- [ ] *(Queue empty — awaiting next prioritization)*
 
 ---
 
@@ -59,7 +61,6 @@ Release/tag only with explicit human request. When triggered, the ID is `[99.1]`
 
 ## Future Backlog / Ideas (Unprioritized)
 
-- [ ] Interactive terminal multiplexing enhancements for Windows PTY
 - [ ] Automated token estimation calibration against live Cloud Code responses
 
 ---
