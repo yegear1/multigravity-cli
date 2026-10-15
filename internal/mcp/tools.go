@@ -155,6 +155,10 @@ func RegisterDefaultTools(s *Server) {
 					Type:        "string",
 					Description: "Verification command to execute inside worktree upon agent completion (e.g. 'go test ./...'). If non-zero exit code, marks task audit_failed.",
 				},
+				"retry": {
+					Type:        "integer",
+					Description: "Maximum number of retries if verification fails (default 0).",
+				},
 				"governance": {
 					Type:        "boolean",
 					Description: "Inject project governance directives (AGENTS.md, TASK.md) into agent prompt and environment (defaults to false for MCP dispatch).",
@@ -205,6 +209,7 @@ func RegisterDefaultTools(s *Server) {
 			Detached:     getBool(args, "background"),
 			Env:          getStringMap(args, "env"),
 			Verify:       getString(args, "verify"),
+			Retry:        getInt(args, "retry", 0),
 			NoGovernance: !getBool(args, "governance"),
 		}
 

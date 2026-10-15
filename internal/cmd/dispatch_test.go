@@ -1087,3 +1087,101 @@ func TestDispatchCLIRunGovernance(t *testing.T) {
 	}
 }
 
+func TestDispatchCLIRunRetry(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfilesForCmd(t, "dev")
+
+	// 1. Successful retry recovery
+	script := `if [ "$MULTIGRAVITY_RETRY_ATTEMPT" = "1" ]; then echo "recovered" > fixed.txt; else echo "first try"; fi`
+	cmd := newDispatchCmd()
+	out, err := executeCommand(cmd, "run", "dev", "--repo", repoDir, "--new-worktree",
+		"--verify", "cat fixed.txt", "--retry", "2", "--detach", "--json", "--", "sh", "-c", script)
+	if err != nil {
+		t.Fatalf("failed to run dispatch with --retry: %v (out: %s)", err, out)
+	}
+
+	var task dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+	if task.Retry != 2 {
+		t.Errorf("expected task.Retry to be 2, got %d", task.Retry)
+	}
+
+	mgr := dispatch.GetDefaultTaskManager()
+	deadline := time.Now().Add(5 * time.Second)
+	var completedTask *dispatch.Task
+	for time.Now().Before(deadline) {
+		tCur, err := mgr.GetTask(repoDir, task.ID)
+		if err == nil && (tCur.Status == dispatch.StatusCompleted || tCur.Status == dispatch.StatusFailed || tCur.Status == dispatch.StatusAuditFailed) {
+			completedTask = tCur
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if completedTask == nil {
+		t.Fatal("timed out waiting for task to complete")
+	}
+	if completedTask.Status != dispatch.StatusCompleted {
+		t.Fatalf("expected StatusCompleted, got %s (error: %s)", completedTask.Status, completedTask.Error)
+	}
+	if completedTask.RetryCount != 1 {
+		t.Errorf("expected RetryCount 1, got %d", completedTask.RetryCount)
+	}
+
+	// Status command reflects retry count
+	cmdStatus := newDispatchCmd()
+	statusOut, err := executeCommand(cmdStatus, "status", completedTask.ID)
+	if err != nil {
+		t.Fatalf("failed to run dispatch status: %v", err)
+	}
+	if !strings.Contains(statusOut, "Retry:") || !strings.Contains(statusOut, "(used: 1)") {
+		t.Errorf("expected status output to contain 'Retry:' and '(used: 1)', got: %s", statusOut)
+	}
+
+	// 2. Exhausted retries
+	cmd2 := newDispatchCmd()
+	out2, err := executeCommand(cmd2, "run", "dev", "--repo", repoDir, "--new-worktree",
+		"--verify", "sh -c 'echo \"always fail\" >&2 && exit 88'", "--retry", "2", "--detach", "--json", "--", "sh", "-c", "echo 'code'")
+	if err != nil {
+		t.Fatalf("failed to run dispatch with failing verify retry: %v (out: %s)", err, out2)
+	}
+
+	var task2 dispatch.Task
+	if err := json.Unmarshal([]byte(out2), &task2); err != nil {
+		t.Fatalf("failed to parse task2 JSON: %v", err)
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	var completedTask2 *dispatch.Task
+	for time.Now().Before(deadline) {
+		tCur, err := mgr.GetTask(repoDir, task2.ID)
+		if err == nil && (tCur.Status == dispatch.StatusCompleted || tCur.Status == dispatch.StatusFailed || tCur.Status == dispatch.StatusAuditFailed) {
+			completedTask2 = tCur
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if completedTask2 == nil {
+		t.Fatal("timed out waiting for task2 to complete")
+	}
+	if completedTask2.Status != dispatch.StatusAuditFailed {
+		t.Fatalf("expected StatusAuditFailed, got %s", completedTask2.Status)
+	}
+	if completedTask2.RetryCount != 2 {
+		t.Errorf("expected RetryCount 2, got %d", completedTask2.RetryCount)
+	}
+
+	// Status command reflects exhausted retries
+	cmdStatus2 := newDispatchCmd()
+	statusOut2, err := executeCommand(cmdStatus2, "status", completedTask2.ID)
+	if err != nil {
+		t.Fatalf("failed to run dispatch status on task2: %v", err)
+	}
+	if !strings.Contains(statusOut2, "Retry:") || !strings.Contains(statusOut2, "(used: 2)") {
+		t.Errorf("expected status output to contain 'Retry:' and '(used: 2)', got: %s", statusOut2)
+	}
+}
+

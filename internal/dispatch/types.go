@@ -33,6 +33,8 @@ type Task struct {
 	Verify               string            `json:"verify,omitempty"`
 	VerificationOutput   string            `json:"verification_output,omitempty"`
 	VerificationExitCode int               `json:"verification_exit_code,omitempty"`
+	Retry                int               `json:"retry,omitempty"`
+	RetryCount           int               `json:"retry_count,omitempty"`
 	Governance           bool              `json:"governance,omitempty"`
 	Branch               string            `json:"branch,omitempty"`
 	BaseCommit           string            `json:"base_commit,omitempty"`
@@ -61,6 +63,7 @@ type DispatchOptions struct {
 	Sandbox      bool              `json:"sandbox,omitempty"`
 	Role         string            `json:"role,omitempty"`
 	Verify       string            `json:"verify,omitempty"`
+	Retry        int               `json:"retry,omitempty"`
 	NoGovernance bool              `json:"no_governance,omitempty"`
 	WorktreeID   string            `json:"worktree_id,omitempty"`
 	NewWorktree bool              `json:"new_worktree,omitempty"`

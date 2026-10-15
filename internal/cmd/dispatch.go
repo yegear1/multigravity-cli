@@ -51,7 +51,8 @@ var (
 	dpDryRun      bool
 	dpNoPrune     bool
 	dpThreeWay    bool
-	dpVerify      string
+	dpVerify       string
+	dpRetry        int
 	dpNoGovernance bool
 
 	dpGreen  = color.New(color.FgGreen).SprintFunc()
@@ -102,6 +103,7 @@ with profile-isolated credentials, ephemeral git worktrees, and persistent log c
 	runSubCmd.Flags().StringVar(&dpGatewayKey, "gateway-key", "", "Gateway authentication key")
 	runSubCmd.Flags().BoolVar(&dpSandbox, "sandbox", false, "Enforce filesystem and execution boundaries via agent-guard")
 	runSubCmd.Flags().StringVar(&dpVerify, "verify", "", "Verification command to execute inside worktree upon agent completion (e.g. 'go test ./...')")
+	runSubCmd.Flags().IntVar(&dpRetry, "retry", 0, "Maximum number of retries if verification fails")
 	runSubCmd.Flags().BoolVar(&dpNoGovernance, "no-governance", false, "Disable automatic injection of project governance directives (AGENTS.md, TASK.md)")
 	runSubCmd.Flags().BoolVarP(&dpDetach, "detach", "d", false, "Run task in background and print task ID immediately")
 
@@ -256,6 +258,7 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		dpGateway = ""
 		dpGatewayKey = ""
 		dpVerify = ""
+		dpRetry = 0
 		dpNoGovernance = false
 		dpDetach = false
 		dpJSON = false
@@ -314,6 +317,7 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		Args:        cmdArgs,
 		Sandbox:      dpSandbox,
 		Verify:       dpVerify,
+		Retry:        dpRetry,
 		NoGovernance: dpNoGovernance,
 		NewWorktree:  dpNewWorktree,
 		WorktreeID:   dpWorktree,
@@ -353,6 +357,9 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		if task.Verify != "" {
 			fmt.Fprintf(out, "  Verify:    %s\n", dpDim(task.Verify))
 		}
+		if task.Retry > 0 {
+			fmt.Fprintf(out, "  Retry:     %d\n", task.Retry)
+		}
 		if task.WorktreeID != "" {
 			fmt.Fprintf(out, "  Worktree:  %s (%s)\n", dpBold(task.WorktreeID), dpDim(task.Branch))
 			fmt.Fprintf(out, "  Path:      %s\n", dpDim(task.WorktreePath))
@@ -375,24 +382,34 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 	}
 
 	agentMgr := agent.GetDefaultManager()
-	if task.SessionID != "" {
-		if ch, unsub, err := agentMgr.SubscribeSession(task.SessionID); err == nil {
-			defer unsub()
-			for chunk := range ch {
-				if !dpJSON {
-					out.Write([]byte(chunk.Data))
-				}
-			}
-		}
-	}
-
-	// Wait until task is no longer running
+	subscribedSessions := make(map[string]bool)
 	var completedTask *dispatch.Task
 	for {
 		tCur, err := mgr.GetTask("", task.ID)
-		if err == nil && tCur.Status != dispatch.StatusRunning && tCur.Status != dispatch.StatusPending {
-			completedTask = tCur
-			break
+		if err == nil {
+			if tCur.SessionID != "" && !subscribedSessions[tCur.SessionID] {
+				currSessionID := tCur.SessionID
+				subscribedSessions[currSessionID] = true
+
+				if tCur.RetryCount > 0 && !dpJSON {
+					fmt.Fprintf(out, "\n%s Verification failed. Retrying task (attempt %d/%d)...\n\n",
+						dpYellow("↻"), tCur.RetryCount, tCur.Retry)
+				}
+
+				if ch, unsub, err := agentMgr.SubscribeSession(currSessionID); err == nil {
+					for chunk := range ch {
+						if !dpJSON {
+							out.Write([]byte(chunk.Data))
+						}
+					}
+					unsub()
+				}
+			}
+
+			if tCur.Status != dispatch.StatusRunning && tCur.Status != dispatch.StatusPending {
+				completedTask = tCur
+				break
+			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -572,6 +589,9 @@ func runDispatchStatus(cmd *cobra.Command, args []string) error {
 		if task.VerificationOutput != "" {
 			fmt.Fprintf(out, "  Verify Out: %s\n", strings.TrimSpace(task.VerificationOutput))
 		}
+	}
+	if task.Retry > 0 {
+		fmt.Fprintf(out, "  Retry:      %d (used: %d)\n", task.Retry, task.RetryCount)
 	}
 	fmt.Fprintf(out, "  Created At: %s\n", task.CreatedAt.Local().Format(time.RFC3339))
 	if task.EndedAt != nil {

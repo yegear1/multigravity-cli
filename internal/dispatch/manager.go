@@ -275,6 +275,32 @@ func ResolveAgentCommandWithCwd(agentType, command string, args []string, prompt
 	return cmdStr, resArgs
 }
 
+// SynthesizeRetryPrompt constructs an actionable prompt for an agent retry session containing verification failure output.
+func SynthesizeRetryPrompt(originalPrompt, verifyCmd, verifyOutput string, attempt, maxRetries int) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[TASK VERIFICATION FAILURE — RETRY ATTEMPT %d/%d]\n", attempt, maxRetries))
+	sb.WriteString(fmt.Sprintf("The post-task verification command %q failed.\n", verifyCmd))
+	sb.WriteString("Analyze the verification failure output below, locate and fix the root causes in the codebase, and ensure verification will pass.\n\n")
+
+	sb.WriteString("[VERIFICATION FAILURE OUTPUT]\n")
+	trimmedOut := strings.TrimSpace(verifyOutput)
+	if trimmedOut != "" {
+		sb.WriteString(trimmedOut)
+	} else {
+		sb.WriteString("(command exited with failure status and produced no output)")
+	}
+	sb.WriteString("\n")
+
+	trimmedOrig := strings.TrimSpace(originalPrompt)
+	if trimmedOrig != "" {
+		sb.WriteString("\n[ORIGINAL TASK INSTRUCTIONS]\n")
+		sb.WriteString(trimmedOrig)
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
 func getTasksDir(repoRoot string) string {
 	if repoRoot != "" {
 		return filepath.Join(repoRoot, ".multigravity", "tasks")
@@ -492,6 +518,8 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		Sandbox:      opts.Sandbox,
 		Role:         opts.Role,
 		Verify:       opts.Verify,
+		Retry:        opts.Retry,
+		RetryCount:   0,
 		Governance:   governanceInjected,
 		Branch:       branch,
 		BaseCommit:   baseCommit,
@@ -564,7 +592,7 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 	go m.streamLogsToFile(inst, logPath)
 
 	// Monitor session lifecycle
-	go m.watchSession(inst, task, taskDir, repoRoot)
+	go m.watchSession(inst, task, taskDir, repoRoot, opts, execDir, taskEnv)
 
 	return task, nil
 }
@@ -593,76 +621,200 @@ func (m *TaskManager) streamLogsToFile(inst *agent.SessionInstance, logPath stri
 	}
 }
 
-func (m *TaskManager) watchSession(inst *agent.SessionInstance, task *Task, taskDir, repoRoot string) {
-	// Wait until process exits
-	inst.Wait(0)
+func (m *TaskManager) watchSession(inst *agent.SessionInstance, task *Task, taskDir, repoRoot string, opts DispatchOptions, execDir string, taskEnv map[string]string) {
+	currentInst := inst
 
-	info := inst.GetInfo()
-	ended := time.Now().UTC()
+	for {
+		// Wait until process exits
+		currentInst.Wait(0)
 
-	m.mu.Lock()
-	task.EndedAt = &ended
-	task.ExitCode = info.ExitCode
-	task.DurationSeconds = ended.Sub(task.StartedAt).Seconds()
-
-	agentSucceeded := false
-	if task.Status != StatusCancelled {
-		if info.Status == agent.StatusStopped {
-			task.Status = StatusCancelled
-		} else if info.ExitCode != 0 {
-			task.Status = StatusFailed
-		} else {
-			agentSucceeded = true
-			if strings.TrimSpace(task.Verify) == "" {
-				task.Status = StatusCompleted
-			}
-		}
-	}
-
-	// Capture latest head commit from worktree if present
-	if task.WorktreePath != "" {
-		if head, err := worktree.GetHeadCommit(task.WorktreePath); err == nil {
-			task.HeadCommit = head
-		}
-	}
-	m.mu.Unlock()
-
-	// Execute verification hook if agent succeeded and verify command was configured
-	if agentSucceeded && strings.TrimSpace(task.Verify) != "" {
-		verifyDir := task.WorktreePath
-		if verifyDir == "" {
-			verifyDir = task.RepoPath
-		}
-		if verifyDir == "" {
-			verifyDir, _ = os.Getwd()
-		}
-
-		out, exitCode, vErr := executeVerifyCommand(verifyDir, task.Verify)
-		verifyEnded := time.Now().UTC()
+		info := currentInst.GetInfo()
+		ended := time.Now().UTC()
 
 		m.mu.Lock()
-		task.EndedAt = &verifyEnded
-		task.DurationSeconds = verifyEnded.Sub(task.StartedAt).Seconds()
-		task.VerificationOutput = string(out)
-		task.VerificationExitCode = exitCode
-		if exitCode != 0 || vErr != nil {
-			task.Status = StatusAuditFailed
-			if vErr != nil && exitCode == 0 {
-				task.Error = fmt.Sprintf("verification execution error: %v", vErr)
+		task.EndedAt = &ended
+		task.ExitCode = info.ExitCode
+		task.DurationSeconds = ended.Sub(task.StartedAt).Seconds()
+
+		agentSucceeded := false
+		if task.Status != StatusCancelled {
+			if info.Status == agent.StatusStopped {
+				task.Status = StatusCancelled
+			} else if info.ExitCode != 0 {
+				task.Status = StatusFailed
 			} else {
-				task.Error = fmt.Sprintf("verification command failed with exit code %d", exitCode)
+				agentSucceeded = true
+				if strings.TrimSpace(task.Verify) == "" {
+					task.Status = StatusCompleted
+				}
 			}
-		} else {
-			task.Status = StatusCompleted
+		}
+
+		// Capture latest head commit from worktree if present
+		if task.WorktreePath != "" {
+			if head, err := worktree.GetHeadCommit(task.WorktreePath); err == nil {
+				task.HeadCommit = head
+			}
 		}
 		m.mu.Unlock()
 
-		// Append verification output to log file
-		if task.LogPath != "" {
-			if f, err := os.OpenFile(task.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
-				_, _ = fmt.Fprintf(f, "\n=== Verification (%s) ===\n%s\n", task.Verify, string(out))
-				_ = f.Close()
+		// If task was cancelled or failed in agent run, or completed without verification, we are done
+		if task.Status == StatusCancelled || task.Status == StatusFailed || task.Status == StatusCompleted {
+			break
+		}
+
+		// Execute verification hook if agent succeeded and verify command was configured
+		if agentSucceeded && strings.TrimSpace(task.Verify) != "" {
+			verifyDir := task.WorktreePath
+			if verifyDir == "" {
+				verifyDir = task.RepoPath
 			}
+			if verifyDir == "" {
+				verifyDir, _ = os.Getwd()
+			}
+
+			out, exitCode, vErr := executeVerifyCommand(verifyDir, task.Verify)
+			verifyEnded := time.Now().UTC()
+
+			m.mu.Lock()
+			task.EndedAt = &verifyEnded
+			task.DurationSeconds = verifyEnded.Sub(task.StartedAt).Seconds()
+			task.VerificationOutput = string(out)
+			task.VerificationExitCode = exitCode
+			if exitCode != 0 || vErr != nil {
+				if vErr != nil && exitCode == 0 {
+					task.Error = fmt.Sprintf("verification execution error: %v", vErr)
+				} else {
+					task.Error = fmt.Sprintf("verification command failed with exit code %d", exitCode)
+				}
+			} else {
+				task.Status = StatusCompleted
+				task.Error = ""
+			}
+			m.mu.Unlock()
+
+			// Append verification output to log file
+			if task.LogPath != "" {
+				if f, err := os.OpenFile(task.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+					_, _ = fmt.Fprintf(f, "\n=== Verification (%s) ===\n%s\n", task.Verify, string(out))
+					_ = f.Close()
+				}
+			}
+
+			// If verification passed, we are done
+			if task.Status == StatusCompleted {
+				break
+			}
+
+			// Verification failed: check if retries are available
+			m.mu.Lock()
+			canRetry := (task.Status != StatusCancelled) && (task.RetryCount < task.Retry)
+			if canRetry {
+				task.RetryCount++
+				task.Status = StatusRunning
+				task.Error = ""
+			} else {
+				task.Status = StatusAuditFailed
+			}
+			m.mu.Unlock()
+
+			if !canRetry {
+				break
+			}
+
+			// Retrying: synthesize feedback prompt with verification failure output
+			attempt := task.RetryCount
+			retryPrompt := SynthesizeRetryPrompt(opts.Prompt, task.Verify, task.VerificationOutput, attempt, task.Retry)
+			if !opts.NoGovernance {
+				gov := DiscoverGovernance(execDir, repoRoot)
+				if gov != nil && gov.Found() {
+					retryPrompt = SynthesizePrompt(retryPrompt, gov)
+				}
+			}
+
+			// Re-resolve command for agent with the new retry prompt
+			var retryCmd string
+			var retryArgs []string
+			if task.AgentType == "custom" && opts.Command != "" && len(opts.Args) > 0 && opts.Prompt == "" {
+				retryCmd = opts.Command
+				retryArgs = opts.Args
+			} else {
+				retryCmd, retryArgs = ResolveAgentCommandWithCwd(task.AgentType, opts.Command, nil, retryPrompt, execDir)
+			}
+			if opts.Sandbox && !agent.SupportsNativeSandbox(task.AgentType) {
+				retryCmd, retryArgs = agent.WrapWithAgentGuard(retryCmd, retryArgs, execDir, opts.Role)
+			}
+
+			m.mu.Lock()
+			task.Command = retryCmd
+			task.Args = retryArgs
+			m.mu.Unlock()
+
+			_ = saveTaskFile(taskDir, task)
+
+			// Append retry header to log file
+			if task.LogPath != "" {
+				if f, err := os.OpenFile(task.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+					_, _ = fmt.Fprintf(f, "\n=== Retrying Task (attempt %d/%d) ===\n", attempt, task.Retry)
+					_ = f.Close()
+				}
+			}
+
+			// Copy environment and inject retry indicators
+			sessEnv := make(map[string]string)
+			for k, v := range taskEnv {
+				sessEnv[k] = v
+			}
+			sessEnv["MULTIGRAVITY_RETRY_ATTEMPT"] = fmt.Sprintf("%d", attempt)
+			sessEnv["MULTIGRAVITY_RETRY_MAX"] = fmt.Sprintf("%d", task.Retry)
+			sessEnv["MULTIGRAVITY_RETRY_PROMPT"] = retryPrompt
+
+			// Launch consecutive agent session in the preserved worktree
+			sessOpts := agent.CreateSessionOptions{
+				Profile:    opts.Profile,
+				AgentType:  task.AgentType,
+				Command:    retryCmd,
+				Args:       retryArgs,
+				Cwd:        execDir,
+				WorktreeID: task.WorktreeID,
+				RepoPath:   execDir,
+				Sandbox:    opts.Sandbox,
+				Role:       opts.Role,
+				Env:        sessEnv,
+				GatewayURL: opts.GatewayURL,
+				GatewayKey: opts.GatewayKey,
+				Detached:   true,
+			}
+
+			nextInst, err := m.agentMgr.StartSession(sessOpts)
+			if err != nil {
+				m.mu.Lock()
+				task.Status = StatusFailed
+				task.Error = fmt.Sprintf("failed to start retry session: %v", err)
+				m.mu.Unlock()
+				break
+			}
+
+			m.mu.Lock()
+			task.SessionID = nextInst.GetInfo().ID
+			task.PID = nextInst.GetInfo().PID
+			m.mu.Unlock()
+
+			_ = saveTaskFile(taskDir, task)
+
+			taskMu.Lock()
+			if manifest, err := m.loadManifest(repoRoot); err == nil {
+				manifest.Tasks[task.ID] = *task
+				_ = m.saveManifest(repoRoot, manifest)
+			}
+			taskMu.Unlock()
+
+			m.emitEvent("retry", task)
+
+			// Stream retry session logs to disk
+			go m.streamLogsToFile(nextInst, task.LogPath)
+
+			currentInst = nextInst
 		}
 	}
 

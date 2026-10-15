@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -630,6 +631,8 @@ func TestDispatchSandboxNonNative(t *testing.T) {
 	if capturedOpts.Command != "agent-guard" {
 		t.Errorf("expected captured Command to be 'agent-guard', got %q", capturedOpts.Command)
 	}
+
+	_, _ = taskMgr.WaitForTask(context.Background(), repoDir, "task-sandbox-claude")
 }
 
 func TestDispatchSandboxNativeCodex(t *testing.T) {
@@ -677,6 +680,8 @@ func TestDispatchSandboxNativeCodex(t *testing.T) {
 	if capturedOpts.Command != "codex" {
 		t.Errorf("expected captured Command to be 'codex', got %q", capturedOpts.Command)
 	}
+
+	_, _ = taskMgr.WaitForTask(context.Background(), repoDir, "task-sandbox-codex")
 }
 
 func TestDispatchSandboxSubshellMutationIntercept(t *testing.T) {
@@ -890,6 +895,8 @@ func TestDispatchGovernanceInjection(t *testing.T) {
 	if capturedOpts.Env["MULTIGRAVITY_GOVERNANCE_TASK"] == "" {
 		t.Errorf("expected MULTIGRAVITY_GOVERNANCE_TASK to be set")
 	}
+
+	_, _ = taskMgr.WaitForTask(context.Background(), repoDir, "task-gov-inject")
 }
 
 func TestDispatchGovernanceOptOut(t *testing.T) {
@@ -934,5 +941,156 @@ func TestDispatchGovernanceOptOut(t *testing.T) {
 	}
 	if capturedOpts.Env["MULTIGRAVITY_GOVERNANCE"] != "" {
 		t.Errorf("expected MULTIGRAVITY_GOVERNANCE to be unset, got %q", capturedOpts.Env["MULTIGRAVITY_GOVERNANCE"])
+	}
+
+	_, _ = taskMgr.WaitForTask(context.Background(), repoDir, "task-gov-optout")
+}
+
+func TestSynthesizeRetryPrompt(t *testing.T) {
+	origPrompt := "fix unit tests for auth module"
+	verifyCmd := "go test ./internal/auth"
+	verifyOutput := "--- FAIL: TestAuthValidation (0.01s)\n    auth_test.go:42: token expired"
+
+	prompt := SynthesizeRetryPrompt(origPrompt, verifyCmd, verifyOutput, 1, 3)
+
+	if !strings.Contains(prompt, "[TASK VERIFICATION FAILURE — RETRY ATTEMPT 1/3]") {
+		t.Errorf("expected header with attempt 1/3, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, verifyCmd) {
+		t.Errorf("expected verify cmd in prompt, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, verifyOutput) {
+		t.Errorf("expected verify output in prompt, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, origPrompt) {
+		t.Errorf("expected original prompt in prompt, got: %s", prompt)
+	}
+
+	// Empty original prompt and empty output
+	promptEmpty := SynthesizeRetryPrompt("", "make test", "", 2, 2)
+	if !strings.Contains(promptEmpty, "RETRY ATTEMPT 2/2") {
+		t.Errorf("expected attempt 2/2, got: %s", promptEmpty)
+	}
+	if !strings.Contains(promptEmpty, "(command exited with failure status and produced no output)") {
+		t.Errorf("expected empty output placeholder, got: %s", promptEmpty)
+	}
+	if strings.Contains(promptEmpty, "[ORIGINAL TASK INSTRUCTIONS]") {
+		t.Errorf("expected no original instructions section when prompt is empty")
+	}
+}
+
+func TestDispatchRetryVerificationRecovery(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	script := `if [ "$MULTIGRAVITY_RETRY_ATTEMPT" = "1" ]; then echo "fixed on retry" > fixed.txt; else echo "initial fail"; fi`
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:          "task-retry-recovery",
+		Profile:     "dev",
+		RepoPath:    repoDir,
+		NewWorktree: true,
+		Command:     "sh",
+		Args:        []string{"-c", script},
+		Verify:      "cat fixed.txt",
+		Retry:       2,
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch task with retry: %v", err)
+	}
+
+	completedTask, err := taskMgr.WaitForTask(context.Background(), repoDir, task.ID)
+	if err != nil {
+		t.Fatalf("failed to wait for task: %v", err)
+	}
+
+	if completedTask.Status != StatusCompleted {
+		t.Fatalf("expected StatusCompleted after retry, got %s (error: %s, output: %s)",
+			completedTask.Status, completedTask.Error, completedTask.VerificationOutput)
+	}
+	if completedTask.RetryCount != 1 {
+		t.Errorf("expected RetryCount 1, got %d", completedTask.RetryCount)
+	}
+	if completedTask.Retry != 2 {
+		t.Errorf("expected Retry 2, got %d", completedTask.Retry)
+	}
+	if !strings.Contains(completedTask.VerificationOutput, "fixed on retry") {
+		t.Errorf("expected VerificationOutput 'fixed on retry', got %q", completedTask.VerificationOutput)
+	}
+
+	// Verify worktree was preserved across attempts
+	if completedTask.WorktreePath == "" {
+		t.Errorf("expected WorktreePath to be preserved")
+	} else if _, err := os.Stat(filepath.Join(completedTask.WorktreePath, "fixed.txt")); err != nil {
+		t.Errorf("expected fixed.txt in preserved worktree, got err: %v", err)
+	}
+
+	// Verify log contains retry and verification milestones
+	logs, err := taskMgr.GetTaskLogs(repoDir, task.ID, 0)
+	if err != nil {
+		t.Fatalf("failed to read task logs: %v", err)
+	}
+	logStr := string(logs)
+	if !strings.Contains(logStr, "=== Retrying Task (attempt 1/2) ===") {
+		t.Errorf("expected logs to contain retry attempt header, got: %s", logStr)
+	}
+	if !strings.Contains(logStr, "=== Verification (cat fixed.txt) ===") {
+		t.Errorf("expected logs to contain verification header, got: %s", logStr)
+	}
+}
+
+func TestDispatchRetryVerificationExhausted(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:          "task-retry-exhausted",
+		Profile:     "dev",
+		RepoPath:    repoDir,
+		NewWorktree: true,
+		Command:     "sh",
+		Args:        []string{"-c", "echo 'always broken' > broken.txt"},
+		Verify:      "sh -c 'echo \"persistent audit failure\" >&2 && exit 99'",
+		Retry:       2,
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch task: %v", err)
+	}
+
+	completedTask, err := taskMgr.WaitForTask(context.Background(), repoDir, task.ID)
+	if err != nil {
+		t.Fatalf("failed to wait for task: %v", err)
+	}
+
+	if completedTask.Status != StatusAuditFailed {
+		t.Fatalf("expected StatusAuditFailed after exhausting retries, got %s", completedTask.Status)
+	}
+	if completedTask.RetryCount != 2 {
+		t.Errorf("expected RetryCount 2, got %d", completedTask.RetryCount)
+	}
+	if completedTask.VerificationExitCode != 99 {
+		t.Errorf("expected VerificationExitCode 99, got %d", completedTask.VerificationExitCode)
+	}
+	if !strings.Contains(completedTask.VerificationOutput, "persistent audit failure") {
+		t.Errorf("expected VerificationOutput to capture error, got %q", completedTask.VerificationOutput)
+	}
+
+	// Verify log contains all retry headers
+	logs, err := taskMgr.GetTaskLogs(repoDir, task.ID, 0)
+	if err != nil {
+		t.Fatalf("failed to read task logs: %v", err)
+	}
+	logStr := string(logs)
+	if !strings.Contains(logStr, "=== Retrying Task (attempt 1/2) ===") {
+		t.Errorf("expected logs to contain attempt 1 header, got: %s", logStr)
+	}
+	if !strings.Contains(logStr, "=== Retrying Task (attempt 2/2) ===") {
+		t.Errorf("expected logs to contain attempt 2 header, got: %s", logStr)
 	}
 }
