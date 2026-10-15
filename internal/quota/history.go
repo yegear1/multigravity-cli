@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
@@ -93,13 +92,9 @@ type FleetSeries struct {
 	Summary  HistorySummary `json:"summary"`
 }
 
-// EstimateTokens approximates a token count from text length (about 4 runes per token).
+// EstimateTokens approximates a token count from text length using active calibration (default ~4 runes per token).
 func EstimateTokens(text string) int {
-	n := utf8.RuneCountInString(text)
-	if n == 0 {
-		return 0
-	}
-	return (n + 3) / 4
+	return defaultCalibrator.EstimateTokens(text)
 }
 
 // RecordTokens appends a token sample. A missing profile is ignored so callers

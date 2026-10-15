@@ -145,6 +145,11 @@ func TestParseHistoryQueryRejectsBadInput(t *testing.T) {
 }
 
 func TestEstimateTokens(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", home)
+	ResetCalibration()
+	defer ResetCalibration()
+
 	if EstimateTokens("") != 0 {
 		t.Fatal("empty text")
 	}

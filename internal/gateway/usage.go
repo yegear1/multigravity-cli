@@ -24,7 +24,7 @@ func cloudRequestText(req *CloudCodeRequest) string {
 	return b.String()
 }
 
-func resolveUsage(upstream UpstreamUsage, promptText, completionText string) (UsageInfo, bool) {
+func resolveUsage(model string, upstream UpstreamUsage, promptText, completionText string) (UsageInfo, bool) {
 	if upstream.Observed && (upstream.TotalTokens > 0 || upstream.PromptTokens > 0 || upstream.CompletionTokens > 0) {
 		total := upstream.TotalTokens
 		if total == 0 {
@@ -36,8 +36,8 @@ func resolveUsage(upstream UpstreamUsage, promptText, completionText string) (Us
 			TotalTokens:      total,
 		}, false
 	}
-	prompt := quota.EstimateTokens(promptText)
-	completion := quota.EstimateTokens(completionText)
+	prompt := quota.EstimateSegmentTokens(model, "prompt", promptText)
+	completion := quota.EstimateSegmentTokens(model, "completion", completionText)
 	return UsageInfo{
 		PromptTokens:     prompt,
 		CompletionTokens: completion,
@@ -46,7 +46,10 @@ func resolveUsage(upstream UpstreamUsage, promptText, completionText string) (Us
 }
 
 func recordGatewayUsage(profileName, model string, upstream UpstreamUsage, promptText, completionText string) UsageInfo {
-	info, estimated := resolveUsage(upstream, promptText, completionText)
+	info, estimated := resolveUsage(model, upstream, promptText, completionText)
+	if !estimated && info.TotalTokens > 0 {
+		quota.CalibrateTokens(model, promptText, info.PromptTokens, completionText, info.CompletionTokens)
+	}
 	if info.TotalTokens > 0 {
 		_ = quota.RecordTokens(profileName, quota.SourceGateway, model, info.PromptTokens, info.CompletionTokens, info.TotalTokens, estimated)
 	}

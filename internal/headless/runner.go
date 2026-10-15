@@ -184,5 +184,6 @@ func noteHeadlessTokens(result *AgentRunResult) {
 	if result == nil || result.ExitCode != 0 || result.TotalTokens <= 0 {
 		return
 	}
+	quota.CalibrateTokens("", result.Prompt, 0, result.Response, result.TotalTokens)
 	_ = quota.RecordTokens(result.Profile, quota.SourceHeadless, "", 0, 0, result.TotalTokens, false)
 }
