@@ -157,9 +157,16 @@ func TestBuildAgentEnv_Codex(t *testing.T) {
 func TestManagerSessionLifecycle(t *testing.T) {
 	mgr := NewManager()
 
+	cmdName := "sh"
+	cmdArgs := []string{"-c", "echo 'hello from pty'; read line; echo \"got: $line\""}
+	if os.PathSeparator == '\\' {
+		cmdName = "cmd"
+		cmdArgs = []string{"/c", "echo hello from pty& set /p line=& call echo got: %line%"}
+	}
+
 	opts := CreateSessionOptions{
-		Command: "sh",
-		Args:    []string{"-c", "echo 'hello from pty'; read line; echo \"got: $line\""},
+		Command: cmdName,
+		Args:    cmdArgs,
 		Rows:    24,
 		Cols:    80,
 	}
@@ -453,4 +460,73 @@ func TestStartSession_SandboxWrapping(t *testing.T) {
 	if capturedOpts.Command != "codex" {
 		t.Errorf("expected captured Command to be 'codex', got %q", capturedOpts.Command)
 	}
+}
+
+func TestSessionMultipleSubscribersAndResize(t *testing.T) {
+	mgr := NewManager()
+
+	cmdName := "sh"
+	cmdArgs := []string{"-c", "echo 'multiplex-start'; read l; echo 'multiplex-end'"}
+	if os.PathSeparator == '\\' {
+		cmdName = "cmd"
+		cmdArgs = []string{"/c", "echo multiplex-start& set /p l=& echo multiplex-end"}
+	}
+
+	inst, err := mgr.StartSession(CreateSessionOptions{
+		Command: cmdName,
+		Args:    cmdArgs,
+		Rows:    24,
+		Cols:    80,
+	})
+	if err != nil {
+		t.Fatalf("failed to start session: %v", err)
+	}
+
+	sub1, unsub1, err := mgr.SubscribeSession(inst.GetInfo().ID)
+	if err != nil {
+		t.Fatalf("sub1 failed: %v", err)
+	}
+	defer unsub1()
+
+	sub2, unsub2, err := mgr.SubscribeSession(inst.GetInfo().ID)
+	if err != nil {
+		t.Fatalf("sub2 failed: %v", err)
+	}
+	defer unsub2()
+
+	// Both subscribers should receive the initial chunk
+	received1, received2 := false, false
+	timeout := time.After(3 * time.Second)
+
+waitLoop:
+	for !received1 || !received2 {
+		select {
+		case chunk, ok := <-sub1:
+			if ok && strings.Contains(chunk.Data, "multiplex-start") {
+				received1 = true
+			}
+		case chunk, ok := <-sub2:
+			if ok && strings.Contains(chunk.Data, "multiplex-start") {
+				received2 = true
+			}
+		case <-timeout:
+			break waitLoop
+		}
+	}
+
+	if !received1 || !received2 {
+		t.Errorf("expected both subscribers to receive output, sub1=%v sub2=%v", received1, received2)
+	}
+
+	// Test Resize across manager
+	if err := mgr.ResizeSession(inst.GetInfo().ID, 50, 150); err != nil {
+		t.Errorf("resize failed: %v", err)
+	}
+	if inst.GetInfo().Rows != 50 || inst.GetInfo().Cols != 150 {
+		t.Errorf("expected rows=50 cols=150, got rows=%d cols=%d", inst.GetInfo().Rows, inst.GetInfo().Cols)
+	}
+
+	// Write input to finish
+	_ = mgr.WriteSessionInput(inst.GetInfo().ID, []byte("ok\r\n"))
+	inst.Wait(3 * time.Second)
 }

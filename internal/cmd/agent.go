@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ye-dev/multigravity-cli/internal/agent"
+	"github.com/ye-dev/multigravity-cli/internal/tui"
 	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
 
@@ -435,65 +435,7 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 }
 
 func attachInteractive(mgr *agent.Manager, inst *agent.SessionInstance) error {
-	info := inst.GetInfo()
-	sessionID := info.ID
-
-	// Put terminal in raw mode if interactive
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err == nil {
-			defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
-		}
-	}
-
-	// Subscribe to output
-	ch, unsub, err := mgr.SubscribeSession(sessionID)
-	if err != nil {
-		return err
-	}
-	defer unsub()
-
-	// Forward terminal resize signals
-	sigChan := make(chan os.Signal, 1)
-	notifyWindowChange(sigChan)
-	defer signal.Stop(sigChan)
-
-	go func() {
-		for range sigChan {
-			if w, h, err := term.GetSize(int(os.Stdin.Fd())); err == nil && w > 0 && h > 0 {
-				_ = mgr.ResizeSession(sessionID, uint16(h), uint16(w))
-			}
-		}
-	}()
-
-	// Forward Stdin
-	inputErrChan := make(chan error, 1)
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, err := os.Stdin.Read(buf)
-			if n > 0 {
-				_ = mgr.WriteSessionInput(sessionID, buf[:n])
-			}
-			if err != nil {
-				inputErrChan <- err
-				return
-			}
-		}
-	}()
-
-	// Stream stdout
-	for chunk := range ch {
-		_, _ = os.Stdout.WriteString(chunk.Data)
-	}
-
-	// Wait for process exit
-	inst.Wait(1 * time.Second)
-	finalInfo := inst.GetInfo()
-	if finalInfo.ExitCode != 0 {
-		return fmt.Errorf("agent exited with code %d", finalInfo.ExitCode)
-	}
-	return nil
+	return tui.MultiplexSession(inst, tui.MultiplexOptions{})
 }
 
 func runAgentList(cmd *cobra.Command, args []string) error {
