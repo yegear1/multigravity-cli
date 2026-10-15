@@ -180,6 +180,7 @@ func (o Options) userInfoURL() string {
 func refreshAccessToken(ctx context.Context, endpoint, refreshToken string) (tokenResponse, error) {
 	form := url.Values{}
 	form.Set("client_id", ClientID)
+	form.Set("client_secret", ClientSecret)
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", refreshToken)
 
@@ -199,6 +200,10 @@ func refreshAccessToken(ctx context.Context, endpoint, refreshToken string) (tok
 		return tokenResponse{}, fmt.Errorf("token refresh failed: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		detail := strings.TrimSpace(string(body))
+		if detail != "" {
+			return tokenResponse{}, fmt.Errorf("token refresh failed: HTTP %d: %s", resp.StatusCode, detail)
+		}
 		return tokenResponse{}, fmt.Errorf("token refresh failed: HTTP %d", resp.StatusCode)
 	}
 	var tok tokenResponse
@@ -259,6 +264,7 @@ func AccessToken(ctx context.Context, profileDir string, opts Options) (string, 
 func exchangeCode(ctx context.Context, endpoint, code, verifier, redirectURI string) (tokenResponse, error) {
 	form := url.Values{}
 	form.Set("client_id", ClientID)
+	form.Set("client_secret", ClientSecret)
 	form.Set("code", code)
 	form.Set("code_verifier", verifier)
 	form.Set("grant_type", "authorization_code")
@@ -280,6 +286,10 @@ func exchangeCode(ctx context.Context, endpoint, code, verifier, redirectURI str
 		return tokenResponse{}, fmt.Errorf("token exchange failed: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		detail := strings.TrimSpace(string(body))
+		if detail != "" {
+			return tokenResponse{}, fmt.Errorf("token exchange failed: HTTP %d: %s", resp.StatusCode, detail)
+		}
 		return tokenResponse{}, fmt.Errorf("token exchange failed: HTTP %d", resp.StatusCode)
 	}
 	var tok tokenResponse
@@ -311,6 +321,10 @@ func fetchUserInfo(ctx context.Context, endpoint, accessToken string) (userInfo,
 		return userInfo{}, fmt.Errorf("userinfo request failed: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		detail := strings.TrimSpace(string(body))
+		if detail != "" {
+			return userInfo{}, fmt.Errorf("userinfo request failed: HTTP %d: %s", resp.StatusCode, detail)
+		}
 		return userInfo{}, fmt.Errorf("userinfo request failed: HTTP %d", resp.StatusCode)
 	}
 	var info userInfo

@@ -77,7 +77,7 @@ func TestLoginStoresVaultOnly(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		form, _ := url.ParseQuery(string(body))
-		if form.Get("grant_type") != "authorization_code" || form.Get("client_id") != ClientID || form.Get("code") != "good-code" || form.Get("code_verifier") == "" {
+		if form.Get("grant_type") != "authorization_code" || form.Get("client_id") != ClientID || form.Get("client_secret") != ClientSecret || form.Get("code") != "good-code" || form.Get("code_verifier") == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -270,7 +270,7 @@ func TestAccessTokenRefreshesExpiredJetskiCredential(t *testing.T) {
 	tokenURL := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		values, err := url.ParseQuery(string(body))
-		if err != nil || values.Get("grant_type") != "refresh_token" || values.Get("refresh_token") != "1//refresh" {
+		if err != nil || values.Get("grant_type") != "refresh_token" || values.Get("client_id") != ClientID || values.Get("client_secret") != ClientSecret || values.Get("refresh_token") != "1//refresh" {
 			http.Error(w, "bad refresh", http.StatusBadRequest)
 			return
 		}
@@ -304,5 +304,21 @@ func TestAccessTokenRefreshesExpiredJetskiCredential(t *testing.T) {
 		if !strings.Contains(string(stored), "ya29-new") || !strings.Contains(string(stored), "1//refresh") {
 			t.Fatal("refreshed credential was not stored in both files")
 		}
+	}
+}
+
+func TestExchangeCodeErrorDetail(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"invalid_grant","error_description":"Bad Request"}`)
+	}))
+	defer srv.Close()
+
+	_, err := exchangeCode(context.Background(), srv.URL, "bad-code", "bad-verifier", "http://127.0.0.1:9/callback")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "HTTP 400: {\"error\":\"invalid_grant\"") {
+		t.Fatalf("expected detailed error body, got: %v", err)
 	}
 }
