@@ -1,9 +1,12 @@
 package gateway
 
 import (
+	"net/http"
+	"os"
 	"strings"
 
 	"github.com/ye-dev/multigravity-cli/internal/quota"
+	"github.com/ye-dev/multigravity-cli/internal/telemetry"
 )
 
 func cloudRequestText(req *CloudCodeRequest) string {
@@ -22,6 +25,41 @@ func cloudRequestText(req *CloudCodeRequest) string {
 		}
 	}
 	return b.String()
+}
+
+func extractTraceContext(r *http.Request) (string, string) {
+	if r == nil {
+		traceID := strings.TrimSpace(os.Getenv("MAESTRI_TRACE_ID"))
+		if traceID == "" {
+			traceID = strings.TrimSpace(os.Getenv("MULTIGRAVITY_TRACE_ID"))
+		}
+		return traceID, ""
+	}
+	traceID := strings.TrimSpace(r.Header.Get("X-Trace-ID"))
+	if traceID == "" {
+		traceID = strings.TrimSpace(r.Header.Get("X-Maestri-Trace-ID"))
+	}
+	if traceID == "" {
+		traceID = strings.TrimSpace(r.Header.Get("Traceparent"))
+	}
+	if traceID == "" {
+		traceID = strings.TrimSpace(r.URL.Query().Get("trace_id"))
+	}
+	if traceID == "" {
+		traceID = strings.TrimSpace(os.Getenv("MAESTRI_TRACE_ID"))
+	}
+	if traceID == "" {
+		traceID = strings.TrimSpace(os.Getenv("MULTIGRAVITY_TRACE_ID"))
+	}
+
+	taskID := strings.TrimSpace(r.Header.Get("X-Task-ID"))
+	if taskID == "" {
+		taskID = strings.TrimSpace(r.URL.Query().Get("task_id"))
+	}
+	if taskID == "" {
+		taskID = strings.TrimSpace(os.Getenv("MULTIGRAVITY_TASK_ID"))
+	}
+	return traceID, taskID
 }
 
 func resolveUsage(model string, upstream UpstreamUsage, promptText, completionText string) (UsageInfo, bool) {
@@ -46,12 +84,17 @@ func resolveUsage(model string, upstream UpstreamUsage, promptText, completionTe
 }
 
 func recordGatewayUsage(profileName, model string, upstream UpstreamUsage, promptText, completionText string) UsageInfo {
+	return recordGatewayUsageWithTrace(profileName, model, upstream, promptText, completionText, "", "", 0)
+}
+
+func recordGatewayUsageWithTrace(profileName, model string, upstream UpstreamUsage, promptText, completionText, traceID, taskID string, durationMs float64) UsageInfo {
 	info, estimated := resolveUsage(model, upstream, promptText, completionText)
 	if !estimated && info.TotalTokens > 0 {
 		quota.CalibrateTokens(model, promptText, info.PromptTokens, completionText, info.CompletionTokens)
 	}
 	if info.TotalTokens > 0 {
-		_ = quota.RecordTokens(profileName, quota.SourceGateway, model, info.PromptTokens, info.CompletionTokens, info.TotalTokens, estimated)
+		_ = quota.RecordTokensWithTrace(profileName, quota.SourceGateway, model, info.PromptTokens, info.CompletionTokens, info.TotalTokens, estimated, traceID, taskID)
+		telemetry.EmitTokenDelta(profileName, model, quota.SourceGateway, traceID, taskID, info.PromptTokens, info.CompletionTokens, info.TotalTokens, durationMs)
 	}
 	return info
 }

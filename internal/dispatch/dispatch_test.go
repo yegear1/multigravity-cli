@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/agent"
+	"github.com/ye-dev/multigravity-cli/internal/telemetry"
 	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
 
@@ -1092,5 +1094,93 @@ func TestDispatchRetryVerificationExhausted(t *testing.T) {
 	}
 	if !strings.Contains(logStr, "=== Retrying Task (attempt 2/2) ===") {
 		t.Errorf("expected logs to contain attempt 2 header, got: %s", logStr)
+	}
+}
+
+func TestDispatchTraceIDPropagation(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	var telemBuf bytes.Buffer
+	telemetry.SetWriter(&telemBuf)
+	defer telemetry.ResetSink()
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	// 1. Explicit TraceID in DispatchOptions
+	task1, err := taskMgr.Dispatch(DispatchOptions{
+		ID:          "task-trace-explicit",
+		Profile:     "dev",
+		RepoPath:    repoDir,
+		NewWorktree: true,
+		TraceID:     "tr-explicit-123",
+		Command:     "sh",
+		Args:        []string{"-c", "echo $MAESTRI_TRACE_ID > trace_explicit.txt"},
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch task1: %v", err)
+	}
+	if task1.TraceID != "tr-explicit-123" {
+		t.Errorf("expected task.TraceID 'tr-explicit-123', got %q", task1.TraceID)
+	}
+	if task1.Metadata["trace_id"] != "tr-explicit-123" {
+		t.Errorf("expected metadata trace_id 'tr-explicit-123', got %q", task1.Metadata["trace_id"])
+	}
+
+	completed1, err := taskMgr.WaitForTask(context.Background(), repoDir, task1.ID)
+	if err != nil {
+		t.Fatalf("failed waiting for task1: %v", err)
+	}
+	if completed1.Status != StatusCompleted {
+		t.Fatalf("expected task1 StatusCompleted, got %s", completed1.Status)
+	}
+	outData, err := os.ReadFile(filepath.Join(completed1.WorktreePath, "trace_explicit.txt"))
+	if err != nil {
+		t.Fatalf("failed reading trace output file: %v", err)
+	}
+	if strings.TrimSpace(string(outData)) != "tr-explicit-123" {
+		t.Fatalf("expected env MAESTRI_TRACE_ID 'tr-explicit-123', got %q", strings.TrimSpace(string(outData)))
+	}
+
+	// 2. Ingest MAESTRI_TRACE_ID from environment when opts.TraceID is empty
+	t.Setenv("MAESTRI_TRACE_ID", "tr-env-fallback-456")
+	task2, err := taskMgr.Dispatch(DispatchOptions{
+		ID:          "task-trace-fallback",
+		Profile:     "dev",
+		RepoPath:    repoDir,
+		NewWorktree: true,
+		Command:     "sh",
+		Args:        []string{"-c", "echo $MAESTRI_TRACE_ID > trace_fallback.txt"},
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch task2: %v", err)
+	}
+	if task2.TraceID != "tr-env-fallback-456" {
+		t.Errorf("expected task2.TraceID 'tr-env-fallback-456', got %q", task2.TraceID)
+	}
+
+	completed2, err := taskMgr.WaitForTask(context.Background(), repoDir, task2.ID)
+	if err != nil {
+		t.Fatalf("failed waiting for task2: %v", err)
+	}
+	if completed2.Status != StatusCompleted {
+		t.Fatalf("expected task2 StatusCompleted, got %s", completed2.Status)
+	}
+	outData2, err := os.ReadFile(filepath.Join(completed2.WorktreePath, "trace_fallback.txt"))
+	if err != nil {
+		t.Fatalf("failed reading trace fallback file: %v", err)
+	}
+	if strings.TrimSpace(string(outData2)) != "tr-env-fallback-456" {
+		t.Fatalf("expected env MAESTRI_TRACE_ID 'tr-env-fallback-456', got %q", strings.TrimSpace(string(outData2)))
+	}
+
+	// 3. Verify telemetry captured both events
+	telemStr := telemBuf.String()
+	if !strings.Contains(telemStr, "tr-explicit-123") {
+		t.Errorf("telemetry output missing tr-explicit-123: %s", telemStr)
+	}
+	if !strings.Contains(telemStr, "tr-env-fallback-456") {
+		t.Errorf("telemetry output missing tr-env-fallback-456: %s", telemStr)
 	}
 }

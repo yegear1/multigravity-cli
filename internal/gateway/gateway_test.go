@@ -8,9 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ye-dev/multigravity-cli/internal/quota"
+	"github.com/ye-dev/multigravity-cli/internal/telemetry"
 )
 
 func TestMain(m *testing.M) {
@@ -829,4 +833,68 @@ func TestClientEndpointFailover(t *testing.T) {
 			t.Fatalf("hits %d/%d", firstHits, secondHits)
 		}
 	})
+}
+
+func TestGatewayTraceIDHeadersAndTelemetry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", home)
+	profDir := filepath.Join(home, "trace-prof")
+	if err := os.MkdirAll(profDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	var telemBuf bytes.Buffer
+	telemetry.SetWriter(&telemBuf)
+	defer telemetry.ResetSink()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"traced reply\"}]}}]}}\n\n"))
+	}))
+	defer upstream.Close()
+
+	router := NewRouter(WithRouterStrategy(StrategyPriority))
+	router.SyncProfiles([]string{"trace-prof"})
+
+	gw := NewGateway(
+		WithGatewayClient(NewClient(WithEndpoints([]string{upstream.URL}), WithHTTPClient(upstream.Client()))),
+		WithGatewayRouter(router),
+		WithTokenResolver(func(r *http.Request, p string) (string, error) {
+			return "tok", nil
+		}),
+	)
+
+	body := `{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"hello trace"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Trace-ID", "tr-gateway-trace-42")
+	req.Header.Set("X-Task-ID", "task-gateway-42")
+
+	rec := httptest.NewRecorder()
+	gw.HandleChatCompletions(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("X-Trace-ID") != "tr-gateway-trace-42" {
+		t.Fatalf("expected X-Trace-ID header 'tr-gateway-trace-42', got %q", rec.Header().Get("X-Trace-ID"))
+	}
+
+	// Verify telemetry emission
+	telemOutput := telemBuf.String()
+	if !strings.Contains(telemOutput, "tr-gateway-trace-42") || !strings.Contains(telemOutput, "task-gateway-42") {
+		t.Fatalf("expected telemetry output to contain trace and task IDs, got %s", telemOutput)
+	}
+
+	// Verify quota history sample
+	series, err := quota.LoadSeries("trace-prof", quota.HistoryQuery{TraceID: "tr-gateway-trace-42"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series.Samples) != 1 {
+		t.Fatalf("expected 1 sample with trace_id, got %d", len(series.Samples))
+	}
+	if series.Samples[0].TraceID != "tr-gateway-trace-42" || series.Samples[0].TaskID != "task-gateway-42" {
+		t.Fatalf("unexpected sample trace metadata: %+v", series.Samples[0])
+	}
 }

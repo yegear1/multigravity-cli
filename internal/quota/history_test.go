@@ -160,3 +160,40 @@ func TestEstimateTokens(t *testing.T) {
 		t.Fatalf("got %d", EstimateTokens("abcde"))
 	}
 }
+
+func TestRecordTokensWithTraceAndQuery(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", home)
+	profileDir := filepath.Join(home, "traced-prof")
+	if err := os.MkdirAll(profileDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	base := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	historyNow = func() time.Time { return base }
+	defer func() { historyNow = time.Now }()
+
+	if err := RecordTokensWithTrace("traced-prof", SourceGateway, "gemini-3.8-flash-tiered", 50, 100, 150, false, "tr-maestri-1", "task-dispatch-1"); err != nil {
+		t.Fatal(err)
+	}
+	historyNow = func() time.Time { return base.Add(1 * time.Minute) }
+	if err := RecordTokensWithTrace("traced-prof", SourceGateway, "gemini-3.8-flash-tiered", 20, 30, 50, false, "tr-maestri-2", "task-dispatch-2"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Query filtering by TraceID
+	series, err := LoadSeries("traced-prof", HistoryQuery{TraceID: "tr-maestri-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series.Samples) != 1 {
+		t.Fatalf("expected 1 sample for tr-maestri-1, got %d", len(series.Samples))
+	}
+	sample := series.Samples[0]
+	if sample.TraceID != "tr-maestri-1" || sample.TaskID != "task-dispatch-1" {
+		t.Fatalf("unexpected sample trace/task IDs: %+v", sample)
+	}
+	if sample.Tokens.TotalTokens != 150 {
+		t.Fatalf("expected 150 total tokens, got %d", sample.Tokens.TotalTokens)
+	}
+}

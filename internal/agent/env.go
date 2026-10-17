@@ -140,6 +140,24 @@ func BuildAgentEnv(opts CreateSessionOptions) ([]string, error) {
 		envMap["MULTIGRAVITY_WORKTREE"] = opts.WorktreeID
 	}
 
+	traceID := strings.TrimSpace(opts.TraceID)
+	if traceID == "" && opts.Env != nil {
+		traceID = strings.TrimSpace(opts.Env["MAESTRI_TRACE_ID"])
+		if traceID == "" {
+			traceID = strings.TrimSpace(opts.Env["MULTIGRAVITY_TRACE_ID"])
+		}
+	}
+	if traceID == "" {
+		traceID = strings.TrimSpace(os.Getenv("MAESTRI_TRACE_ID"))
+	}
+	if traceID == "" {
+		traceID = strings.TrimSpace(os.Getenv("MULTIGRAVITY_TRACE_ID"))
+	}
+	if traceID != "" {
+		envMap["MAESTRI_TRACE_ID"] = traceID
+		envMap["MULTIGRAVITY_TRACE_ID"] = traceID
+	}
+
 	// 4. Custom user-supplied overrides
 	for k, v := range opts.Env {
 		envMap[k] = v

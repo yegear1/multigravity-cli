@@ -21,6 +21,7 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/agent"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
+	"github.com/ye-dev/multigravity-cli/internal/telemetry"
 	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
 
@@ -471,6 +472,28 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		}
 	}
 
+	traceID := strings.TrimSpace(opts.TraceID)
+	if traceID == "" && taskEnv != nil {
+		traceID = strings.TrimSpace(taskEnv["MAESTRI_TRACE_ID"])
+		if traceID == "" {
+			traceID = strings.TrimSpace(taskEnv["MULTIGRAVITY_TRACE_ID"])
+		}
+	}
+	if traceID == "" {
+		traceID = strings.TrimSpace(os.Getenv("MAESTRI_TRACE_ID"))
+	}
+	if traceID == "" {
+		traceID = strings.TrimSpace(os.Getenv("MULTIGRAVITY_TRACE_ID"))
+	}
+	if taskEnv == nil {
+		taskEnv = make(map[string]string)
+	}
+	if traceID != "" {
+		taskEnv["MAESTRI_TRACE_ID"] = traceID
+		taskEnv["MULTIGRAVITY_TRACE_ID"] = traceID
+	}
+	taskEnv["MULTIGRAVITY_TASK_ID"] = taskID
+
 	// Deduce command and arguments
 	cmdStr, args := ResolveAgentCommandWithCwd(opts.AgentType, opts.Command, opts.Args, promptToRun, execDir)
 	agentType := opts.AgentType
@@ -503,6 +526,9 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 	} else if opts.NoGovernance {
 		metadata["governance"] = "disabled"
 	}
+	if traceID != "" {
+		metadata["trace_id"] = traceID
+	}
 
 	task := &Task{
 		ID:           taskID,
@@ -520,6 +546,7 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		Verify:       opts.Verify,
 		Retry:        opts.Retry,
 		RetryCount:   0,
+		TraceID:      traceID,
 		Governance:   governanceInjected,
 		Branch:       branch,
 		BaseCommit:   baseCommit,
@@ -559,6 +586,7 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		Env:        taskEnv,
 		GatewayURL: opts.GatewayURL,
 		GatewayKey: opts.GatewayKey,
+		TraceID:    traceID,
 		Detached:   true,
 	}
 
@@ -587,6 +615,15 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 	_ = saveTaskFile(taskDir, task)
 
 	m.emitEvent("dispatched", task)
+	telemetry.Emit(telemetry.Event{
+		Timestamp: now.Format(time.RFC3339Nano),
+		Level:     "info",
+		Message:   "task dispatched",
+		TraceID:   task.TraceID,
+		TaskID:    task.ID,
+		Profile:   task.Profile,
+		Status:    string(task.Status),
+	})
 
 	// Stream log chunks to disk
 	go m.streamLogsToFile(inst, logPath)
@@ -830,6 +867,21 @@ func (m *TaskManager) watchSession(inst *agent.SessionInstance, task *Task, task
 
 	m.emitEvent(string(task.Status), task)
 	m.notifyWaiters(task.ID)
+
+	evLevel := "info"
+	if task.Status == StatusFailed || task.Status == StatusAuditFailed {
+		evLevel = "error"
+	}
+	telemetry.Emit(telemetry.Event{
+		Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
+		Level:      evLevel,
+		Message:    fmt.Sprintf("task %s", task.Status),
+		TraceID:    task.TraceID,
+		TaskID:     task.ID,
+		Profile:    task.Profile,
+		Status:     string(task.Status),
+		DurationMS: task.DurationSeconds * 1000,
+	})
 }
 
 // WaitForTask blocks until the task reaches a terminal status (completed, failed, cancelled) or ctx is done.

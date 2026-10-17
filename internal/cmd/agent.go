@@ -34,6 +34,7 @@ var (
 	agFilterType string
 	agRepo       string
 	agSandbox    bool
+	agTraceID    string
 
 	agGreen  = color.New(color.FgGreen).SprintFunc()
 	agYellow = color.New(color.FgYellow).SprintFunc()
@@ -77,6 +78,7 @@ in pseudo-terminal (PTY) environments with identity isolation and multi-account 
 	runSubCmd.Flags().BoolVar(&agSandbox, "sandbox", false, "Enforce filesystem and execution boundaries via agent-guard")
 	runSubCmd.Flags().StringVar(&agGateway, "gateway", "", "Gateway base URL (defaults to auto-detecting multigravity serve at http://127.0.0.1:8080/v1)")
 	runSubCmd.Flags().StringVar(&agGatewayKey, "gateway-key", "", "Gateway authentication key")
+	runSubCmd.Flags().StringVar(&agTraceID, "trace-id", "", "Distributed trace identifier (or MAESTRI_TRACE_ID)")
 	runSubCmd.Flags().BoolVarP(&agDetach, "detach", "d", false, "Run in background and print session ID")
 
 	// List Subcommand
@@ -394,6 +396,7 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 		Sandbox:    agSandbox,
 		GatewayURL: gatewayURL,
 		GatewayKey: agGatewayKey,
+		TraceID:    agTraceID,
 		Rows:       rows,
 		Cols:       cols,
 		Detached:   agDetach,
@@ -408,25 +411,29 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 	info := inst.GetInfo()
 
 	if agDetach {
+		out := cmd.OutOrStdout()
 		if agJSON {
-			enc := json.NewEncoder(os.Stdout)
+			enc := json.NewEncoder(out)
 			enc.SetIndent("", "  ")
 			return enc.Encode(info)
 		}
 
-		fmt.Printf("%s Agent session started in background\n", agGreen("✓"))
-		fmt.Printf("  ID:        %s\n", agBold(info.ID))
-		fmt.Printf("  Profile:   %s\n", agCyan(info.Profile))
-		fmt.Printf("  Agent:     %s\n", info.AgentType)
-		fmt.Printf("  PID:       %d\n", info.PID)
+		fmt.Fprintf(out, "%s Agent session started in background\n", agGreen("✓"))
+		fmt.Fprintf(out, "  ID:        %s\n", agBold(info.ID))
+		fmt.Fprintf(out, "  Profile:   %s\n", agCyan(info.Profile))
+		fmt.Fprintf(out, "  Agent:     %s\n", info.AgentType)
+		if info.TraceID != "" {
+			fmt.Fprintf(out, "  Trace ID:  %s\n", agCyan(info.TraceID))
+		}
+		fmt.Fprintf(out, "  PID:       %d\n", info.PID)
 		if info.GatewayURL != "" {
-			fmt.Printf("  Gateway:   %s\n", agDim(info.GatewayURL))
+			fmt.Fprintf(out, "  Gateway:   %s\n", agDim(info.GatewayURL))
 		}
 		if info.Cwd != "" {
-			fmt.Printf("  Cwd:       %s\n", agDim(info.Cwd))
+			fmt.Fprintf(out, "  Cwd:       %s\n", agDim(info.Cwd))
 		}
-		fmt.Printf("\nTo view logs:   multigravity agent logs %s -f\n", info.ID)
-		fmt.Printf("To attach:      multigravity agent attach %s\n", info.ID)
+		fmt.Fprintf(out, "\nTo view logs:   multigravity agent logs %s -f\n", info.ID)
+		fmt.Fprintf(out, "To attach:      multigravity agent attach %s\n", info.ID)
 		return nil
 	}
 
@@ -504,40 +511,44 @@ func runAgentStatus(cmd *cobra.Command, args []string) error {
 
 	info := inst.GetInfo()
 
+	out := cmd.OutOrStdout()
 	if agJSON {
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		return enc.Encode(info)
 	}
 
-	fmt.Printf("%s Session Telemetry\n", agBold("Multigravity Agent"))
-	fmt.Println(strings.Repeat("─", 40))
-	fmt.Printf("  ID:          %s\n", agBold(info.ID))
-	fmt.Printf("  Profile:     %s\n", agCyan(info.Profile))
-	fmt.Printf("  Agent Type:  %s\n", info.AgentType)
-	fmt.Printf("  Command:     %s %s\n", info.Command, strings.Join(info.Args, " "))
-	fmt.Printf("  PID:         %d\n", info.PID)
-	fmt.Printf("  Status:      %s\n", info.Status)
-	fmt.Printf("  Exit Code:   %d\n", info.ExitCode)
+	fmt.Fprintf(out, "%s Session Telemetry\n", agBold("Multigravity Agent"))
+	fmt.Fprintln(out, strings.Repeat("─", 40))
+	fmt.Fprintf(out, "  ID:          %s\n", agBold(info.ID))
+	fmt.Fprintf(out, "  Profile:     %s\n", agCyan(info.Profile))
+	fmt.Fprintf(out, "  Agent Type:  %s\n", info.AgentType)
+	fmt.Fprintf(out, "  Command:     %s %s\n", info.Command, strings.Join(info.Args, " "))
+	fmt.Fprintf(out, "  PID:         %d\n", info.PID)
+	fmt.Fprintf(out, "  Status:      %s\n", info.Status)
+	if info.TraceID != "" {
+		fmt.Fprintf(out, "  Trace ID:    %s\n", agCyan(info.TraceID))
+	}
+	fmt.Fprintf(out, "  Exit Code:   %d\n", info.ExitCode)
 	if info.GatewayURL != "" {
-		fmt.Printf("  Gateway:     %s\n", info.GatewayURL)
+		fmt.Fprintf(out, "  Gateway:     %s\n", info.GatewayURL)
 	}
 	if info.WorktreeID != "" {
-		fmt.Printf("  Worktree:    %s\n", info.WorktreeID)
+		fmt.Fprintf(out, "  Worktree:    %s\n", info.WorktreeID)
 	}
 	if info.Cwd != "" {
-		fmt.Printf("  Cwd:         %s\n", info.Cwd)
+		fmt.Fprintf(out, "  Cwd:         %s\n", info.Cwd)
 	}
 	if info.RepoPath != "" {
-		fmt.Printf("  Repo:        %s\n", info.RepoPath)
+		fmt.Fprintf(out, "  Repo:        %s\n", info.RepoPath)
 	}
 	if info.Sandbox {
-		fmt.Printf("  Sandbox:     true (agent-guard)\n")
+		fmt.Fprintf(out, "  Sandbox:     true (agent-guard)\n")
 	}
-	fmt.Printf("  Dimensions:  %dx%d (rows x cols)\n", info.Rows, info.Cols)
-	fmt.Printf("  Started:     %s\n", info.StartedAt.Format(time.RFC3339))
+	fmt.Fprintf(out, "  Dimensions:  %dx%d (rows x cols)\n", info.Rows, info.Cols)
+	fmt.Fprintf(out, "  Started:     %s\n", info.StartedAt.Format(time.RFC3339))
 	if info.EndedAt != nil {
-		fmt.Printf("  Ended:       %s\n", info.EndedAt.Format(time.RFC3339))
+		fmt.Fprintf(out, "  Ended:       %s\n", info.EndedAt.Format(time.RFC3339))
 	}
 	return nil
 }

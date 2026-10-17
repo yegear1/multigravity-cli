@@ -263,6 +263,8 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	completionID := "chatcmpl-" + generateUUID()
 	created := time.Now().Unix()
+	traceID, taskID := extractTraceContext(r)
+	reqStart := time.Now()
 
 	// 5. Failover loop across candidate profiles
 	excluded := make(map[string]bool)
@@ -359,13 +361,17 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 			// Success! Record metrics and write response
 			g.router.MarkSuccess(currentProfile)
-			usage := recordGatewayUsage(currentProfile, req.Model, upstreamUsage, cloudRequestText(cloudReq), contentBuilder.String())
+			durationMs := time.Since(reqStart).Seconds() * 1000
+			usage := recordGatewayUsageWithTrace(currentProfile, req.Model, upstreamUsage, cloudRequestText(cloudReq), contentBuilder.String(), traceID, taskID, durationMs)
 
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Profile-Used", currentProfile)
 			w.Header().Set("X-Failover-Count", strconv.Itoa(failoverCount))
 			w.Header().Set("X-Remaining-Profiles", strconv.Itoa(g.router.AvailableCount()))
 			w.Header().Set("X-Routing-Strategy", string(activeStrategy))
+			if traceID != "" {
+				w.Header().Set("X-Trace-ID", traceID)
+			}
 			if isThrottled {
 				w.Header().Set("X-Throttled", "true")
 				w.Header().Set("X-Throttle-Delay", throttleDelay.String())
@@ -410,6 +416,9 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 				w.Header().Set("X-Failover-Count", strconv.Itoa(failoverCount))
 				w.Header().Set("X-Remaining-Profiles", strconv.Itoa(g.router.AvailableCount()))
 				w.Header().Set("X-Routing-Strategy", string(activeStrategy))
+				if traceID != "" {
+					w.Header().Set("X-Trace-ID", traceID)
+				}
 				if isThrottled {
 					w.Header().Set("X-Throttled", "true")
 					w.Header().Set("X-Throttle-Delay", throttleDelay.String())
@@ -478,7 +487,8 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 		// Stream completed successfully
 		g.router.MarkSuccess(currentProfile)
-		usage := recordGatewayUsage(currentProfile, req.Model, upstreamUsage, cloudRequestText(cloudReq), contentBuilder.String())
+		durationMs := time.Since(reqStart).Seconds() * 1000
+		usage := recordGatewayUsageWithTrace(currentProfile, req.Model, upstreamUsage, cloudRequestText(cloudReq), contentBuilder.String(), traceID, taskID, durationMs)
 
 		stop := "stop"
 		finalChunk := ChatCompletionChunk{

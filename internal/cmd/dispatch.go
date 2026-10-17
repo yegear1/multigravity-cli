@@ -54,6 +54,7 @@ var (
 	dpVerify       string
 	dpRetry        int
 	dpNoGovernance bool
+	dpTraceID      string
 
 	dpGreen  = color.New(color.FgGreen).SprintFunc()
 	dpYellow = color.New(color.FgYellow).SprintFunc()
@@ -104,6 +105,7 @@ with profile-isolated credentials, ephemeral git worktrees, and persistent log c
 	runSubCmd.Flags().BoolVar(&dpSandbox, "sandbox", false, "Enforce filesystem and execution boundaries via agent-guard")
 	runSubCmd.Flags().StringVar(&dpVerify, "verify", "", "Verification command to execute inside worktree upon agent completion (e.g. 'go test ./...')")
 	runSubCmd.Flags().IntVar(&dpRetry, "retry", 0, "Maximum number of retries if verification fails")
+	runSubCmd.Flags().StringVar(&dpTraceID, "trace-id", "", "Distributed trace identifier (or MAESTRI_TRACE_ID)")
 	runSubCmd.Flags().BoolVar(&dpNoGovernance, "no-governance", false, "Disable automatic injection of project governance directives (AGENTS.md, TASK.md)")
 	runSubCmd.Flags().BoolVarP(&dpDetach, "detach", "d", false, "Run task in background and print task ID immediately")
 
@@ -318,6 +320,7 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		Sandbox:      dpSandbox,
 		Verify:       dpVerify,
 		Retry:        dpRetry,
+		TraceID:      dpTraceID,
 		NoGovernance: dpNoGovernance,
 		NewWorktree:  dpNewWorktree,
 		WorktreeID:   dpWorktree,
@@ -348,6 +351,9 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(out, "  Task ID:    %s\n", dpBold(task.ID))
 		fmt.Fprintf(out, "  Profile:    %s\n", dpCyan(task.Profile))
 		fmt.Fprintf(out, "  Agent:      %s\n", task.AgentType)
+		if task.TraceID != "" {
+			fmt.Fprintf(out, "  Trace ID:   %s\n", dpCyan(task.TraceID))
+		}
 		if task.Governance {
 			fmt.Fprintf(out, "  Governance: %s\n", dpGreen("injected"))
 		}
@@ -564,6 +570,9 @@ func runDispatchStatus(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(out, "  Governance: %s\n", dpGreen("injected"))
 	} else if task.Metadata != nil && task.Metadata["governance"] == "disabled" {
 		fmt.Fprintf(out, "  Governance: %s\n", dpDim("disabled"))
+	}
+	if task.TraceID != "" {
+		fmt.Fprintf(out, "  Trace ID:   %s\n", dpCyan(task.TraceID))
 	}
 	if task.Prompt != "" {
 		fmt.Fprintf(out, "  Prompt:     %s\n", task.Prompt)

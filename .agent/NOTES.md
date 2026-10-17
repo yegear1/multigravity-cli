@@ -19,6 +19,35 @@
 
 ## Active Technical Contracts & Decisions
 
+### 2026-10-17 [Task 04.2] Task-Aware Trace Telemetry (`--trace-id` flag, `MAESTRI_TRACE_ID` ingestion, VictoriaLogs token delta logging)
+
+- **Context:** Distributed tracing and telemetry correlation across dispatch tasks, interactive/detached agent runs, and reverse proxy gateway calls. Correlates token usage and process lifecycle events into VictoriaLogs via Vector.
+- **Active Contracts:**
+  - `internal/telemetry`:
+    - Schema: Canonical VictoriaLogs/Vector fields `timestamp` (RFC3339Nano), `level`, `service` ("multigravity"), `app` ("multigravity"), `env`, `message`, `trace_id`, `task_id`, `profile`, `model`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `token_delta`, `duration_ms`.
+    - Shipment: Asynchronous HTTP POST (with 1.5s timeout and dropped buffered events on backpressure) to Vector pipeline endpoint `VECTOR_URL` or `http://${VECTOR_HOST:-localhost}:${VECTOR_HTTP_PORT:-8686}/logs`.
+    - Local fallback: Appends NDJSON to `$MULTIGRAVITY_HOME/.multigravity/telemetry.jsonl`.
+    - Custom writer override (`SetCustomWriter`) for testing and isolation.
+  - `internal/dispatch`:
+    - `Task` and `DispatchOptions` include `TraceID string json:"trace_id,omitempty"`.
+    - Trace ID resolution hierarchy: `opts.TraceID` -> `taskEnv["MAESTRI_TRACE_ID"]` -> `taskEnv["MULTIGRAVITY_TRACE_ID"]` -> `os.Getenv("MAESTRI_TRACE_ID")`.
+    - Injects `MAESTRI_TRACE_ID`, `MULTIGRAVITY_TRACE_ID`, and `MULTIGRAVITY_TASK_ID` into agent process environments.
+    - Emits lifecycle telemetry events (`task_started`, `task_completed`, `task_failed`, `task_cancelled`, `task_audit_failed`) with trace context.
+  - `internal/agent`:
+    - `CreateSessionOptions` and `Session` include `TraceID string json:"trace_id,omitempty"`.
+    - Injects `MAESTRI_TRACE_ID` and `MULTIGRAVITY_TRACE_ID` into session child process environments.
+  - `internal/quota`:
+    - `Sample` includes `TraceID string json:"trace_id,omitempty"` and `TaskID string json:"task_id,omitempty"`.
+    - `HistoryQuery` includes `TraceID string json:"trace_id,omitempty"`.
+    - Introduces `RecordTokensWithTrace(profile, model, promptTokens, completionTokens, totalTokens, traceID, taskID)` preserving backward-compatible `RecordTokens(...)`.
+  - `internal/gateway`:
+    - Extracts trace context via `extractTraceContext(r)` checking `X-Trace-ID`, `X-Maestri-Trace-ID`, `Traceparent` (extracting W3C 32-hex trace ID), query parameter `trace_id`, and `MAESTRI_TRACE_ID` environment variable.
+    - Always echoes `X-Trace-ID: <trace_id>` in HTTP response headers (streaming SSE and unary JSON responses).
+    - Emits structured `telemetry.Event` ("gateway_tokens_recorded") with token delta on every completed upstream request.
+  - CLI & MCP:
+    - CLI flags `--trace-id <id>` added to `dispatch run` and `agent run`.
+    - MCP tool `dispatch_task` accepts optional `trace_id` string property.
+
 ### 2026-10-15 [Task 04.1] Dynamic Token Quota Budget Alerts and Auto-Throttle Policies
 
 - **Context:** Automated threshold alerts for token burn rates, quota depletion velocity, and auto-throttling when profiles near quota depletion.

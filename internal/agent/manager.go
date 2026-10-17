@@ -137,6 +137,7 @@ func (m *Manager) StartSession(opts CreateSessionOptions) (*SessionInstance, err
 		Rows:       rows,
 		Cols:       cols,
 		GatewayURL: opts.GatewayURL,
+		TraceID:    opts.TraceID,
 	}
 
 	instance := newSessionInstance(info, cmd, ptyDev)

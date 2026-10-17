@@ -348,3 +348,60 @@ func TestAgentGuardCLI(t *testing.T) {
 		t.Errorf("expected 'subshell execution violation' in error, got: %v", err)
 	}
 }
+
+func TestAgentCLITraceIDFlagAndStatus(t *testing.T) {
+	tempHome := t.TempDir()
+	profDir := filepath.Join(tempHome, "AntigravityProfiles", "test-agent-trace")
+	if err := os.MkdirAll(profDir, 0755); err != nil {
+		t.Fatalf("failed to create profile dir: %v", err)
+	}
+
+	t.Setenv("MULTIGRAVITY_HOME", filepath.Join(tempHome, "AntigravityProfiles"))
+	t.Setenv("REAL_HOME", tempHome)
+
+	cmd := newAgentCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+
+	agDetach = true
+	defer func() {
+		agDetach = false
+		agTraceID = ""
+	}()
+
+	cmd.SetArgs([]string{"run", "test-agent-trace", "--trace-id", "tr-agent-cli-99", "--detach", "--", "echo", "trace agent"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("agent run with --trace-id failed: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Trace ID:") || !strings.Contains(out, "tr-agent-cli-99") {
+		t.Errorf("expected detached output to contain Trace ID 'tr-agent-cli-99', got: %s", out)
+	}
+
+	// Capture session created from manager
+	mgr := agent.GetDefaultManager()
+	sessions := mgr.ListSessions(agent.SessionFilter{Profile: "test-agent-trace"})
+	if len(sessions) == 0 {
+		t.Fatalf("expected at least 1 session tracked by manager")
+	}
+	sessionID := sessions[0].ID
+	if sessions[0].TraceID != "tr-agent-cli-99" {
+		t.Errorf("expected session.TraceID 'tr-agent-cli-99', got %q", sessions[0].TraceID)
+	}
+
+	// Test Status text
+	statusCmd := newAgentCmd()
+	statusBuf := new(bytes.Buffer)
+	statusCmd.SetOut(statusBuf)
+	statusCmd.SetErr(statusBuf)
+	statusCmd.SetArgs([]string{"status", sessionID})
+	if err := statusCmd.Execute(); err != nil {
+		t.Fatalf("agent status failed: %v", err)
+	}
+	statusOut := statusBuf.String()
+	if !strings.Contains(statusOut, "Trace ID:") || !strings.Contains(statusOut, "tr-agent-cli-99") {
+		t.Errorf("expected status output to contain Trace ID 'tr-agent-cli-99', got: %s", statusOut)
+	}
+}

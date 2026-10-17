@@ -33,6 +33,7 @@ type Session struct {
 	Rows        uint16        `json:"rows"`
 	Cols        uint16        `json:"cols"`
 	GatewayURL  string        `json:"gateway_url,omitempty"`
+	TraceID     string        `json:"trace_id,omitempty"`
 }
 
 // CreateSessionOptions specifies parameters for launching an agent session.
@@ -49,6 +50,7 @@ type CreateSessionOptions struct {
 	Env        map[string]string `json:"env,omitempty"`
 	GatewayURL string            `json:"gateway_url,omitempty"`
 	GatewayKey string            `json:"gateway_key,omitempty"`
+	TraceID    string            `json:"trace_id,omitempty"`
 	Rows       uint16            `json:"rows,omitempty"`
 	Cols       uint16            `json:"cols,omitempty"`
 	Detached   bool              `json:"detached,omitempty"`

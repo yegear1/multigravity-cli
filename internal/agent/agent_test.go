@@ -530,3 +530,51 @@ waitLoop:
 	_ = mgr.WriteSessionInput(inst.GetInfo().ID, []byte("ok\r\n"))
 	inst.Wait(3 * time.Second)
 }
+
+func TestBuildAgentEnvTraceID(t *testing.T) {
+	// 1. Explicit TraceID in CreateSessionOptions
+	opts := CreateSessionOptions{
+		Command: "echo",
+		TraceID: "tr-session-abc",
+	}
+	env, err := BuildAgentEnv(opts)
+	if err != nil {
+		t.Fatalf("BuildAgentEnv failed: %v", err)
+	}
+
+	foundMaestri := false
+	foundMg := false
+	for _, e := range env {
+		if e == "MAESTRI_TRACE_ID=tr-session-abc" {
+			foundMaestri = true
+		}
+		if e == "MULTIGRAVITY_TRACE_ID=tr-session-abc" {
+			foundMg = true
+		}
+	}
+	if !foundMaestri {
+		t.Errorf("expected MAESTRI_TRACE_ID=tr-session-abc in env, got: %v", env)
+	}
+	if !foundMg {
+		t.Errorf("expected MULTIGRAVITY_TRACE_ID=tr-session-abc in env, got: %v", env)
+	}
+
+	// 2. Ingest from host environment fallback
+	t.Setenv("MAESTRI_TRACE_ID", "tr-host-env-xyz")
+	opts2 := CreateSessionOptions{
+		Command: "echo",
+	}
+	env2, err := BuildAgentEnv(opts2)
+	if err != nil {
+		t.Fatalf("BuildAgentEnv failed: %v", err)
+	}
+	foundFallback := false
+	for _, e := range env2 {
+		if e == "MAESTRI_TRACE_ID=tr-host-env-xyz" {
+			foundFallback = true
+		}
+	}
+	if !foundFallback {
+		t.Errorf("expected MAESTRI_TRACE_ID=tr-host-env-xyz in env from host, got: %v", env2)
+	}
+}

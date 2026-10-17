@@ -1185,3 +1185,59 @@ func TestDispatchCLIRunRetry(t *testing.T) {
 	}
 }
 
+func TestDispatchCLITraceIDFlagAndStatus(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfileForCmd(t, "dev")
+
+	// 1. Run dispatch run with --trace-id in detached mode
+	cmdRun := newDispatchCmd()
+	runOut, err := executeCommand(cmdRun, "run", "dev", "--repo", repoDir, "--new-worktree",
+		"--trace-id", "tr-cli-777", "--detach", "--", "echo", "hello trace")
+	if err != nil {
+		t.Fatalf("failed to run dispatch with trace-id: %v (out: %s)", err, runOut)
+	}
+
+	if !strings.Contains(runOut, "Trace ID:") || !strings.Contains(runOut, "tr-cli-777") {
+		t.Errorf("expected detached output to contain Trace ID 'tr-cli-777', got: %s", runOut)
+	}
+
+	// Extract task ID from output
+	lines := strings.Split(runOut, "\n")
+	var taskID string
+	for _, l := range lines {
+		if strings.Contains(l, "Task ID:") {
+			parts := strings.Fields(l)
+			if len(parts) >= 3 {
+				taskID = parts[2]
+			}
+		}
+	}
+	if taskID == "" {
+		t.Fatalf("failed to extract task ID from output: %s", runOut)
+	}
+
+	// 2. Query dispatch status
+	cmdStatus := newDispatchCmd()
+	statusOut, err := executeCommand(cmdStatus, "status", taskID)
+	if err != nil {
+		t.Fatalf("failed to run dispatch status: %v (out: %s)", err, statusOut)
+	}
+	if !strings.Contains(statusOut, "Trace ID:") || !strings.Contains(statusOut, "tr-cli-777") {
+		t.Errorf("expected status output to contain Trace ID 'tr-cli-777', got: %s", statusOut)
+	}
+
+	// 3. Query dispatch status --json
+	cmdJSON := newDispatchCmd()
+	jsonOut, err := executeCommand(cmdJSON, "status", taskID, "--json")
+	if err != nil {
+		t.Fatalf("failed to run dispatch status --json: %v (out: %s)", err, jsonOut)
+	}
+	var task dispatch.Task
+	if err := json.Unmarshal([]byte(jsonOut), &task); err != nil {
+		t.Fatalf("failed to unmarshal JSON task: %v (out: %s)", err, jsonOut)
+	}
+	if task.TraceID != "tr-cli-777" {
+		t.Errorf("expected JSON task.TraceID 'tr-cli-777', got %q", task.TraceID)
+	}
+}
+

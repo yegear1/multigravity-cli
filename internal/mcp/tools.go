@@ -163,6 +163,10 @@ func RegisterDefaultTools(s *Server) {
 					Type:        "boolean",
 					Description: "Inject project governance directives (AGENTS.md, TASK.md) into agent prompt and environment (defaults to false for MCP dispatch).",
 				},
+				"trace_id": {
+					Type:        "string",
+					Description: "Distributed trace identifier (or MAESTRI_TRACE_ID) for VictoriaLogs token delta correlation.",
+				},
 			},
 			Required: []string{"command", "profile"},
 		},
@@ -210,6 +214,7 @@ func RegisterDefaultTools(s *Server) {
 			Env:          getStringMap(args, "env"),
 			Verify:       getString(args, "verify"),
 			Retry:        getInt(args, "retry", 0),
+			TraceID:      getString(args, "trace_id"),
 			NoGovernance: !getBool(args, "governance"),
 		}
 

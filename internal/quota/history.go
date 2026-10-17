@@ -56,16 +56,19 @@ type Sample struct {
 	Timestamp time.Time     `json:"timestamp"`
 	Profile   string        `json:"profile"`
 	Source    string        `json:"source"`
+	TraceID   string        `json:"trace_id,omitempty"`
+	TaskID    string        `json:"task_id,omitempty"`
 	Buckets   []BucketPoint `json:"buckets,omitempty"`
 	Tokens    *TokenPoint   `json:"tokens,omitempty"`
 }
 
 // HistoryQuery filters the stored series.
 type HistoryQuery struct {
-	Since  time.Time
-	Until  time.Time
-	Source string
-	Limit  int
+	Since   time.Time
+	Until   time.Time
+	Source  string
+	TraceID string
+	Limit   int
 }
 
 // HistorySummary aggregates the samples returned for a window.
@@ -100,6 +103,11 @@ func EstimateTokens(text string) int {
 // RecordTokens appends a token sample. A missing profile is ignored so callers
 // that run without a real profile directory do not create one.
 func RecordTokens(profileName, source, model string, prompt, completion, total int, estimated bool) error {
+	return RecordTokensWithTrace(profileName, source, model, prompt, completion, total, estimated, "", "")
+}
+
+// RecordTokensWithTrace appends a token sample correlated with distributed trace and task identifiers.
+func RecordTokensWithTrace(profileName, source, model string, prompt, completion, total int, estimated bool, traceID, taskID string) error {
 	if total <= 0 {
 		total = prompt + completion
 	}
@@ -110,6 +118,8 @@ func RecordTokens(profileName, source, model string, prompt, completion, total i
 		Timestamp: historyNow().UTC(),
 		Profile:   profileName,
 		Source:    source,
+		TraceID:   strings.TrimSpace(traceID),
+		TaskID:    strings.TrimSpace(taskID),
 		Tokens: &TokenPoint{
 			Model:            model,
 			PromptTokens:     prompt,
@@ -443,6 +453,9 @@ func readSamples(profileName string, q HistoryQuery) ([]Sample, error) {
 			continue
 		}
 		if q.Source != "" && sample.Source != q.Source {
+			continue
+		}
+		if q.TraceID != "" && sample.TraceID != q.TraceID {
 			continue
 		}
 		if !q.Since.IsZero() && sample.Timestamp.Before(q.Since) {
