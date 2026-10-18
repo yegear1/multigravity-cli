@@ -1,7 +1,7 @@
-# ARCHIVE.md — Arquivo Histórico de Tarefas Concluídas
+# ARCHIVE.md — Historical Log of Completed Tasks
 
-> Lotes arquivados após tag Git (ou quando o log do `TASK.md` passar de ~15 linhas).
-> Cabeçalho canônico: `## [vX.Y.Z] - AAAA-MM-DD`. Detalhe: `git log`.
+> Batches archived after Git tag (or when `TASK.md` log exceeds ~15 entries).
+> Canonical header: `## [vX.Y.Z] - YYYY-MM-DD`. Deep detail: `git log`.
 
 ## [v2.2.1] - 2026-09-29
 

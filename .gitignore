@@ -8,6 +8,8 @@ test.sh
 # Temporary files and scratch
 *.tmp
 *.bak
+.agent/scratch/
+.agent/.cache/
 
 # OS and Editor metadata
 .DS_Store

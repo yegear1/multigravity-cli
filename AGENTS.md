@@ -36,6 +36,7 @@ The agent MUST optimize context loading using the following progressive disclosu
 - **Invariants (`.agent/INVARIANTS.md`):** MUST load BEFORE modifying database schemas, profile directory layouts, authentication vaults, or shared payloads.
 - **Multi-Repo Ecosystem (`.agent/ECOSYSTEM.md`):** MUST load when creating or modifying public endpoints, MCP schemas, cross-repo dependencies, or shared contracts.
 - **Architectural Decisions (`docs/adr/decisions.md`):** Consult on demand when researching historical rationales or trade-offs.
+- **Knowledge Base (`.agent/knowledge/`):** Consult on demand when diagnosing obscure runtime errors, platform gotchas, or adding workarounds.
 - **Legacy Discovery:** Inspect configuration files (`go.mod`, `Makefile`, shell scripts) ONLY during Discovery or when dependency/tool changes are explicitly tasked.
 
 ---
@@ -52,6 +53,7 @@ The agent MUST optimize context loading using the following progressive disclosu
    - [ ] Strict Typing: New code compiles cleanly with 0 type errors.
    - [ ] Linters & Syntax: Project validation commands exit with code 0 (`bash -n ...`, `golangci-lint run`).
    - [ ] Git Cleanliness: `git diff --check` exits with code 0.
+   - [ ] Knowledge Preservation: Document obscure platform/runtime gotchas or workarounds as an atomic card in `.agent/knowledge/` (if applicable).
    - [ ] Atomic Commit: Conventional Commits in English (`fix(scope): ...`).
    - [ ] Task Log: Active task logged in `TASK.md`; discoveries recorded in `INVARIANTS.md` or `NOTES.md`.
 

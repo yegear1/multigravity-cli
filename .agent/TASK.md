@@ -7,22 +7,22 @@
 
 ## Active Task
 
-### 📌 Task [04.2]: Task-Aware Trace Telemetry (`--trace-id` flag and `MAESTRI_TRACE_ID` ingestion for VictoriaLogs token delta logging)
+### 📌 Task [00.5]: Align repository governance with brownfield template knowledge base schema and documentation standards
 
-- **Description:** Implement task-aware distributed trace telemetry across dispatch, agent runner, and gateway, ingesting trace IDs from `--trace-id` and `MAESTRI_TRACE_ID` and emitting canonical VictoriaLogs token delta events.
-- **Systems Involved:** `dispatch`, `agent`, `gateway`, `quota`, `telemetry`
+- **Description:** Synchronize repository governance with latest upstream brownfield template: install `.agent/knowledge/` schema and card template, declare knowledge base context trigger and DoD item in `AGENTS.md`, align `ARCHIVE.md` header to canonical Technical English, and add `.agent/.cache/` and `.agent/scratch/` to `.gitignore`.
+- **Systems Involved:** `governance`, `documentation`
 - **Action Type:**
-  - [ ] Read-only / Documentation
-  - [x] Source code changes
+  - [x] Read-only / Documentation
+  - [ ] Source code changes
 - **Status:** COMPLETED
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [x] Task and Session models record and propagate `trace_id` and inject `MAESTRI_TRACE_ID` into agent process environments.
-- [x] CLI flags `--trace-id` added to `dispatch run` and `agent run`, and exposed in MCP `dispatch_task`.
-- [x] Gateway ingests trace IDs from request headers (`X-Trace-ID`, `X-Maestri-Trace-ID`, `Traceparent`) and query parameters, and echoes in response headers.
-- [x] Quota token history samples and VictoriaLogs telemetry emit structured token delta events with canonical fields.
-- [x] Automated tests pass with exit code 0 (`go test ./...`).
+- [x] Create `.agent/knowledge/000-schema.md` and `.agent/knowledge/k-000-template.md` conforming to template standards.
+- [x] Update `AGENTS.md` to include Knowledge Base in Modular Context Triggers and Definition of Done.
+- [x] Align `.agent/ARCHIVE.md` header to Technical English (`# ARCHIVE.md — Historical Log of Completed Tasks`).
+- [x] Ensure `.gitignore` covers `.agent/scratch/` and `.agent/.cache/`.
+- [x] All tests pass (`go test ./...`) and `git diff --check` exits with code 0.
 
 ---
 
@@ -30,6 +30,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [00.5] | Align repository governance with brownfield template knowledge base schema and documentation standards | working tree | 2026-10-18 |
 | [04.2] | Task-aware trace telemetry (`--trace-id` flag, `MAESTRI_TRACE_ID` ingestion, VictoriaLogs token delta logging) | [`5035ba2`](https://github.com/ye-dev/multigravity-cli/commit/5035ba2) | 2026-10-17 |
 | [04.1] | Dynamic token quota budget alerts and auto-throttle policies | [`257b63f`](https://github.com/ye-dev/multigravity-cli/commit/257b63f) | 2026-10-15 |
 | [03.9] | Automated token estimation calibration against live Cloud Code responses | [`1ba96de`](https://github.com/ye-dev/multigravity-cli/commit/1ba96de) | 2026-10-15 |
