@@ -19,6 +19,16 @@
 
 ## Active Technical Contracts & Decisions
 
+### 2026-10-23 [Task 04.4] Per-Profile OAuth Token File Isolation & Linux D-Bus Keyring Bypass (`language_server`)
+
+- **Context:** On Linux desktop sessions (`gnome-keyring-daemon` / `org.freedesktop.secrets`), multiple Antigravity IDE profiles held separate Google accounts in memory while running concurrently, but closing and reopening a profile from scratch reverted to whichever account authenticated most recently. Reverse-engineering `/opt/antigravity/resources/bin/language_server` (v2.25.0) revealed that `codeassistclient.NewCompositeTokenStorage` ignores `GEMINI_FORCE_FILE_STORAGE` (`0` occurrences in binary) and defaults to `github.com/zalando/go-keyring` under a single global service key (`service="antigravity"`) unless `shouldBypassKeyring()` or `keyringRecentlyUnavailable()` returns `true`.
+- **Active Contracts:**
+  - `internal/profile/layout.go` (`EnsureProfileLayout`): creates/refreshes `<profileDir>/.gemini/cache/antigravity-keyring-unavailable` (mode `0600`) so `language_server`'s `keyringRecentlyUnavailable` check selects `fileTokenStorage` (`$HOME/.gemini/jetski-standalone-oauth-token`).
+  - `internal/profile/launcher.go`, `internal/agent/env.go`, `internal/headless/manager.go`, `internal/quota/headless.go`:
+    - Unconditionally export `GEMINI_FORCE_FILE_STORAGE="true"` for all isolated profile environments (for `agy` / `gemini-cli`).
+    - On Linux (`runtime.GOOS == "linux"`), export `WSL_INTEROP="/dev/null"` when `WSL_INTEROP` and `WSL_DISTRO_NAME` are unset so `language_server`'s `wslDetector.Detect()` inside `shouldBypassKeyring()` permanently sets `useFileStatic = true` without expiring after 1 hour and without breaking D-Bus desktop portals (`xdg-open`, file pickers).
+  - See [`.agent/knowledge/k-001-linux-language-server-keyring-bypass.md`](knowledge/k-001-linux-language-server-keyring-bypass.md) for binary-level analysis and anti-patterns.
+
 ### 2026-10-17 [Task 04.2] Task-Aware Trace Telemetry (`--trace-id` flag, `MAESTRI_TRACE_ID` ingestion, VictoriaLogs token delta logging)
 
 - **Context:** Distributed tracing and telemetry correlation across dispatch tasks, interactive/detached agent runs, and reverse proxy gateway calls. Correlates token usage and process lifecycle events into VictoriaLogs via Vector.

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/app"
-	"github.com/ye-dev/multigravity-cli/internal/auth"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
@@ -229,6 +228,7 @@ func (m *Manager) Start(profileName string, opts StartOptions) (*InstanceInfo, e
 	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
 		return nil, fmt.Errorf("profile %q does not exist", profileName)
 	}
+	_ = profile.EnsureProfileLayout(profileDir)
 
 	// Check existing instance
 	existing, _ := readStateFile(profileName)
@@ -486,8 +486,9 @@ func buildHeadlessEnv(profileDir string) ([]string, error) {
 	envMap["PATH"] = enrichedPATH
 	envMap["REAL_HOME"] = realHome
 	envMap["HOME"] = profileDir
-	if auth.HasVault(profileDir) {
-		envMap["GEMINI_FORCE_FILE_STORAGE"] = "true"
+	envMap["GEMINI_FORCE_FILE_STORAGE"] = "true"
+	if runtime.GOOS == "linux" && envMap["WSL_INTEROP"] == "" && envMap["WSL_DISTRO_NAME"] == "" {
+		envMap["WSL_INTEROP"] = "/dev/null"
 	}
 
 	if runtime.GOOS == "windows" {

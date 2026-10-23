@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/app"
-	"github.com/ye-dev/multigravity-cli/internal/auth"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 )
 
@@ -96,13 +95,18 @@ func StartHeadlessServer(profileName string) (*HeadlessInstance, error) {
 	// Invariant: HOME / USERPROFILE must be set to profile dir so credentials are read from the profile
 	env := os.Environ()
 	if pDir != "" {
+		keyringMarker := filepath.Join(pDir, ".gemini", "cache", "antigravity-keyring-unavailable")
+		if err := os.MkdirAll(filepath.Dir(keyringMarker), 0700); err == nil {
+			_ = os.WriteFile(keyringMarker, []byte("1\n"), 0600)
+		}
 		if runtime.GOOS == "windows" {
 			env = append(env, "USERPROFILE="+pDir)
 		} else {
 			env = append(env, "HOME="+pDir)
 		}
-		if auth.HasVault(pDir) {
-			env = append(env, "GEMINI_FORCE_FILE_STORAGE=true")
+		env = append(env, "GEMINI_FORCE_FILE_STORAGE=true")
+		if runtime.GOOS == "linux" && os.Getenv("WSL_INTEROP") == "" && os.Getenv("WSL_DISTRO_NAME") == "" {
+			env = append(env, "WSL_INTEROP=/dev/null")
 		}
 	}
 	cmd.Env = env

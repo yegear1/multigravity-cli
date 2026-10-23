@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/ye-dev/multigravity-cli/internal/app"
-	"github.com/ye-dev/multigravity-cli/internal/auth"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 )
 
@@ -95,9 +94,9 @@ func BuildLaunchCommand(name string, forwardArgs []string) (*exec.Cmd, error) {
 	// Cursor, VS Code and Antigravity export this. A nested Electron
 	// process then runs as Node and rejects --user-data-dir.
 	delete(envMap, "ELECTRON_RUN_AS_NODE")
-	delete(envMap, "GEMINI_FORCE_FILE_STORAGE")
-	if auth.HasVault(profileDir) {
-		envMap["GEMINI_FORCE_FILE_STORAGE"] = "true"
+	envMap["GEMINI_FORCE_FILE_STORAGE"] = "true"
+	if runtime.GOOS == "linux" && envMap["WSL_INTEROP"] == "" && envMap["WSL_DISTRO_NAME"] == "" {
+		envMap["WSL_INTEROP"] = "/dev/null"
 	}
 
 	if runtime.GOOS == "windows" {

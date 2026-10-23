@@ -55,6 +55,13 @@ func EnsureProfileLayout(profileDir string) error {
 	LinkUserConfig(profileDir, realHome)
 	LinkGHConfig(profileDir, realHome)
 
+	// Force language_server CompositeTokenStorage to bypass the global OS keyring
+	// and persist OAuth tokens in <profileDir>/.gemini/jetski-standalone-oauth-token.
+	keyringMarker := filepath.Join(profileDir, ".gemini", "cache", "antigravity-keyring-unavailable")
+	if err := os.MkdirAll(filepath.Dir(keyringMarker), 0700); err == nil {
+		_ = os.WriteFile(keyringMarker, []byte("1\n"), 0600)
+	}
+
 	return nil
 }
 

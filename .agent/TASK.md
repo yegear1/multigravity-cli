@@ -7,21 +7,21 @@
 
 ## Active Task
 
-### 📌 Task [00.5]: Align repository governance with brownfield template knowledge base schema and documentation standards
+### 📌 Task [04.4]: Enforce per-profile OAuth token file isolation on Linux by bypassing global D-Bus Secret Service keyring in `language_server`
 
-- **Description:** Synchronize repository governance with latest upstream brownfield template: install `.agent/knowledge/` schema and card template, declare knowledge base context trigger and DoD item in `AGENTS.md`, align `ARCHIVE.md` header to canonical Technical English, and add `.agent/.cache/` and `.agent/scratch/` to `.gitignore`.
-- **Systems Involved:** `governance`, `documentation`
+- **Description:** Fix profile account bleed-over on Linux when closing and reopening Antigravity IDE profiles from scratch. Antigravity's `language_server` uses `zalando/go-keyring` over the Linux D-Bus Secret Service (`gnome-keyring-daemon`) under a single global service key (`"antigravity"`), ignoring `GEMINI_FORCE_FILE_STORAGE`. Force `language_server`'s `CompositeTokenStorage` into per-profile file storage (`$HOME/.gemini/jetski-standalone-oauth-token`) across IDE, agent, and headless launches by refreshing `<profileDir>/.gemini/cache/antigravity-keyring-unavailable` in `EnsureProfileLayout` and exporting `WSL_INTEROP=/dev/null` (when unset on Linux) alongside `GEMINI_FORCE_FILE_STORAGE=true`.
+- **Systems Involved:** `internal/profile`, `internal/agent`, `internal/headless`, `internal/quota`
 - **Action Type:**
-  - [x] Read-only / Documentation
-  - [ ] Source code changes
+  - [ ] Read-only / Documentation
+  - [x] Source code changes
 - **Status:** COMPLETED
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [x] Create `.agent/knowledge/000-schema.md` and `.agent/knowledge/k-000-template.md` conforming to template standards.
-- [x] Update `AGENTS.md` to include Knowledge Base in Modular Context Triggers and Definition of Done.
-- [x] Align `.agent/ARCHIVE.md` header to Technical English (`# ARCHIVE.md — Historical Log of Completed Tasks`).
-- [x] Ensure `.gitignore` covers `.agent/scratch/` and `.agent/.cache/`.
+- [x] Touch/create `<profileDir>/.gemini/cache/antigravity-keyring-unavailable` during `EnsureProfileLayout` so `language_server`'s `keyringRecentlyUnavailable` check bypasses the global OS keyring.
+- [x] Export `GEMINI_FORCE_FILE_STORAGE=true` unconditionally for isolated profile environments (`internal/profile/launcher.go`, `internal/agent/env.go`, `internal/headless/manager.go`, `internal/quota/headless.go`) and export `WSL_INTEROP=/dev/null` on Linux when unset so `language_server`'s `shouldBypassKeyring()` permanently selects file-based token storage (`<profile>/.gemini/jetski-standalone-oauth-token`) without disrupting D-Bus desktop portals (`xdg-open`, file pickers).
+- [x] Update and expand characterization tests in `internal/profile/launcher_test.go` and `internal/profile/layout_test.go`.
+- [x] Document the `language_server` `CompositeTokenStorage` keyring bypass mechanics in `.agent/knowledge/` and `.agent/INVARIANTS.md`.
 - [x] All tests pass (`go test ./...`) and `git diff --check` exits with code 0.
 
 ---
@@ -30,6 +30,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [04.4] | Enforce per-profile OAuth token file isolation on Linux by bypassing global D-Bus Secret Service keyring in `language_server` | working tree | 2026-10-23 |
 | [00.5] | Align repository governance with brownfield template knowledge base schema and documentation standards | working tree | 2026-10-18 |
 | [04.3] | Fix Google OAuth token exchange HTTP 400 error by supplying canonical client secret | working tree | 2026-10-15 |
 | [04.2] | Task-aware trace telemetry (`--trace-id` flag, `MAESTRI_TRACE_ID` ingestion, VictoriaLogs token delta logging) | [`5035ba2`](https://github.com/ye-dev/multigravity-cli/commit/5035ba2) | 2026-10-17 |

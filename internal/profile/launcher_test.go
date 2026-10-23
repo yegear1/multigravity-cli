@@ -84,29 +84,30 @@ func TestBuildLaunchCommand(t *testing.T) {
 			t.Errorf("expected XDG_CONFIG_HOME=%s, got %s", expectedXDG, envMap["XDG_CONFIG_HOME"])
 		}
 	}
-	if envMap["GEMINI_FORCE_FILE_STORAGE"] != "" {
-		t.Fatal("file storage must stay unset until the profile vault exists")
+	if envMap["GEMINI_FORCE_FILE_STORAGE"] != "true" {
+		t.Fatalf("expected GEMINI_FORCE_FILE_STORAGE=true for isolated profile launch, got %q", envMap["GEMINI_FORCE_FILE_STORAGE"])
 	}
-
-	if err := os.MkdirAll(filepath.Dir(filepath.Join(profileDir, ".gemini", "antigravity-cli", "antigravity-oauth-token")), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(profileDir, ".gemini", "antigravity-cli", "antigravity-oauth-token"), []byte("{}\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	cmd, err = BuildLaunchCommand(profileName, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	envMap = map[string]string{}
-	for _, env := range cmd.Env {
-		parts := strings.SplitN(env, "=", 2)
-		if len(parts) == 2 {
-			envMap[parts[0]] = parts[1]
+	if runtime.GOOS == "linux" {
+		t.Setenv("WSL_INTEROP", "")
+		t.Setenv("WSL_DISTRO_NAME", "")
+		cmd, err = BuildLaunchCommand(profileName, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envMap = map[string]string{}
+		for _, env := range cmd.Env {
+			parts := strings.SplitN(env, "=", 2)
+			if len(parts) == 2 {
+				envMap[parts[0]] = parts[1]
+			}
+		}
+		if envMap["WSL_INTEROP"] != "/dev/null" {
+			t.Fatalf("expected WSL_INTEROP=/dev/null on linux to bypass global keyring, got %q", envMap["WSL_INTEROP"])
 		}
 	}
-	if envMap["GEMINI_FORCE_FILE_STORAGE"] != "true" {
-		t.Fatal("expected GEMINI_FORCE_FILE_STORAGE=true when the profile vault exists")
+	keyringMarker := filepath.Join(profileDir, ".gemini", "cache", "antigravity-keyring-unavailable")
+	if _, err := os.Stat(keyringMarker); err != nil {
+		t.Fatalf("expected keyring bypass marker %s to exist: %v", keyringMarker, err)
 	}
 }
 

@@ -24,6 +24,13 @@ type: architectural-decision-log
 
 ## Cumulative Decisions
 
+### 2026-10-23 [Linux D-Bus Keyring Bypass in Antigravity `language_server`]
+
+- **Context:** Antigravity's Go `language_server` (`codeassistclient.NewCompositeTokenStorage`) does not read `GEMINI_FORCE_FILE_STORAGE`. On Linux desktops with `gnome-keyring-daemon` (`org.freedesktop.secrets`), it stores OAuth tokens in the session-wide keyring under a single global service key (`"antigravity"`), causing any newly launched IDE profile to load the last account that signed in across the OS session.
+- **Decision:**
+  - Refresh `<profileDir>/.gemini/cache/antigravity-keyring-unavailable` during `EnsureProfileLayout` and headless startup (`keyringRecentlyUnavailable` check).
+  - Export `GEMINI_FORCE_FILE_STORAGE=true` unconditionally for all isolated profile environments, and on Linux export `WSL_INTEROP=/dev/null` (when unset) so `wslDetector.Detect()` inside `language_server`'s `shouldBypassKeyring()` permanently forces file-based token storage (`<profileDir>/.gemini/jetski-standalone-oauth-token`) without disrupting D-Bus desktop portals (`xdg-open`, native file pickers).
+
 ### 2026-10-14 [Codex CLI Runner Integration]
 
 - **Context:** Need to support OpenAI Codex CLI (`codex`) as a first-class runner alongside `agy` for headless autonomous tasks and interactive agent sessions.
