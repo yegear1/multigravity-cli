@@ -82,7 +82,11 @@
 
 - **Git & GitHub CLI (`gh`):** GitHub CLI auth (`~/.config/gh` or `%APPDATA%\GitHub CLI`) and `~/.git-credentials` are shared via symlink by default to enable git operations in integrated terminals.
 - **Opt-out (`.isolated_gh` / `.isolated_dotfiles`):** Profiles with these sentinels keep GitHub CLI auth strictly isolated for separate corporate/personal identities.
-- **PATH Preservation:** Antigravity enriches `PATH` with host user binary directories (`~/.local/bin`, `~/.cargo/bin`, etc.) at launch time (`launch_profile`), ensuring binary access without breaking `HOME` isolation.
+- **PATH Preservation & Toolchain Environment:**
+  - `PATH` enrichment is centralized in `internal/profile/env.go` (`BuildEnrichedPATH`). It discovers host user binaries (`~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/go/bin`, pnpm, fnm, volta, and nvm `~/.nvm/versions/node/*/bin`).
+  - On WSL2 / Linux, native Linux system and user directories strictly precede `/mnt/c/` Windows mounts, preventing Windows wrappers from shadowing Linux runtimes.
+  - Profile environments explicitly preserve host `CARGO_HOME`, `RUSTUP_HOME`, and default `GOPATH` pointing to host home (`PopulateToolchainEnv`) to eliminate broken `$HOME`-relative compiler shims and avoid toolchain duplication inside profiles.
+  - `multigravity doctor` audits profiles for orphaned toolchains (`.cargo`, `.rustup`) to detect toolchain bleed.
 
 ---
 

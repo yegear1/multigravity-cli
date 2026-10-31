@@ -19,6 +19,17 @@
 
 ## Active Technical Contracts & Decisions
 
+### 2026-10-31 [Task 05.1] Centralized PATH Enrichment, Host Toolchain Preservation, and Doctor Toolchain Bleed Detection
+
+- **Context:** Isolated profile execution (`profile/launcher.go`, `headless/manager.go`, `agent/env.go`) duplicated logic for enriching `PATH` and did not discover modern JS runtime toolchains (`pnpm`, `fnm`, `volta`, `nvm`). On WSL2, unmanaged ordering allowed Windows mount paths (`/mnt/c/...`) to shadow Linux runtimes. In addition, redirecting `HOME` to `profileDir` caused Cargo, Rustup, and Go to default their toolchain directories to `<profileDir>/.cargo`, `<profileDir>/.rustup`, and `<profileDir>/go`, breaking compiler shims and triggering accidental toolchain downloads into profiles.
+- **Active Contracts:**
+  - `internal/profile/env.go`:
+    - `BuildEnrichedPATH(hostHome string) string` / `BuildEnrichedPATHWithBase(basePath, hostHome string) string`: consolidates candidate scanning (`.local/bin`, `.cargo/bin`, `.bun/bin`, `go/bin`, `.local/share/pnpm`, `.fnm/current/bin`, `.volta/bin`, and `~/.nvm/versions/node/*/bin`).
+    - Enforces stable partitioning on Unix/WSL2 where all native Linux system and user paths precede `/mnt/c/` Windows mounts.
+    - `PopulateToolchainEnv(envMap map[string]string, hostHome string)`: exports `CARGO_HOME`, `RUSTUP_HOME`, and default `GOPATH` pointing to `hostHome` when unset.
+  - Consumers: `launcher.go`, `headless/manager.go`, and `agent/env.go` delegate to `profile.BuildEnrichedPATH` and `profile.PopulateToolchainEnv`.
+  - `internal/doctor/doctor.go`: audits profile directories under `MULTIGRAVITY_HOME` and emits a warning if orphaned `.cargo` or `.rustup` directories exist.
+
 ### 2026-10-31 [Task 00.6] Open Source Readiness & Upstream Gateway Error Port-Number Safety
 
 - **Context:** Audited codebase for public open-source readiness and resolved an intermittent test failure in `TestGatewayUpstreamErrorDoesNotFailover`. The rate-limit detector `IsRateLimitOrQuotaExhausted` in `internal/gateway/client.go` was inspecting `err.Error()`, which embeds `e.Endpoint` (e.g. `http://127.0.0.1:42981` or `:40315`). When an ephemeral test server was assigned an OS port containing "429" or "403", 500 Internal Server Errors were falsely classified as rate limits or quota exhaustion, triggering unexpected failover.

@@ -92,3 +92,76 @@ func TestDoctorEmbeddedIconCheck(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorToolchainBleed_Clean(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+
+	// Create a profile directory without .cargo or .rustup
+	profileDir := filepath.Join(tempHome, "testprofile")
+	if err := os.MkdirAll(profileDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Diagnose()
+	if err != nil {
+		t.Fatalf("unexpected Diagnose error: %v", err)
+	}
+
+	found := false
+	for _, check := range report.Checks {
+		if check.Name == "Toolchain Isolation" {
+			found = true
+			if check.Status != StatusOK {
+				t.Errorf("expected StatusOK for Toolchain Isolation, got %s", check.Status)
+			}
+			if !strings.Contains(check.Message, "Clean") {
+				t.Errorf("expected 'Clean' in message, got %s", check.Message)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("Toolchain Isolation check missing from report")
+	}
+}
+
+func TestDoctorToolchainBleed_Warning(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+
+	// Create profile directories with .cargo and .rustup bleed
+	profileDir := filepath.Join(tempHome, "bleedprofile")
+	if err := os.MkdirAll(filepath.Join(profileDir, ".cargo"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(profileDir, ".rustup"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Diagnose()
+	if err != nil {
+		t.Fatalf("unexpected Diagnose error: %v", err)
+	}
+
+	found := false
+	for _, check := range report.Checks {
+		if check.Name == "Toolchain Isolation" {
+			found = true
+			if check.Status != StatusWarning {
+				t.Errorf("expected StatusWarning for Toolchain Isolation, got %s", check.Status)
+			}
+			if !strings.Contains(check.Message, "bleedprofile") {
+				t.Errorf("expected 'bleedprofile' in message, got %s", check.Message)
+			}
+			if !strings.Contains(check.Message, ".cargo") || !strings.Contains(check.Message, ".rustup") {
+				t.Errorf("expected .cargo and .rustup in message, got %s", check.Message)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("Toolchain Isolation check missing from report")
+	}
+	if report.Warnings == 0 {
+		t.Errorf("expected at least 1 warning for toolchain bleed, got %d", report.Warnings)
+	}
+}

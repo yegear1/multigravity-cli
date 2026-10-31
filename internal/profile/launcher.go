@@ -56,7 +56,7 @@ func BuildLaunchCommand(name string, forwardArgs []string) (*exec.Cmd, error) {
 		realHome = userHome
 	}
 
-	enrichedPATH := buildEnrichedPATH(realHome)
+	enrichedPATH := BuildEnrichedPATH(realHome)
 
 	var cmdName string
 	var cmdArgs []string
@@ -98,6 +98,7 @@ func BuildLaunchCommand(name string, forwardArgs []string) (*exec.Cmd, error) {
 	if runtime.GOOS == "linux" && envMap["WSL_INTEROP"] == "" && envMap["WSL_DISTRO_NAME"] == "" {
 		envMap["WSL_INTEROP"] = "/dev/null"
 	}
+	PopulateToolchainEnv(envMap, realHome)
 
 	if runtime.GOOS == "windows" {
 		envMap["REAL_USERPROFILE"] = realHome
@@ -140,45 +141,6 @@ func defaultLaunchProfileReal(name string, forwardArgs []string) error {
 	}
 
 	return runCmdFn(cmd, wait)
-}
-
-func buildEnrichedPATH(hostHome string) string {
-	currPath := os.Getenv("PATH")
-	var hostBinDirs []string
-	if runtime.GOOS == "windows" {
-		hostBinDirs = []string{
-			filepath.Join(hostHome, ".cargo", "bin"),
-			filepath.Join(hostHome, ".local", "bin"),
-			filepath.Join(hostHome, "AppData", "Local", "Programs", "Python"),
-			filepath.Join(hostHome, "AppData", "Local", "Microsoft", "WinGet", "Links"),
-		}
-	} else {
-		hostBinDirs = []string{
-			filepath.Join(hostHome, ".local", "bin"),
-			filepath.Join(hostHome, ".cargo", "bin"),
-			filepath.Join(hostHome, ".bun", "bin"),
-			filepath.Join(hostHome, "go", "bin"),
-		}
-	}
-
-	pathSep := string(os.PathListSeparator)
-	existingParts := strings.Split(currPath, pathSep)
-	existingMap := make(map[string]bool)
-	for _, p := range existingParts {
-		existingMap[p] = true
-	}
-
-	var newParts []string
-	for _, d := range hostBinDirs {
-		if fi, err := os.Stat(d); err == nil && fi.IsDir() && !existingMap[d] {
-			newParts = append(newParts, d)
-		}
-	}
-
-	if len(newParts) == 0 {
-		return currPath
-	}
-	return strings.Join(newParts, pathSep) + pathSep + currPath
 }
 
 func init() {

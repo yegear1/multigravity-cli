@@ -211,6 +211,52 @@ func Diagnose() (*DiagnosticReport, error) {
 		report.Warnings++
 	}
 
+	// 7. Profile Toolchain Isolation Check (Toolchain Bleed)
+	if entries, err := os.ReadDir(base); err == nil {
+		var bleedReports []string
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			pName := entry.Name()
+			pDir := filepath.Join(base, pName)
+
+			var detected []string
+			if fi, err := os.Stat(filepath.Join(pDir, ".cargo")); err == nil && fi.IsDir() {
+				detected = append(detected, ".cargo")
+			}
+			if fi, err := os.Stat(filepath.Join(pDir, ".rustup")); err == nil && fi.IsDir() {
+				detected = append(detected, ".rustup")
+			}
+
+			if len(detected) > 0 {
+				bleedReports = append(bleedReports, fmt.Sprintf("%s (%s)", pName, strings.Join(detected, ", ")))
+			}
+		}
+
+		if len(bleedReports) > 0 {
+			report.Checks = append(report.Checks, DiagnosticCheck{
+				Name:    "Toolchain Isolation",
+				Status:  StatusWarning,
+				Message: fmt.Sprintf("Toolchain Bleed: Orphaned toolchains detected in profile(s): %s. Host toolchains should reside in REAL_HOME to avoid duplication.", strings.Join(bleedReports, "; ")),
+				Detail:  strings.Join(bleedReports, "; "),
+			})
+			report.Warnings++
+		} else {
+			report.Checks = append(report.Checks, DiagnosticCheck{
+				Name:    "Toolchain Isolation",
+				Status:  StatusOK,
+				Message: "Toolchain Isolation: Clean (no orphaned .cargo or .rustup inside profiles)",
+			})
+		}
+	} else {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name:    "Toolchain Isolation",
+			Status:  StatusOK,
+			Message: "Toolchain Isolation: Clean (no profiles found)",
+		})
+	}
+
 	report.Healthy = report.Errors == 0
 	return report, nil
 }

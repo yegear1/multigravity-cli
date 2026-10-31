@@ -7,10 +7,10 @@
 
 ## Active Task
 
-### 📌 Task [00.6]: Audit and scaffold Open Source Readiness (licenses, community governance, identity sanitization, security policy)
+### 📌 Task [05.1]: Centralize PATH enrichment, preserve host toolchain variables (CARGO_HOME/RUSTUP_HOME), and diagnose toolchain bleed in doctor
 
-- **Description:** Complete open source readiness audit and scaffolding per `oss-readiness` playbook: verify licensing (SPDX MIT in root `LICENSE`), scaffold GitHub community governance standards (`CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `SECURITY.md`, PR/issue templates), sanitize developer paths in skills, configure repository-local noreply email (`yegear1@users.noreply.github.com`), and resolve upstream gateway port collision in rate-limit detector (`IsRateLimitOrQuotaExhausted`).
-- **Systems Involved:** `internal/gateway`, `.github/**`, `skills/multigravity-orchestrator`, root governance
+- **Description:** Centralize duplicated PATH enrichment logic (`launcher.go`, `headless/manager.go`, `agent/env.go`) into `internal/profile/env.go`. Expand path candidates to discover native Linux Node/JS runtimes (`pnpm`, `nvm`, `fnm`, `volta`), and on WSL2/Linux guarantee native Linux binaries precede `/mnt/c/` Windows mounts. Automatically preserve host `CARGO_HOME` and `RUSTUP_HOME` (and default `GOPATH`) in isolated profile environments to eliminate broken `$HOME`-relative compiler shims and prevent accidental toolchain installs inside profile directories. Add a diagnostic check in `multigravity doctor` to detect orphaned toolchains (`.cargo`, `.rustup`) inside profile directories.
+- **Systems Involved:** `internal/profile`, `internal/headless`, `internal/agent`, `internal/doctor`, `.agent/INVARIANTS.md`, `.agent/NOTES.md`
 - **Action Type:**
   - [x] Read-only / Documentation
   - [x] Source code changes
@@ -18,16 +18,15 @@
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [x] Verify presence of root `LICENSE` with MIT terms.
-- [x] Scaffold Contributor Covenant 2.1 in `CODE_OF_CONDUCT.md` with maintainer contact.
-- [x] Scaffold comprehensive `CONTRIBUTING.md` detailing invariants, setup, and testing commands.
-- [x] Scaffold `SECURITY.md` with reporting policy and 48-hour response SLA.
-- [x] Scaffold `.github/pull_request_template.md` and `.github/ISSUE_TEMPLATE/` (`bug_report.md`, `feature_request.md`).
-- [x] Sanitize local absolute path leaks in `skills/multigravity-orchestrator/SKILL.md`.
-- [x] Fix upstream gateway port-matching false positive in `IsRateLimitOrQuotaExhausted` (`internal/gateway/client.go`).
-- [x] Add characterization unit test `TestIsRateLimitOrQuotaExhausted_PortNumberSafety` in `internal/gateway/gateway_test.go`.
-- [x] Set repository-local `git config user.email` to `yegear1@users.noreply.github.com`.
-- [x] All automated tests pass (`go test ./...`), `go build`, `bash -n`, and `git diff --check` exits with 0.
+- [x] Create `internal/profile/env.go` consolidating `BuildEnrichedPATH(hostHome string) string` and environment seeding helpers (`PopulateToolchainEnv`).
+- [x] Add discovery for common JS/Node bin directories: `~/.local/share/pnpm`, `~/.nvm/versions/node/*/bin`, `~/.fnm/current/bin`, `~/.volta/bin`.
+- [x] On WSL2 / Linux, ensure Linux system and user paths precede any `/mnt/c/` Windows paths.
+- [x] Export `CARGO_HOME` and `RUSTUP_HOME` pointing to `realHome` if unset in `launcher.go`, `headless/manager.go`, and `agent/env.go`.
+- [x] Refactor `internal/headless` and `internal/agent` to consume the centralized PATH enrichment from `internal/profile`.
+- [x] Add diagnostic rule in `internal/doctor` warning if `.cargo` or `.rustup` directory exists inside any profile directory under `~/AntigravityProfiles/`.
+- [x] Add unit tests asserting PATH enrichment (including Node detection, WSL2 ordering, deduplication), toolchain env population, and doctor toolchain detection.
+- [x] Verify full test suite passes with `go test ./...` and `go build ./cmd/multigravity`.
+- [x] Update `.agent/INVARIANTS.md` and `.agent/NOTES.md` to document the active contracts.
 
 ---
 
@@ -35,6 +34,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.1] | Centralize PATH enrichment, preserve host toolchain variables (CARGO_HOME/RUSTUP_HOME), and diagnose toolchain bleed in doctor | [`3966f07`](https://github.com/yegear1/multigravity-cli/commit/3966f07) | 2026-10-31 |
 | [00.6] | Audit and scaffold Open Source Readiness (licenses, community governance, identity sanitization, security policy) | [`0c4e093`](https://github.com/yegear1/multigravity-cli/commit/0c4e093) | 2026-10-31 |
 | [04.4] | Enforce per-profile OAuth token file isolation on Linux by bypassing global D-Bus Secret Service keyring in `language_server` | working tree | 2026-10-23 |
 | [00.5] | Align repository governance with brownfield template knowledge base schema and documentation standards | working tree | 2026-10-18 |
