@@ -898,3 +898,48 @@ func TestGatewayTraceIDHeadersAndTelemetry(t *testing.T) {
 		t.Fatalf("unexpected sample trace metadata: %+v", series.Samples[0])
 	}
 }
+
+func TestIsRateLimitOrQuotaExhausted_PortNumberSafety(t *testing.T) {
+	// Tests that port numbers containing 429 or 403 in the endpoint URL do not trigger false-positive rate limit detection on 500 errors
+	errWith429Port := &UpstreamHTTPError{
+		StatusCode: http.StatusInternalServerError,
+		Endpoint:   "http://127.0.0.1:42981",
+		Message:    `{"error":"internal crash"}`,
+	}
+	isRateLimit, _ := IsRateLimitOrQuotaExhausted(errWith429Port)
+	if isRateLimit {
+		t.Fatalf("expected isRateLimit=false for 500 error on port 42981, got true")
+	}
+
+	errWith403Port := &UpstreamHTTPError{
+		StatusCode: http.StatusInternalServerError,
+		Endpoint:   "http://127.0.0.1:40315",
+		Message:    `{"error":"internal crash"}`,
+	}
+	isRateLimit, _ = IsRateLimitOrQuotaExhausted(errWith403Port)
+	if isRateLimit {
+		t.Fatalf("expected isRateLimit=false for 500 error on port 40315, got true")
+	}
+
+	// Should still detect 429 or 403 status code
+	errActual429 := &UpstreamHTTPError{
+		StatusCode: http.StatusTooManyRequests,
+		Endpoint:   "http://127.0.0.1:8080",
+		Message:    "rate limit exceeded",
+	}
+	isRateLimit, code := IsRateLimitOrQuotaExhausted(errActual429)
+	if !isRateLimit || code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 detection, got %v (%d)", isRateLimit, code)
+	}
+
+	// Should detect quota exhausted in message body even if status code is 400
+	errQuotaMsg := &UpstreamHTTPError{
+		StatusCode: http.StatusBadRequest,
+		Endpoint:   "http://127.0.0.1:8080",
+		Message:    `{"error":"RESOURCE_EXHAUSTED: quota exceeded"}`,
+	}
+	isRateLimit, code = IsRateLimitOrQuotaExhausted(errQuotaMsg)
+	if !isRateLimit || code != http.StatusForbidden {
+		t.Fatalf("expected quota message detection, got %v (%d)", isRateLimit, code)
+	}
+}

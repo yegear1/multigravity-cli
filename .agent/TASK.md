@@ -7,22 +7,27 @@
 
 ## Active Task
 
-### 📌 Task [04.4]: Enforce per-profile OAuth token file isolation on Linux by bypassing global D-Bus Secret Service keyring in `language_server`
+### 📌 Task [00.6]: Audit and scaffold Open Source Readiness (licenses, community governance, identity sanitization, security policy)
 
-- **Description:** Fix profile account bleed-over on Linux when closing and reopening Antigravity IDE profiles from scratch. Antigravity's `language_server` uses `zalando/go-keyring` over the Linux D-Bus Secret Service (`gnome-keyring-daemon`) under a single global service key (`"antigravity"`), ignoring `GEMINI_FORCE_FILE_STORAGE`. Force `language_server`'s `CompositeTokenStorage` into per-profile file storage (`$HOME/.gemini/jetski-standalone-oauth-token`) across IDE, agent, and headless launches by refreshing `<profileDir>/.gemini/cache/antigravity-keyring-unavailable` in `EnsureProfileLayout` and exporting `WSL_INTEROP=/dev/null` (when unset on Linux) alongside `GEMINI_FORCE_FILE_STORAGE=true`.
-- **Systems Involved:** `internal/profile`, `internal/agent`, `internal/headless`, `internal/quota`
+- **Description:** Complete open source readiness audit and scaffolding per `oss-readiness` playbook: verify licensing (SPDX MIT in root `LICENSE`), scaffold GitHub community governance standards (`CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `SECURITY.md`, PR/issue templates), sanitize developer paths in skills, configure repository-local noreply email (`yegear1@users.noreply.github.com`), and resolve upstream gateway port collision in rate-limit detector (`IsRateLimitOrQuotaExhausted`).
+- **Systems Involved:** `internal/gateway`, `.github/**`, `skills/multigravity-orchestrator`, root governance
 - **Action Type:**
-  - [ ] Read-only / Documentation
+  - [x] Read-only / Documentation
   - [x] Source code changes
 - **Status:** COMPLETED
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [x] Touch/create `<profileDir>/.gemini/cache/antigravity-keyring-unavailable` during `EnsureProfileLayout` so `language_server`'s `keyringRecentlyUnavailable` check bypasses the global OS keyring.
-- [x] Export `GEMINI_FORCE_FILE_STORAGE=true` unconditionally for isolated profile environments (`internal/profile/launcher.go`, `internal/agent/env.go`, `internal/headless/manager.go`, `internal/quota/headless.go`) and export `WSL_INTEROP=/dev/null` on Linux when unset so `language_server`'s `shouldBypassKeyring()` permanently selects file-based token storage (`<profile>/.gemini/jetski-standalone-oauth-token`) without disrupting D-Bus desktop portals (`xdg-open`, file pickers).
-- [x] Update and expand characterization tests in `internal/profile/launcher_test.go` and `internal/profile/layout_test.go`.
-- [x] Document the `language_server` `CompositeTokenStorage` keyring bypass mechanics in `.agent/knowledge/` and `.agent/INVARIANTS.md`.
-- [x] All tests pass (`go test ./...`) and `git diff --check` exits with code 0.
+- [x] Verify presence of root `LICENSE` with MIT terms.
+- [x] Scaffold Contributor Covenant 2.1 in `CODE_OF_CONDUCT.md` with maintainer contact.
+- [x] Scaffold comprehensive `CONTRIBUTING.md` detailing invariants, setup, and testing commands.
+- [x] Scaffold `SECURITY.md` with reporting policy and 48-hour response SLA.
+- [x] Scaffold `.github/pull_request_template.md` and `.github/ISSUE_TEMPLATE/` (`bug_report.md`, `feature_request.md`).
+- [x] Sanitize local absolute path leaks in `skills/multigravity-orchestrator/SKILL.md`.
+- [x] Fix upstream gateway port-matching false positive in `IsRateLimitOrQuotaExhausted` (`internal/gateway/client.go`).
+- [x] Add characterization unit test `TestIsRateLimitOrQuotaExhausted_PortNumberSafety` in `internal/gateway/gateway_test.go`.
+- [x] Set repository-local `git config user.email` to `yegear1@users.noreply.github.com`.
+- [x] All automated tests pass (`go test ./...`), `go build`, `bash -n`, and `git diff --check` exits with 0.
 
 ---
 
@@ -30,6 +35,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [00.6] | Audit and scaffold Open Source Readiness (licenses, community governance, identity sanitization, security policy) | [`0c4e093`](https://github.com/yegear1/multigravity-cli/commit/0c4e093) | 2026-10-31 |
 | [04.4] | Enforce per-profile OAuth token file isolation on Linux by bypassing global D-Bus Secret Service keyring in `language_server` | working tree | 2026-10-23 |
 | [00.5] | Align repository governance with brownfield template knowledge base schema and documentation standards | working tree | 2026-10-18 |
 | [04.3] | Fix Google OAuth token exchange HTTP 400 error by supplying canonical client secret | working tree | 2026-10-15 |

@@ -19,6 +19,15 @@
 
 ## Active Technical Contracts & Decisions
 
+### 2026-10-31 [Task 00.6] Open Source Readiness & Upstream Gateway Error Port-Number Safety
+
+- **Context:** Audited codebase for public open-source readiness and resolved an intermittent test failure in `TestGatewayUpstreamErrorDoesNotFailover`. The rate-limit detector `IsRateLimitOrQuotaExhausted` in `internal/gateway/client.go` was inspecting `err.Error()`, which embeds `e.Endpoint` (e.g. `http://127.0.0.1:42981` or `:40315`). When an ephemeral test server was assigned an OS port containing "429" or "403", 500 Internal Server Errors were falsely classified as rate limits or quota exhaustion, triggering unexpected failover.
+- **Active Contracts:**
+  - `internal/gateway/client.go`: `IsRateLimitOrQuotaExhausted` checks `upstreamErr.StatusCode` and matches error patterns strictly against `upstreamErr.Message` (the HTTP response body), isolating detection from the endpoint hostname/port.
+  - Community Governance: Scaffolding added for `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), `CONTRIBUTING.md`, `SECURITY.md` (48h SLA), `.github/pull_request_template.md`, and `.github/ISSUE_TEMPLATE/` (`bug_report.md`, `feature_request.md`).
+  - Git identity: `git config user.email` configured locally to `yegear1@users.noreply.github.com`.
+  - Skill hygiene: Sanitized hardcoded local developer host paths (`/home/yegear/`) in `skills/multigravity-orchestrator/SKILL.md`.
+
 ### 2026-10-23 [Task 04.4] Per-Profile OAuth Token File Isolation & Linux D-Bus Keyring Bypass (`language_server`)
 
 - **Context:** On Linux desktop sessions (`gnome-keyring-daemon` / `org.freedesktop.secrets`), multiple Antigravity IDE profiles held separate Google accounts in memory while running concurrently, but closing and reopening a profile from scratch reverted to whichever account authenticated most recently. Reverse-engineering `/opt/antigravity/resources/bin/language_server` (v2.25.0) revealed that `codeassistclient.NewCompositeTokenStorage` ignores `GEMINI_FORCE_FILE_STORAGE` (`0` occurrences in binary) and defaults to `github.com/zalando/go-keyring` under a single global service key (`service="antigravity"`) unless `shouldBypassKeyring()` or `keyringRecentlyUnavailable()` returns `true`.

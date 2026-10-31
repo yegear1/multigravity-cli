@@ -335,6 +335,14 @@ func IsRateLimitOrQuotaExhausted(err error) (bool, int) {
 		if upstreamErr.StatusCode == http.StatusTooManyRequests || upstreamErr.StatusCode == http.StatusForbidden {
 			return true, upstreamErr.StatusCode
 		}
+		msg := strings.ToLower(upstreamErr.Message)
+		if strings.Contains(msg, "429") || strings.Contains(msg, "too many requests") || strings.Contains(msg, "rate limit") {
+			return true, http.StatusTooManyRequests
+		}
+		if strings.Contains(msg, "403") || strings.Contains(msg, "resource exhausted") || strings.Contains(msg, "quota") {
+			return true, http.StatusForbidden
+		}
+		return false, 0
 	}
 	errStr := strings.ToLower(err.Error())
 	if strings.Contains(errStr, "429") || strings.Contains(errStr, "too many requests") || strings.Contains(errStr, "rate limit") {

@@ -1239,5 +1239,15 @@ func TestDispatchCLITraceIDFlagAndStatus(t *testing.T) {
 	if task.TraceID != "tr-cli-777" {
 		t.Errorf("expected JSON task.TraceID 'tr-cli-777', got %q", task.TraceID)
 	}
+
+	mgr := dispatch.GetDefaultTaskManager()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		tCur, err := mgr.GetTask(repoDir, taskID)
+		if err == nil && (tCur.Status == dispatch.StatusCompleted || tCur.Status == dispatch.StatusFailed || tCur.Status == dispatch.StatusAuditFailed) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 

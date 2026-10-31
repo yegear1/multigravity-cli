@@ -259,11 +259,11 @@ multigravity dispatch run worker-2 --new-worktree --prompt "Generate 50 API endp
 ### Workspace and local repositories
 ```bash
 # BAD: Moving the IDE root into a local repo that has no origin, then dispatching
-move_agent_to_root /home/yegear/github/polyglot-terminal
+move_agent_to_root /home/user/github/polyglot-terminal
 # Result: git fetch origin aborts the turn. The empty commit stays empty. No plan runs.
 
 # GOOD: Dispatch into that repo from the current workspace
-REPO=$(git -C /home/yegear/github/polyglot-terminal rev-parse --show-toplevel)
+REPO=$(git -C /home/user/github/polyglot-terminal rev-parse --show-toplevel)
 multigravity dispatch plan plan.json --repo "$REPO" --json
 ```
 
