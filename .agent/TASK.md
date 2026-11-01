@@ -7,7 +7,7 @@
 
 ## Active Task
 
-### [06.3] Verify-on-Timeout recovery in Go plan executor
+### Queue Empty — Awaiting Next Ideation
 - Status: READY FOR PLANNING
 - Priority: P1
 - Model: `gemini-3.8-flash-medium`
@@ -22,6 +22,8 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [06.3] | Verify-on-Timeout recovery in Go plan executor (run `Verify:` on deadline if diff exists; recover as `completed` on exit 0) | `eed33f1` | 2026-11-01 |
+| [06.4] | Default model fallback before wave linting (prevent un-modelled tasks from falsely failing `TierMicro` path/package rules) | `6bb3b0a` | 2026-11-01 |
 | [06.1] | Default compact JSON output and persist run artifacts (`.multigravity/runs/<plan_id>.json`, `--full` flag for verbose JSON) | [`da17053`](https://github.com/yegear1/multigravity-cli/commit/da17053) | 2026-11-01 |
 | [06.2] | Auto-symlink ignored build dependencies in ephemeral worktrees (`node_modules`, `target`, `.venv`, `.cargo`) | [`eee44eb`](https://github.com/yegear1/multigravity-cli/commit/eee44eb) | 2026-11-01 |
 | [05.27] | Synchronize `skills/multigravity-orchestrator/SKILL.md` and `task-queue` with installed-runner auto-discovery and `quota-history.jsonl` persistent 429 cooldowns | [`9d9855b`](https://github.com/yegear1/multigravity-cli/commit/9d9855b) | 2026-11-01 |
@@ -118,12 +120,12 @@
 
 - [x] **[06.1]** `[APPROVED]` `[PARALLEL: W1]` Default compact JSON output and persist run artifacts (`.multigravity/runs/<plan_id>.json`, `--full` flag for verbose JSON) (`da17053`)
 - [x] **[06.2]** `[APPROVED]` `[PARALLEL: W1]` Auto-symlink ignored build dependencies in ephemeral worktrees (`node_modules`, `target`, `.venv`, `.cargo`) (`eee44eb`)
-- [ ] **[06.3]** `[APPROVED]` `[PARALLEL: W2]` Verify-on-Timeout recovery in Go plan executor (run `Verify:` on deadline if diff exists; recover as `completed` on exit 0)
+- [x] **[06.3]** `[APPROVED]` `[PARALLEL: W2]` Verify-on-Timeout recovery in Go plan executor (run `Verify:` on deadline if diff exists; recover as `completed` on exit 0) (eed33f1)
   - `Model:` `gemini-3.8-flash-medium`
   - `Read:` `internal/dispatch/plan.go:500-600`
   - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
   - `Verify:` `go test -v ./internal/dispatch -run TestExecutePlanVerifyOnTimeout`
-- [ ] **[06.4]** `[APPROVED]` `[PARALLEL: W2]` Default model fallback before wave linting (prevent un-modelled tasks from falsely failing `TierMicro` path/package rules)
+- [x] **[06.4]** `[APPROVED]` `[PARALLEL: W2]` Default model fallback before wave linting (prevent un-modelled tasks from falsely failing `TierMicro` path/package rules) (6bb3b0a)
   - `Model:` `gemini-3.8-flash-medium`
   - `Read:` `internal/dispatch/wave.go:230-265`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
