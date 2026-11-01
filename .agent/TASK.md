@@ -7,22 +7,22 @@
 
 ## Active Task
 
-### 📌 Task [05.6]: Immutable SHA `BaseCommit` Resolution & Path-Scoped `GitDiff` (`internal/worktree`)
+### 📌 Task [05.8]: Native Micro-Contracts, `agy` Model/Effort Normalization, Auto-Profile Routing & Atomic Wave Commits (`internal/dispatch`, `internal/cmd`)
 
-- **Description:** Resolve symbolic `BaseCommit` refs (such as `"main"`) to their immutable commit SHA (`headCommit`) during `CreateWorktree` so advancing `main` in multi-task waves never causes `GetWorktreeDiff` to emit reverse patches of earlier wave commits, and add `Paths []string` filtering to `DiffOptions` and `GitDiff`.
-- **Systems Involved:** `internal/worktree`
+- **Description:** Build micro-contract prompt synthesis (`Read`/`Paths`/`CommitMessage`/`Model`), `agy` `--model`/`--effort` conflict normalization, secondary-account auto-profile routing, and `--apply-atomic` / `--omit-diff` wave execution directly into `multigravity dispatch plan`.
+- **Systems Involved:** `internal/dispatch`, `internal/cmd`
 - **Action Type:**
   - [ ] Read-only / Documentation
   - [x] Source code changes
-- **Status:** APPROVED
+- **Status:** RUNNING
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] In `CreateWorktree` (`internal/worktree/manager.go`), store the resolved commit SHA (`headCommit`) in `wt.BaseCommit` when `headCommit != ""` so subsequent commits to `main` do not shift the worktree diff baseline.
-- [ ] Add `Paths []string` to `DiffOptions` in `internal/worktree/types.go`.
-- [ ] Update `GitDiff` (`internal/worktree/git.go`) and `GetWorktreeDiff` (`internal/worktree/manager.go`) to filter tracked diffs and untracked files to `opts.Paths` when non-empty.
-- [ ] Add unit tests in `internal/worktree/worktree_test.go` asserting that committing to `main` after worktree creation does not pollute `GetWorktreeDiff` and that `DiffOptions.Paths` filters out unrelated files.
-- [ ] Verify with `go test -v ./internal/worktree`.
+- [ ] In `ResolveAgentCommandWithCwd` (`internal/dispatch/manager.go`), normalize `agy` `--model` / `--effort` conflicts so passing both `--model gemini-3.8-flash-medium` and `--effort low` rewrites `--model` to `gemini-3.8-flash-low` and strips `--effort`.
+- [ ] Extend `SubtaskSpec` (`internal/dispatch/plan.go`) with `Read []string`, `Paths []string`, `CommitMessage string`, and `Model string`, and `PlanRequest` with `DefaultModel string`, `ApplyAtomic bool`, and `OmitDiff bool`.
+- [ ] Synthesize micro-contract prompts (`SynthesizeSubtaskPrompt`) when `Read` or `Paths` are non-empty, and auto-route profiles (`Profile == ""` or `"auto"`) using `quota.SelectEligibleProfiles`.
+- [ ] Implement Verify-on-Timeout recovery, path-scoped diffing (`DiffOptions{Paths: st.Paths}`), atomic git commit (`Commit` field on `SubtaskResult`), worktree cleanup (`--apply-atomic`), and diff omission (`--omit-diff`).
+- [ ] Add `--apply-atomic` and `--omit-diff` CLI flags to `multigravity dispatch plan` (`internal/cmd/dispatch.go`) and verify with `go test -v ./internal/dispatch ./internal/cmd -run "Test.*Plan|TestResolveAgentCommand"`.
 
 ---
 
@@ -30,6 +30,8 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.7] | Add `SelectEligibleProfiles` and `SelectEligibleProfilesFromCandidates` with secondary-account priority (`excludeProfiles`) in `internal/quota` | [`a842530`](https://github.com/yegear1/multigravity-cli/commit/a842530) | 2026-11-01 |
+| [05.6] | Resolve symbolic `BaseCommit` refs to immutable SHA in `CreateWorktree` and add `Paths` filtering to `DiffOptions` / `GitDiff` | [`080fba6`](https://github.com/yegear1/multigravity-cli/commit/080fba6) | 2026-11-01 |
 | [05.5] | Synchronize `multigravity-orchestrator` skill with `Read:/Paths:/Verify:` micro-contracts, tiered model IDs, and bounded diagnostic tail handling | [`d7c7ee8`](https://github.com/yegear1/multigravity-cli/commit/d7c7ee8) | 2026-11-01 |
 | [05.4] | Align `multigravity route` model identifiers with live `agy models` (`gemini-3.8-flash-low/medium/high`) and expose `recommended_effort` (`low`/`medium`/`high`) | [`8c50ba4`](https://github.com/yegear1/multigravity-cli/commit/8c50ba4) | 2026-11-01 |
 | [05.3] | Terminate running subtasks on `ExecutePlan` timeout, add cross-process PID fallback in `CancelTask`, and expose bounded `verification_output`/`log_tail` in `SubtaskResult` | [`2837a59`](https://github.com/yegear1/multigravity-cli/commit/2837a59) | 2026-11-01 |
@@ -62,14 +64,8 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [ ] **[05.6]** `[APPROVED]` `[PARALLEL: W1]` Resolve symbolic `BaseCommit` refs to immutable SHA in `CreateWorktree` and add `Paths` filtering to `DiffOptions` / `GitDiff`
-  - `Read:` `internal/worktree/manager.go, internal/worktree/git.go, internal/worktree/types.go`
-  - `Paths:` `internal/worktree/manager.go, internal/worktree/git.go, internal/worktree/types.go, internal/worktree/worktree_test.go`
-  - `Verify:` `go test -v ./internal/worktree`
-- [ ] **[05.7]** `[APPROVED]` `[PARALLEL: W1]` Add `SelectEligibleProfiles` and `SelectEligibleProfilesFromCandidates` with secondary-account priority (`excludeProfiles`) in `internal/quota`
-  - `Read:` `internal/quota/routing.go, internal/quota/routing_test.go`
-  - `Paths:` `internal/quota/routing.go, internal/quota/routing_test.go`
-  - `Verify:` `go test -v ./internal/quota -run "TestRecommendRoute|TestSelectEligibleProfiles"`
+- [x] **[05.6]** `[APPROVED]` `[PARALLEL: W1]` Resolve symbolic `BaseCommit` refs to immutable SHA in `CreateWorktree` and add `Paths` filtering to `DiffOptions` / `GitDiff` (`080fba6`)
+- [x] **[05.7]** `[APPROVED]` `[PARALLEL: W1]` Add `SelectEligibleProfiles` and `SelectEligibleProfilesFromCandidates` with secondary-account priority (`excludeProfiles`) in `internal/quota` (`a842530`)
 - [ ] **[05.8]** `[APPROVED]` `[SEQ: W2]` Add native micro-contract fields (`Read`/`Paths`/`CommitMessage`), `agy` `--model`/`--effort` conflict normalization, auto-profile routing, and `--apply-atomic` / `--omit-diff` wave execution to `dispatch plan`
   - `Read:` `internal/dispatch/plan.go, internal/dispatch/manager.go, internal/cmd/dispatch.go`
   - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go, internal/dispatch/manager.go, internal/dispatch/dispatch_test.go, internal/cmd/dispatch.go`
