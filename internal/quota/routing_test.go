@@ -78,8 +78,11 @@ func TestRecommendRoute_WeightsAndModels(t *testing.T) {
 	if planLight.Recommended == nil {
 		t.Fatal("expected recommendation for light, got nil")
 	}
-	if planLight.Recommended.Model != "gemini-2.5-flash" {
-		t.Fatalf("expected light model gemini-2.5-flash, got %s", planLight.Recommended.Model)
+	if planLight.Recommended.Model != "gemini-3.8-flash-low" {
+		t.Fatalf("expected light model gemini-3.8-flash-low, got %s", planLight.Recommended.Model)
+	}
+	if planLight.RecommendedEffort != "low" {
+		t.Fatalf("expected light effort low, got %s", planLight.RecommendedEffort)
 	}
 	if planLight.Recommended.WindowType != Window5h {
 		t.Fatalf("expected light window to be 5h, got %s", planLight.Recommended.WindowType)
@@ -90,8 +93,23 @@ func TestRecommendRoute_WeightsAndModels(t *testing.T) {
 	if planMedium.Recommended == nil {
 		t.Fatal("expected recommendation for medium, got nil")
 	}
-	if planMedium.Recommended.Model != "gemini-3.8-flash-tiered" {
-		t.Fatalf("expected medium model gemini-3.8-flash-tiered, got %s", planMedium.Recommended.Model)
+	if planMedium.Recommended.Model != "gemini-3.8-flash-medium" {
+		t.Fatalf("expected medium model gemini-3.8-flash-medium, got %s", planMedium.Recommended.Model)
+	}
+	if planMedium.RecommendedEffort != "medium" {
+		t.Fatalf("expected medium effort medium, got %s", planMedium.RecommendedEffort)
+	}
+
+	// Default workload (empty string) defaults to medium
+	planDefault := RecommendRoute([]ActiveServer{serverWork}, "", now)
+	if planDefault.Recommended == nil {
+		t.Fatal("expected recommendation for default, got nil")
+	}
+	if planDefault.Recommended.Model != "gemini-3.8-flash-medium" {
+		t.Fatalf("expected default model gemini-3.8-flash-medium, got %s", planDefault.Recommended.Model)
+	}
+	if planDefault.RecommendedEffort != "medium" {
+		t.Fatalf("expected default effort medium, got %s", planDefault.RecommendedEffort)
 	}
 
 	// Heavy workload
@@ -99,8 +117,11 @@ func TestRecommendRoute_WeightsAndModels(t *testing.T) {
 	if planHeavy.Recommended == nil {
 		t.Fatal("expected recommendation for heavy, got nil")
 	}
-	if planHeavy.Recommended.Model != "gemini-2.5-pro" {
-		t.Fatalf("expected heavy model gemini-2.5-pro, got %s", planHeavy.Recommended.Model)
+	if planHeavy.Recommended.Model != "gemini-3.8-flash-high" {
+		t.Fatalf("expected heavy model gemini-3.8-flash-high, got %s", planHeavy.Recommended.Model)
+	}
+	if planHeavy.RecommendedEffort != "high" {
+		t.Fatalf("expected heavy effort high, got %s", planHeavy.RecommendedEffort)
 	}
 	if planHeavy.Recommended.WindowType != WindowWeekly {
 		t.Fatalf("expected heavy window to be weekly, got %s", planHeavy.Recommended.WindowType)
@@ -204,5 +225,33 @@ func TestRecommendRoute_CriticalQuotaAndEligibility(t *testing.T) {
 	planEmpty := RecommendRoute([]ActiveServer{}, WeightMedium, now)
 	if planEmpty.Recommended != nil || len(planEmpty.Candidates) != 0 {
 		t.Fatalf("expected empty plan for zero servers, got %+v", planEmpty)
+	}
+	if planEmpty.RecommendedEffort != "medium" {
+		t.Fatalf("expected medium effort for empty servers, got %s", planEmpty.RecommendedEffort)
+	}
+}
+
+func TestModelAndEffortForWeight(t *testing.T) {
+	tests := []struct {
+		weight       RouteWeight
+		wantedModel  string
+		wantedEffort string
+	}{
+		{WeightLight, "gemini-3.8-flash-low", "low"},
+		{WeightMedium, "gemini-3.8-flash-medium", "medium"},
+		{WeightHeavy, "gemini-3.8-flash-high", "high"},
+		{"", "gemini-3.8-flash-medium", "medium"},
+		{"unknown", "gemini-3.8-flash-medium", "medium"},
+	}
+
+	for _, tt := range tests {
+		gotModel := ModelForWeight(tt.weight)
+		if gotModel != tt.wantedModel {
+			t.Errorf("ModelForWeight(%q) = %s, want %s", tt.weight, gotModel, tt.wantedModel)
+		}
+		gotEffort := EffortForWeight(tt.weight)
+		if gotEffort != tt.wantedEffort {
+			t.Errorf("EffortForWeight(%q) = %s, want %s", tt.weight, gotEffort, tt.wantedEffort)
+		}
 	}
 }

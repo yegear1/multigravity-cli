@@ -45,11 +45,15 @@ type RouteCandidate struct {
 
 // RoutePlan represents the full recommendation and candidate rankings
 type RoutePlan struct {
-	Recommended *RouteCandidate  `json:"recommended"`
-	Candidates  []RouteCandidate `json:"candidates"`
-	Weight      string           `json:"weight"`
-	EvaluatedAt string           `json:"evaluated_at"`
+	Recommended       *RouteCandidate  `json:"recommended"`
+	Candidates        []RouteCandidate `json:"candidates"`
+	Weight            string           `json:"weight"`
+	RecommendedEffort string           `json:"recommended_effort,omitempty"`
+	EvaluatedAt       string           `json:"evaluated_at"`
 }
+
+// RouteRecommendation is an alias for RoutePlan representing the quota route recommendation
+type RouteRecommendation = RoutePlan
 
 // RoutingFraction returns the tightest live quota among weekly and 5h buckets.
 // Buckets that classify as neither window are ignored. ok is false when no
@@ -88,28 +92,42 @@ func RoutingFraction(data *QuotaSummaryResponse, now time.Time) (fraction float6
 func ModelForWeight(w RouteWeight) string {
 	switch w {
 	case WeightLight:
-		return "gemini-2.5-flash"
+		return "gemini-3.8-flash-low"
 	case WeightHeavy:
-		return "gemini-2.5-pro"
+		return "gemini-3.8-flash-high"
 	default:
-		return "gemini-3.8-flash-tiered"
+		return "gemini-3.8-flash-medium"
+	}
+}
+
+// EffortForWeight returns the reasoning effort level recommended for the given weight
+func EffortForWeight(w RouteWeight) string {
+	switch w {
+	case WeightLight:
+		return "low"
+	case WeightHeavy:
+		return "high"
+	default:
+		return "medium"
 	}
 }
 
 // RecommendRoute evaluates active servers and generates a deterministic route recommendation
 func RecommendRoute(servers []ActiveServer, weight RouteWeight, now time.Time) RoutePlan {
-	if weight == "" {
-		weight = WeightMedium
+	normWeight := weight
+	if normWeight == "" {
+		normWeight = WeightMedium
 	}
 
 	plan := RoutePlan{
-		Candidates:  []RouteCandidate{},
-		Weight:      string(weight),
-		EvaluatedAt: now.UTC().Format(time.RFC3339),
+		Candidates:        []RouteCandidate{},
+		Weight:            string(normWeight),
+		RecommendedEffort: EffortForWeight(normWeight),
+		EvaluatedAt:       now.UTC().Format(time.RFC3339),
 	}
 
 	bestByProfile := make(map[string]RouteCandidate)
-	model := ModelForWeight(weight)
+	model := ModelForWeight(normWeight)
 
 	for _, srv := range servers {
 		prof := strings.TrimSpace(srv.Profile)
@@ -117,7 +135,7 @@ func RecommendRoute(servers []ActiveServer, weight RouteWeight, now time.Time) R
 			continue
 		}
 
-		cand := evaluateServer(srv, weight, model, now)
+		cand := evaluateServer(srv, normWeight, model, now)
 		existing, found := bestByProfile[prof]
 		if !found || compareCandidates(cand, existing) < 0 {
 			bestByProfile[prof] = cand
