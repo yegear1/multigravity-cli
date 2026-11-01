@@ -7,10 +7,10 @@
 
 ## Active Task
 
-### 📌 Task [05.10]: Line-Ranged `Read:` Pre-Injection, Anti-Guessing Micro-Contracts, `empty_diff` `LogTail` Audit & Atomic Wave Commits (`internal/dispatch/plan.go`)
+### 📌 Task [05.11]: Native `.agent/TASK.md` Wave Parser & `multigravity dispatch wave` CLI Subcommand (`internal/dispatch`, `internal/cmd`)
 
-- **Description:** Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default with single-grep escape hatch, `empty_diff` `LogTail` audit, model-aware auto-profile routing (`quota.SelectEligibleProfilesForModel`), and `--apply-atomic` / `--omit-diff` execution in `internal/dispatch/plan.go`.
-- **Systems Involved:** `internal/dispatch`
+- **Description:** Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion (`gemini-4-argon-medium` retry excluding failed profile) and automatic `.agent/TASK.md` completion logging.
+- **Systems Involved:** `internal/dispatch`, `internal/cmd`
 - **Action Type:**
   - [ ] Read-only / Documentation
   - [x] Source code changes
@@ -18,11 +18,10 @@
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] Extend `SubtaskSpec` (`Read`, `Paths`, `CommitMessage`, `Model`), `PlanRequest` (`DefaultModel`, `ApplyAtomic`, `OmitDiff`, `InlineRead`), and `SubtaskResult` (`Commit`, `RecoveredFromTimeout`, `Model`) in `internal/dispatch/plan.go`.
-- [ ] Implement `SynthesizeSubtaskPromptWithRepo` supporting `file:start-end` line-ranged `Read:` pre-injection (up to 15 KB total), single-grep escape hatch, and `gemini-3.8-flash-low` default for micro-contracts.
-- [ ] Populate `LogTail` on `empty_diff` (`res.Status != StatusCompleted || strings.TrimSpace(res.Diff) == ""`) and mark `empty_diff` subtasks with non-empty `Paths` as `StatusAuditFailed`.
-- [ ] Support `st.Profile == ""` or `"auto"` via `quota.SelectEligibleProfilesForModel` and implement `ApplyAtomic` / `OmitDiff` in `ExecutePlan`.
-- [ ] Verify with `go test -v ./internal/dispatch -run "Test.*Plan|TestSynthesizeSubtaskPrompt"`.
+- [ ] Add `ParseTaskWave(taskFilePath, waveTag string) (*WaveSpec, error)` in `internal/dispatch/wave.go` to parse `.agent/TASK.md` backlog items (`- [ ] **[XX.Y]** [APPROVED] [PARALLEL: Wx | SEQ: Wx] <title>`) and indented `- Read:`, `- Paths:`, `- Verify:`, `- Model:` bullets.
+- [ ] Add `ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*WaveExecutionResult, error)` in `internal/dispatch/wave.go` with automatic 1x retry on `gemini-4-argon-medium` excluding the failed profile and automatic `.agent/TASK.md` update & commit on wave completion.
+- [ ] Add `--apply-atomic` and `--omit-diff` flags to `multigravity dispatch plan` and register `multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] [--timeout 4m] [--no-retry] [--json]` in `internal/cmd/dispatch.go`.
+- [ ] Verify with `go test -v ./internal/dispatch -run "^TestParseTaskWave" && go test -v ./internal/dispatch ./internal/cmd -run "Test.*Wave|Test.*Plan"`.
 
 ---
 
@@ -30,6 +29,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.10] | Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` in `internal/dispatch/plan.go` | [`2f53f12`](https://github.com/yegear1/multigravity-cli/commit/2f53f12) | 2026-11-01 |
 | [05.8] | Add model-aware quota bucket routing (`BucketGroupForModel`, `ScoreServerForBucket`, `SelectEligibleProfilesForModel`) and prevent missing-group false-positive `1.0` scores in `internal/quota` | [`4bc9bb9`](https://github.com/yegear1/multigravity-cli/commit/4bc9bb9) | 2026-11-01 |
 | [05.9] | Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` | [`1714133`](https://github.com/yegear1/multigravity-cli/commit/1714133) | 2026-11-01 |
 | [05.7] | Add `SelectEligibleProfiles` and `SelectEligibleProfilesFromCandidates` with secondary-account priority (`excludeProfiles`) in `internal/quota` | [`a842530`](https://github.com/yegear1/multigravity-cli/commit/a842530) | 2026-11-01 |
@@ -70,10 +70,7 @@
 - [x] **[05.7]** `[APPROVED]` `[PARALLEL: W1]` Add `SelectEligibleProfiles` and `SelectEligibleProfilesFromCandidates` with secondary-account priority (`excludeProfiles`) in `internal/quota` (`a842530`)
 - [x] **[05.8]** `[APPROVED]` `[PARALLEL: W2]` Add model-aware quota bucket routing (`BucketGroupForModel`, `ScoreServerForBucket`, `SelectEligibleProfilesForModel`) and prevent missing-group false-positive `1.0` scores in `internal/quota` *(Point 2.E)* (`4bc9bb9`)
 - [x] **[05.9]** `[APPROVED]` `[PARALLEL: W2]` Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` *(Points 2.C & 2.D)* (`1714133`)
-- [ ] **[05.10]** `[APPROVED]` `[SEQ: W3]` Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default with single-grep escape hatch, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` execution in `internal/dispatch/plan.go` *(Points 2.B, 2.C, 2.D, 2.E)*
-  - `Read:` `internal/dispatch/plan.go:20-360, internal/dispatch/plan_test.go:1-200`
-  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan|TestSynthesizeSubtaskPrompt"`
+- [x] **[05.10]** `[APPROVED]` `[SEQ: W3]` Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default with single-grep escape hatch, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` execution in `internal/dispatch/plan.go` *(Points 2.B, 2.C, 2.D, 2.E)* (`2f53f12`)
 - [ ] **[05.11]** `[APPROVED]` `[SEQ: W4]` Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion and automatic `TASK.md` completion logging *(Point 2.A)*
   - `Read:` `internal/cmd/dispatch.go:930-1045, internal/dispatch/plan.go:20-125`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go, internal/cmd/dispatch.go`
