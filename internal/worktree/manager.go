@@ -173,6 +173,9 @@ func CreateWorktree(opts CreateOptions) (*Worktree, error) {
 		}
 	}
 
+	// Auto-symlink ignored build dependencies
+	_ = AutoLinkDependencies(repoRoot, absTargetDir)
+
 	wt := Worktree{
 		ID:         opts.ID,
 		RepoPath:   repoRoot,
@@ -465,4 +468,30 @@ func linkPath(src, dst string) error {
 		return err
 	}
 	return os.Symlink(src, dst)
+}
+
+// DefaultAutoLinkPaths lists standard build and dependency directories automatically
+// symlinked from the repository root into ephemeral worktrees if they exist.
+var DefaultAutoLinkPaths = []string{
+	"node_modules",
+	"target",
+	".venv",
+	".cargo",
+}
+
+// AutoLinkDependencies symlinks standard build dependencies from repoRoot into targetDir
+// if they exist in repoRoot and do not already exist in targetDir.
+func AutoLinkDependencies(repoRoot, targetDir string) error {
+	for _, dep := range DefaultAutoLinkPaths {
+		src := filepath.Join(repoRoot, dep)
+		dst := filepath.Join(targetDir, dep)
+		if _, err := os.Lstat(src); err == nil {
+			if _, err := os.Lstat(dst); os.IsNotExist(err) {
+				if err := linkPath(src, dst); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }

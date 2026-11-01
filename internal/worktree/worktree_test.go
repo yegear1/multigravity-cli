@@ -435,3 +435,71 @@ func TestWorktreeDiffOptionsPathsFiltering(t *testing.T) {
 		t.Errorf("diff should ONLY contain untracked1.txt, got:\n%s", untrackedOnlyDiff)
 	}
 }
+
+func TestWorktreeAutoLink(t *testing.T) {
+	repoDir := initTestRepo(t)
+
+	deps := []string{"node_modules", "target", ".venv", ".cargo"}
+	for _, dep := range deps {
+		depDir := filepath.Join(repoDir, dep)
+		if err := os.MkdirAll(depDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		dummyFile := filepath.Join(depDir, "indicator.txt")
+		if err := os.WriteFile(dummyFile, []byte(dep), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	wt, err := CreateWorktree(CreateOptions{
+		ID:       "wt-autolink-test",
+		RepoPath: repoDir,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+
+	for _, dep := range deps {
+		dst := filepath.Join(wt.Path, dep)
+		fi, err := os.Lstat(dst)
+		if err != nil {
+			t.Fatalf("expected auto-symlinked path %s to exist: %v", dep, err)
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("expected %s to be a symlink, got mode %v", dep, fi.Mode())
+		}
+		target, err := os.Readlink(dst)
+		if err != nil {
+			t.Fatalf("failed to read symlink %s: %v", dep, err)
+		}
+		expectedTarget := filepath.Join(repoDir, dep)
+		if filepath.Clean(target) != filepath.Clean(expectedTarget) {
+			t.Errorf("expected symlink target %s, got %s", expectedTarget, target)
+		}
+
+		content, err := os.ReadFile(filepath.Join(dst, "indicator.txt"))
+		if err != nil {
+			t.Errorf("failed to read file through symlink %s: %v", dep, err)
+		} else if string(content) != dep {
+			t.Errorf("expected file content %s, got %s", dep, string(content))
+		}
+	}
+
+	missingDep := filepath.Join(wt.Path, "nonexistent_dep")
+	if _, err := os.Lstat(missingDep); !os.IsNotExist(err) {
+		t.Errorf("expected nonexistent dependency not to exist in worktree")
+	}
+
+	wt2, err := CreateWorktree(CreateOptions{
+		ID:        "wt-autolink-overlap",
+		RepoPath:  repoDir,
+		LinkPaths: []string{"node_modules"},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree with overlapping LinkPaths failed: %v", err)
+	}
+	nm := filepath.Join(wt2.Path, "node_modules")
+	if fi, err := os.Lstat(nm); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("expected node_modules to be symlinked without conflict")
+	}
+}
