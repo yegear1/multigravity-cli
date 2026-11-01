@@ -7,19 +7,7 @@
 
 ## Active Task
 
-### 📌 Queue Empty — Awaiting Next Ideation
-
-- **Description:** All tasks in Epic `05.14`–`05.21` (`W9`–`W12`) have been implemented, verified, and committed.
-- **Systems Involved:** N/A
-- **Action Type:**
-  - [x] Read-only / Documentation
-  - [ ] Source code changes
-- **Status:** READY FOR PLANNING
-  *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
-
-### Acceptance Criteria
-- [x] `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` reports micro-contract violations.
-- [x] `multigravity dispatch wave --lint` in `internal/cmd/dispatch.go` runs `LintTaskWave` and exits non-zero when violations are found.
+*(All tasks in Epic 05 [`05.1`–`05.24`] completed. Queue idle — awaiting next task or human instruction.)*
 
 ---
 
@@ -27,6 +15,9 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.24] | Synchronize `README.md` and `README.pt-br.md` command tables and usage sections with `multigravity dispatch wave` (`--lint`), `dispatch apply`, `dispatch plan` (`--apply-atomic`, `--omit-diff`), `multigravity route` (`--task`, `--paths`, `--read`), and `quota` subcommands (`burn`, `throttle`, `calibration`) | [`dc116fd`](https://github.com/yegear1/multigravity-cli/commit/dc116fd) | 2026-11-01 |
+| [05.23] | Update `skills/multigravity-orchestrator/SKILL.md` and `skills/multigravity/SKILL.md` in Technical English with Epic 05 (`05.14`–`05.22`) contracts | [`472433c`](https://github.com/yegear1/multigravity-cli/commit/472433c) | 2026-11-01 |
+| [05.22] | Set `DefaultSafetyQuotaThreshold = 0.01` (1% stable quota floor), add `SafetyThresholdForModel`, and wire `PreflightProfilesForModel` into `ExecutePlan` and `ExecuteTaskWave` with fallback to `0.01` floor | [`a7c815e`](https://github.com/yegear1/multigravity-cli/commit/a7c815e) | 2026-11-01 |
 | [05.18] | Add `LintTaskWave` in `internal/dispatch/wave.go` and `--lint` flag to `multigravity dispatch wave` in `internal/cmd/dispatch.go` | [`7637c47`](https://github.com/yegear1/multigravity-cli/commit/7637c47) | 2026-11-01 |
 | [05.19] | Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` | [`3efaa40`](https://github.com/yegear1/multigravity-cli/commit/3efaa40) | 2026-11-01 |
 | [05.21] | Include `Verify:` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files within residual `maxBudget`, and record `TokensUsed` in `SubtaskResult` | [`1524e9d`](https://github.com/yegear1/multigravity-cli/commit/1524e9d) | 2026-11-01 |
@@ -104,6 +95,9 @@
 - [x] **[05.19]** `[APPROVED]` `[PARALLEL: W11]` Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` so commit messages (`feat(id): <clean title>`) and worker prompts do not leak markdown metadata tags (`3efaa40`)
 - [x] **[05.21]** `[APPROVED]` `[PARALLEL: W11]` Include `Verify: <st.Verify>` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files for `st.Paths` using only residual space within the 15 KB `maxBudget` after all explicit `st.Read` slices are loaded, and record estimated prompt/completion `TokensUsed int` in `SubtaskResult` (`1524e9d`)
 - [x] **[05.18]** `[APPROVED]` `[SEQ: W12]` Add `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` and `--lint` flag to `multigravity dispatch wave` in `internal/cmd/dispatch.go`: report violations when a `TierMicro` (`gemini-3.8-flash-low`) task has `> 2` `Paths:` files or spans multiple Go packages, or when any task has `> 4` `Read:` entries or missing `Verify:`; exit non-zero when violations are found (`7637c47`)
+- [x] **[05.22]** `[APPROVED]` `[PARALLEL: W13]` Set `DefaultSafetyQuotaThreshold = 0.01` (1% stable quota floor), add `SafetyThresholdForModel(model string, weight RouteWeight) float64` (`0.15` for `TierReasoning`/`TierArchitecture` or `WeightHeavy`, `0.01` for `TierMicro`/`TierStandard`), and wire `PreflightProfilesForModel` into `ExecutePlan` and `ExecuteTaskWave` with fallback to `0.01` floor (`a7c815e`)
+- [x] **[05.23]** `[APPROVED]` `[PARALLEL: W13]` Update `skills/multigravity-orchestrator/SKILL.md` and `skills/multigravity/SKILL.md` in Technical English with Epic 05 (`05.14`–`05.22`) contracts (`dispatch wave --lint`, `failure_reason`-gated retry, 1% quota floor / 15% complex-task threshold, sibling `*_test.go` pre-injection, `tokens_used`, `multigravity route --task/--paths/--read`) (`472433c`)
+- [x] **[05.24]** `[APPROVED]` `[PARALLEL: W13]` Synchronize `README.md` and `README.pt-br.md` command tables and usage sections with `multigravity dispatch wave` (`--lint`), `dispatch apply`, `dispatch plan` (`--apply-atomic`, `--omit-diff`), `multigravity route` (`--task`, `--paths`, `--read`), and `quota` subcommands (`burn`, `throttle`, `calibration`) (`dc116fd`)
 
 ---
 
