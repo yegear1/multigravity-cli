@@ -81,6 +81,14 @@ Decompose engineering objectives into a Directed Acyclic Graph (DAG) with explic
 
 Evaluate profile quota telemetry before assigning each task node.
 
+### Model-Aware Quota Bucket Routing & Auto Allocation
+Multigravity categorizes profile telemetry into model-specific quota buckets (`gemini`, `argon`, `3p`) to route requests to eligible accounts via `SelectEligibleProfilesForModel`:
+- **`gemini` bucket:** Evaluates standard Gemini quota windows (e.g. `gemini-3.8-flash-low`, `gemini-2.5-pro`).
+- **`argon` bucket:** Evaluates Gemini Argon quota and capability tiers (e.g. `gemini-4-argon-medium`).
+- **`3p` bucket:** Evaluates third-party provider capacity (Claude, GPT, etc.).
+
+When constructing plans, subtasks can set `"profile": "auto"` (or omit `profile`) when running `multigravity dispatch plan --apply-atomic --omit-diff`. Multigravity automatically evaluates live profile telemetry and assigns each subtask to the healthiest eligible profile for its declared model.
+
 ### Telemetry Inspection
 Query quota state using CLI or native MCP:
 ```bash
@@ -102,7 +110,33 @@ multigravity alerts --json
 | **Weekly Window Only** | `windowType == "weekly"` and `remaining_fraction >= 0.30` | **ASSIGN.** Medium/large architectural tasks. Conserve if < 30%. |
 | **Idle 5h Refresh** | `canWarm5hWindow == true` | **TRIGGER WARM-UP.** Run `multigravity prime <profile> --warm-5h` before starting task. |
 
-## 6. Operational Execution Protocol
+## 6. Single-Command Wave Execution (`dispatch wave`)
+
+For rapid, automated execution of staged subtasks defined in `.agent/TASK.md`, use the single-command wave runner:
+
+```bash
+multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] --json
+```
+
+### Execution Lifecycle & Semantics
+1. **Wave Parsing:** Scans `.agent/TASK.md` (or specified `--file`) for tasks tagged with `[APPROVED]` belonging to the target wave (defaulting to the next incomplete wave or specified `--wave Wx`).
+2. **Line-Ranged Pre-Injection (`inline_read: true`):**
+   - Pre-injects line-ranged reference slices (`Read: path/to/file.go:start-end`) directly into the prompt payload (up to 15 KB).
+   - This eliminates blind exploration and saves agent context and thinking tokens.
+3. **Atomic Execution:**
+   - Subtasks execute atomically using `--apply-atomic` and `--omit-diff` flags in `multigravity dispatch plan`.
+   - Worktree diffs are validated and applied cleanly to the target branch.
+4. **Resilient Retry Mechanism:**
+   - If a subtask fails on its default model, it automatically retries once using `gemini-4-argon-medium`, explicitly excluding the failed profile from candidate selection.
+5. **Automated State Tracking & Git Hygiene:**
+   - Upon successful verification of subtasks, `multigravity dispatch wave` automatically updates the status in `.agent/TASK.md` to completed and creates atomic Conventional Commits.
+
+### Line-Ranged Micro-Contracts & Guardrails
+- **Default Model:** `gemini-3.8-flash-low` is the default model for closed-scope micro-contracts with line-ranged slices.
+- **Slice Limit:** Pre-injected reference slices (`inline_read: true`) MUST NOT exceed 15 KB to prevent prompt bloat.
+- **Escape Hatch Guardrail:** A subagent is permitted a single grep / targeted read only as an explicit escape hatch when line ranges shift due to concurrent edits. Repo-wide searches remain strictly forbidden.
+
+## 7. Operational Execution Protocol
 
 A git diff that will be merged uses `dispatch` in every phase below. Any other outcome uses the first matching row in `skills/multigravity/SKILL.md` (Runner Selection). This skill does not switch a merge to `exec`, `headless run`, `agent run`, or `prime`.
 
@@ -285,7 +319,7 @@ Merge completed branches back into the target branch following DAG topological o
    git branch -d "task/backend-schema"
    ```
 
-## 7. Contrast Pairs
+## 8. Contrast Pairs
 
 ### Task Decomposition & Micro-Contracts
 ```text
@@ -357,7 +391,7 @@ WT_PATH=$(multigravity worktree list --json | jq -r '(.data // .)[] | select(.br
 git merge --no-ff task/feature-x -m "feat: merge verified task/feature-x"
 ```
 
-## 8. Verification Checklist
+## 9. Verification Checklist
 
 - [ ] Target repository root resolved with `git -C <target> rev-parse --show-toplevel`, and that worktree is clean (`git -C "$REPO" status --porcelain` is empty).
 - [ ] Plan dispatched with `--repo "$REPO"` from the current workspace. `move_agent_to_root` was not used when `origin` is absent.
