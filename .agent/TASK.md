@@ -7,23 +7,18 @@
 
 ## Active Task
 
-### 📌 Task [05.2]: Ephemeral Worktree Host Project Environment Seeding (`.venv`, `PYTHONPATH`, `NODE_PATH`)
+### 📌 Task [05.6]: None (Queue Empty — Awaiting Next Task)
 
-- **Description:** Seed host repository project environments (`.venv`, `UV_PROJECT_ENVIRONMENT`, `VIRTUAL_ENV`, `PYTHONPATH` with worktree `src/` precedence over editable `.pth` links, and `NODE_PATH` / `node_modules/.bin`) into isolated agent sessions running inside ephemeral git worktrees (`.multigravity/worktrees/<id>`), eliminating manual environment boilerplate in orchestrator `Verify:` commands.
-- **Systems Involved:** `internal/profile`, `internal/agent`, `.agent/NOTES.md`
+- **Description:** All queued tasks (`[05.2]`–`[05.5]`) have been executed, verified, and committed across parallel waves (`W1`/`W2`).
+- **Systems Involved:** N/A
 - **Action Type:**
   - [ ] Read-only / Documentation
-  - [x] Source code changes
-- **Status:** APPROVED
+  - [ ] Source code changes
+- **Status:** READY FOR PLANNING
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] Add `PopulateWorktreeProjectEnv(envMap map[string]string, baseRepoPath, worktreePath string)` in `internal/profile/env.go`.
-- [ ] When `<baseRepoPath>/.venv` exists, set `UV_PROJECT_ENVIRONMENT` and `VIRTUAL_ENV` (if unset), prepend `<baseRepoPath>/.venv/bin` (or `Scripts` on Windows) to `PATH`, and prepend `<worktreePath>/src` (if present) and `<worktreePath>` to `PYTHONPATH` so worktree packages shadow base repo editable `.pth` links.
-- [ ] When `<baseRepoPath>/node_modules` exists, set `NODE_PATH=<baseRepoPath>/node_modules` (if unset) and prepend `<baseRepoPath>/node_modules/.bin` to `PATH`.
-- [ ] Invoke `PopulateWorktreeProjectEnv` from `BuildAgentEnv` (`internal/agent/env.go`) when `opts.WorktreeID != ""` and `opts.Cwd` / `opts.RepoPath` resolve an ephemeral worktree under `<baseRepoPath>/.multigravity/worktrees/`.
-- [ ] Add unit tests in `internal/profile/env_test.go` and `internal/agent/agent_test.go` verifying `.venv`, `PYTHONPATH`, and `node_modules` seeding.
-- [ ] Verify full test suite passes with `go test -v ./internal/profile ./internal/agent`.
+- [ ] Define next task scope with user.
 
 ---
 
@@ -31,6 +26,10 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.5] | Synchronize `multigravity-orchestrator` skill with `Read:/Paths:/Verify:` micro-contracts, tiered model IDs, and bounded diagnostic tail handling | [`d7c7ee8`](https://github.com/yegear1/multigravity-cli/commit/d7c7ee8) | 2026-11-01 |
+| [05.4] | Align `multigravity route` model identifiers with live `agy models` (`gemini-3.8-flash-low/medium/high`) and expose `recommended_effort` (`low`/`medium`/`high`) | [`8c50ba4`](https://github.com/yegear1/multigravity-cli/commit/8c50ba4) | 2026-11-01 |
+| [05.3] | Terminate running subtasks on `ExecutePlan` timeout, add cross-process PID fallback in `CancelTask`, and expose bounded `verification_output`/`log_tail` in `SubtaskResult` | [`2837a59`](https://github.com/yegear1/multigravity-cli/commit/2837a59) | 2026-11-01 |
+| [05.2] | Seed base repository `.venv` (`UV_PROJECT_ENVIRONMENT`, `VIRTUAL_ENV`, `PYTHONPATH` worktree precedence) and `NODE_PATH` into ephemeral worktree agent environments | [`b1e5ae5`](https://github.com/yegear1/multigravity-cli/commit/b1e5ae5) | 2026-11-01 |
 | [05.1] | Centralize PATH enrichment, preserve host toolchain variables (CARGO_HOME/RUSTUP_HOME), and diagnose toolchain bleed in doctor | [`3966f07`](https://github.com/yegear1/multigravity-cli/commit/3966f07) | 2026-10-31 |
 | [00.6] | Audit and scaffold Open Source Readiness (licenses, community governance, identity sanitization, security policy) | [`0c4e093`](https://github.com/yegear1/multigravity-cli/commit/0c4e093) | 2026-10-31 |
 | [04.4] | Enforce per-profile OAuth token file isolation on Linux by bypassing global D-Bus Secret Service keyring in `language_server` | working tree | 2026-10-23 |
@@ -59,22 +58,7 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [ ] **[05.2]** `[APPROVED]` `[PARALLEL: W1]` Seed base repository `.venv` (`UV_PROJECT_ENVIRONMENT`, `VIRTUAL_ENV`, `PYTHONPATH` worktree precedence) and `NODE_PATH` into ephemeral worktree agent environments
-  - `Read:` `internal/profile/env.go, internal/agent/env.go, internal/agent/types.go`
-  - `Paths:` `internal/profile/env.go, internal/profile/env_test.go, internal/agent/env.go, internal/agent/agent_test.go`
-  - `Verify:` `go test -v ./internal/profile ./internal/agent`
-- [ ] **[05.3]** `[APPROVED]` `[PARALLEL: W1]` Terminate running subtasks on `ExecutePlan` timeout, add cross-process PID fallback in `CancelTask`, and expose bounded `verification_output`/`log_tail` in `SubtaskResult`
-  - `Read:` `internal/dispatch/plan.go, internal/dispatch/manager.go, internal/dispatch/types.go`
-  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go, internal/dispatch/manager.go, internal/dispatch/dispatch_test.go`
-  - `Verify:` `go test -v ./internal/dispatch`
-- [ ] **[05.4]** `[APPROVED]` `[PARALLEL: W1]` Align `multigravity route` model identifiers with live `agy models` (`gemini-3.8-flash-low/medium/high`) and expose `recommended_effort` (`low`/`medium`/`high`)
-  - `Read:` `internal/quota/routing.go, internal/quota/routing_test.go`
-  - `Paths:` `internal/quota/routing.go, internal/quota/routing_test.go`
-  - `Verify:` `go test -v ./internal/quota -run TestRecommendRoute`
-- [ ] **[05.5]** `[APPROVED]` `[SEQ: W2]` Synchronize `multigravity-orchestrator` skill with `Read:/Paths:/Verify:` micro-contracts, `--effort low` defaults, and bounded diagnostic tail handling
-  - `Read:` `skills/multigravity-orchestrator/SKILL.md, .agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`
-  - `Paths:` `skills/multigravity-orchestrator/SKILL.md`
-  - `Verify:` `git diff --check skills/multigravity-orchestrator/SKILL.md`
+- [ ] *(Queue empty — awaiting next planning session)*
 
 ---
 

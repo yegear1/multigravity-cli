@@ -20,7 +20,24 @@
 ## Active Technical Contracts & Decisions
 
 - **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
-- **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts without `--effort low`, (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, and (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult`.
+- **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts and `--model` vs `--effort` flag conflict rules (`gemini-3.8-flash-low/medium/high` already encode effort), (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult`, and (5) diffing worktrees strictly against `HEAD` (`git diff HEAD -- <paths>`) rather than moving `main` during multi-task wave commits.
+
+### 2026-11-01 [Tasks 05.2–05.5] Ephemeral Worktree Project Env Seeding, Plan Timeout Subtask Termination, Route Tier Alignment, and Orchestrator Skill Sync
+
+- **Context:** Multi-account parallel wave execution (`task-queue` / `multigravity dispatch plan`) required automatic `.venv`/`PYTHONPATH`/`NODE_PATH` inheritance inside ephemeral worktrees, guaranteed termination of timed-out child sessions, bounded failure diagnostics in `SubtaskResult`, and alignment of `multigravity route` with `agy models` CLI identifiers.
+- **Active Contracts:**
+  - `internal/profile/env.go` & `internal/agent/env.go` (`[05.2]`, [`b1e5ae5`](https://github.com/yegear1/multigravity-cli/commit/b1e5ae5)):
+    - `PopulateWorktreeProjectEnv(envMap map[string]string, baseRepoPath, worktreePath string)` seeds `UV_PROJECT_ENVIRONMENT` and `VIRTUAL_ENV` from `<baseRepoPath>/.venv`, prepends `.venv/bin` (or `Scripts` on Windows) to `PATH`, and prepends `<worktreePath>/src` and `<worktreePath>` to `PYTHONPATH` so worktree modules shadow editable `.pth` links. Also seeds `NODE_PATH` and `<baseRepoPath>/node_modules/.bin` when present.
+    - `BuildAgentEnv` invokes `PopulateWorktreeProjectEnv` automatically when running inside `.multigravity/worktrees/<id>`.
+  - `internal/dispatch/plan.go` & `internal/dispatch/manager.go` (`[05.3]`, [`2837a59`](https://github.com/yegear1/multigravity-cli/commit/2837a59)):
+    - `ExecutePlan` calls `m.CancelTask(repoRoot, task.ID, true)` when `planCtx` expires or `completedTask.Status == StatusRunning` after `WaitForTask`, and preserves any partial worktree diff.
+    - `CancelTask` falls back to killing `task.PID` via `os.FindProcess` when `m.agentMgr` has no in-memory session (cross-process CLI invocation).
+    - `SubtaskResult` includes `VerificationExitCode`, `VerificationOutput` (last 1000 bytes), and `LogTail` (last 1000 bytes on non-completed tasks).
+  - `internal/quota/routing.go` (`[05.4]`, [`8c50ba4`](https://github.com/yegear1/multigravity-cli/commit/8c50ba4)):
+    - `ModelForWeight` maps `light` -> `gemini-3.8-flash-low`, `medium` -> `gemini-3.8-flash-medium`, `heavy` -> `gemini-3.8-flash-high`.
+    - `EffortForWeight` maps `light` -> `low`, `medium` -> `medium`, `heavy` -> `high`, exposed as `RecommendedEffort` (`recommended_effort`) in `RouteRecommendation`.
+  - `skills/multigravity-orchestrator/SKILL.md` (`[05.5]`, [`d7c7ee8`](https://github.com/yegear1/multigravity-cli/commit/d7c7ee8)):
+    - Synchronized with `Read:/Paths:/Verify:` micro-contracts, tiered `agy` model IDs, automatic worktree `.venv`/`NODE_PATH` inheritance, and bounded `SubtaskResult` diagnostics.
 
 
 ### 2026-10-31 [Task 05.1] Centralized PATH Enrichment, Host Toolchain Preservation, and Doctor Toolchain Bleed Detection

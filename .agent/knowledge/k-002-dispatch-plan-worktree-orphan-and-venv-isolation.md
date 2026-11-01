@@ -61,8 +61,11 @@ During multi-account parallel wave execution (`multigravity dispatch plan` via `
      - If `<baseRepoPath>/node_modules` exists: set `NODE_PATH=<baseRepoPath>/node_modules` and prepend `<baseRepoPath>/node_modules/.bin` to `PATH`.
 3. **Include Bounded Diagnostic Fields in `SubtaskResult`:**
    - Extend `SubtaskResult` backward-compatibly with `VerificationExitCode int`, `VerificationOutput string` (truncated to last 1000 bytes), and `LogTail string` (last 1000 bytes when `Status != StatusCompleted`) so orchestrators can diagnose failures from the JSON summary alone without reading logs or transcripts.
-4. **Default Subagent Waves to Low Reasoning Effort & Fast-Edit Micro-Prompts:**
-   - For pre-specified micro-contract tasks (`Read:` / `Paths:` / `Verify:`), pass `--effort low` (or `--model gemini-3.8-flash-low`) to `agy` and instruct the worker not to run baseline test suites prior to editing.
+4. **Default Subagent Waves to Tiered Model IDs (`gemini-3.8-flash-low`/`medium`) & Fast-Edit Micro-Prompts:**
+   - For pre-specified micro-contract tasks (`Read:` / `Paths:` / `Verify:`), pass `--model gemini-3.8-flash-low` or `--model gemini-3.8-flash-medium` to `agy` and instruct the worker not to run baseline test suites prior to editing.
+   - **Important `agy` CLI Constraint:** Because `agy` model IDs already encode the effort suffix (`-low`, `-medium`, `-high`), NEVER pass a conflicting `--effort` flag alongside a tiered `--model` ID (`error: invalid model selection (--model "gemini-3.8-flash-medium" --effort "low"): --model gemini-3.8-flash-medium conflicts with --effort=low`).
+5. **Diff Worktrees Strictly Against Worktree `HEAD` in Multi-Task Wave Loops:**
+   - When committing multiple parallel tasks sequentially onto `main`, `main` advances after the first task commits. Diffing subsequent worktrees against `main` (`multigravity dispatch diff`) produces reverse patches of earlier wave commits. Always stage intent-to-add (`git add -N -- <matched_files>`) and run `git diff HEAD -- <matched_files>` inside each worktree.
 
 **Root Cause:** `ExecutePlan` relied on in-process waiter detachment on timeout without terminating child OS processes, and ephemeral git worktrees lacked `PYTHONPATH` precedence over the parent repository's `.venv` editable install.
 
