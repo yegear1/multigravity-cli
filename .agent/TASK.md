@@ -7,10 +7,10 @@
 
 ## Active Task
 
-### 📌 Task [05.17]: Gate model escalation in `ExecuteTaskWave` on `res.FailureReason`
+### 📌 Task [05.19]: Clean governance tags from `WaveTaskSpec.Title` in `ParseTaskWave`
 
-- **Description:** Gate model escalation in `ExecuteTaskWave` on `res.FailureReason`: on `rate_limited`, record profile cooldown and retry with the **same** model on an alternate profile; on `verify_failed` (with non-empty verification output), escalate via `quota.EscalateModel`; on `empty_diff` or `timeout` with empty diagnostics, skip retry and preserve failure reason.
-- **Systems Involved:** `internal/dispatch/wave.go`, `internal/dispatch/wave_test.go`, `internal/dispatch/plan.go`
+- **Description:** Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` so commit messages (`feat(id): <clean title>`) and worker prompts do not leak markdown metadata tags. Include `Verify: <st.Verify>` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files within residual `maxBudget`, and record estimated `TokensUsed int` in `SubtaskResult` (`[05.21]`).
+- **Systems Involved:** `internal/dispatch/wave.go`, `internal/dispatch/wave_test.go`, `internal/dispatch/plan.go`, `internal/dispatch/plan_test.go`
 - **Action Type:**
   - [ ] Read-only / Documentation
   - [x] Source code changes
@@ -18,8 +18,8 @@
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] `ExecuteTaskWave` in `internal/dispatch/wave.go` inspects `res.FailureReason` to distinguish `rate_limited`, `verify_failed`, and `empty_diff`/`timeout`.
-- [ ] `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` in `internal/dispatch/plan.go` wires `ClassifyTaskComplexity` and passes `--model <resolvedModel>` to `dOpts.Args`.
+- [ ] `ParseTaskWave` in `internal/dispatch/wave.go` strips `[APPROVED]`, `[PARALLEL: Wx]`, and `[SEQ: Wx]` tags from `WaveTaskSpec.Title`.
+- [ ] `SynthesizeSubtaskPromptWithRepo` includes `Verify: <st.Verify>`, pre-injects sibling `*_test.go` trailing lines within the 15 KB budget, and `SubtaskResult` records `TokensUsed int`.
 
 ---
 
@@ -27,6 +27,8 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.20] | Wire `ClassifyTaskComplexity` into `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` and pass `--model <resolvedModel>` into `dOpts.Args` | [`9e27365`](https://github.com/yegear1/multigravity-cli/commit/9e27365) | 2026-11-01 |
+| [05.17] | Gate model escalation in `ExecuteTaskWave` on `res.FailureReason` (`rate_limited`, `verify_failed`, `empty_diff`/`timeout`) | [`3492921`](https://github.com/yegear1/multigravity-cli/commit/3492921) | 2026-11-01 |
 | [05.16] | Add structured `FailureReason string` (`ClassifySubtaskFailure`) in `SubtaskResult` inspecting status, exit code, verification output, and `log_tail` | [`266bec2`](https://github.com/yegear1/multigravity-cli/commit/266bec2) | 2026-11-01 |
 | [05.15] | Add quota pre-flight (`DefaultSafetyQuotaThreshold = 0.20`, cooldown tracking, and `PreflightProfilesForModel`) in `internal/quota/routing.go` | [`8be6cae`](https://github.com/yegear1/multigravity-cli/commit/8be6cae) | 2026-11-01 |
 | [05.14] | Automate `.agent/TASK.md` promotion and Completed Tasks Log recording in `dispatch wave` | [`eb5f857`](https://github.com/yegear1/multigravity-cli/commit/eb5f857) | 2026-11-01 |
@@ -94,16 +96,8 @@
 - [x] **[05.14]** `[APPROVED]` `[PARALLEL: W9]` Automate `.agent/TASK.md` promotion in `dispatch wave`: prepend completed tasks to `## Completed Tasks Log`, mark `## Active Task` Acceptance Criteria `[x]`, and promote the next uncompleted backlog task into `## Active Task` (`eb5f857`)
 - [x] **[05.15]** `[APPROVED]` `[PARALLEL: W9]` Quota pre-flight before dispatch: add `DefaultSafetyQuotaThreshold = 0.20`, cooldown tracking (`RecordProfileCooldown` / `IsProfileOnCooldown`), and `PreflightProfilesForModel(count int, model string, weight RouteWeight, minFraction float64, excludeProfiles ...string)` rejecting profiles below threshold or under active 429 cooldown while preserving existing `ScoreServerForBucket` behavior (`8be6cae`)
 - [x] **[05.16]** `[APPROVED]` `[PARALLEL: W9]` Add structured `FailureReason string` (`timeout | rate_limited | empty_diff | verify_failed | agent_error`) in `SubtaskResult` (`ClassifySubtaskFailure`) inspecting status, exit code, verification output, and `log_tail` (429/rate-limit/quota indicators) so empty or terse logs never hide the root cause (`266bec2`)
-- [ ] **[05.17]** `[APPROVED]` `[PARALLEL: W10]` Gate model escalation in `ExecuteTaskWave` on `res.FailureReason`: on `rate_limited`, record profile cooldown and retry with the **same** model on an alternate profile; on `verify_failed` (with non-empty verification output), escalate via `quota.EscalateModel`; on `empty_diff` or `timeout` with empty diagnostics, skip retry and preserve failure reason.
-  - `Read:` `internal/dispatch/wave.go:303-370, internal/dispatch/wave_test.go:120-214, internal/quota/tiers.go:74-93`
-  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Wave"`
-  - `Model:` `gemini-3.8-flash-medium`
-- [ ] **[05.20]** `[APPROVED]` `[PARALLEL: W10]` Wire `ClassifyTaskComplexity` into `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` when `st.Model == ""` and `defaultModel == ""` (preserving `gemini-3.8-flash-low` for single-path or line-ranged micro-contracts) AND pass `--model <resolvedModel>` into `dOpts.Args` when `st.Command == ""` and `--model` is not already present in `st.Args`.
-  - `Read:` `internal/dispatch/plan.go:117-145, internal/dispatch/plan.go:383-435, internal/quota/classifier.go:67-130, internal/dispatch/plan_test.go:393-449`
-  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan|TestSynthesizeSubtaskPrompt"`
-  - `Model:` `gemini-3.8-flash-medium`
+- [x] **[05.17]** `[APPROVED]` `[PARALLEL: W10]` Gate model escalation in `ExecuteTaskWave` on `res.FailureReason`: on `rate_limited`, record profile cooldown and retry with the **same** model on an alternate profile; on `verify_failed` (with non-empty verification output), escalate via `quota.EscalateModel`; on `empty_diff` or `timeout` with empty diagnostics, skip retry and preserve failure reason (`3492921`)
+- [x] **[05.20]** `[APPROVED]` `[PARALLEL: W10]` Wire `ClassifyTaskComplexity` into `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` when `st.Model == ""` and `defaultModel == ""` (preserving `gemini-3.8-flash-low` for single-path or line-ranged micro-contracts) AND pass `--model <resolvedModel>` into `dOpts.Args` when `st.Command == ""` and `--model` is not already present in `st.Args` (`9e27365`)
 - [ ] **[05.19]** `[APPROVED]` `[PARALLEL: W11]` Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` so commit messages (`feat(id): <clean title>`) and worker prompts do not leak markdown metadata tags.
   - `Read:` `internal/dispatch/wave.go:53-165, internal/dispatch/wave.go:270-296, internal/dispatch/wave_test.go:17-118`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
