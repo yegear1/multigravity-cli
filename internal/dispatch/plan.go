@@ -197,7 +197,11 @@ func SynthesizeSubtaskPromptWithRepo(st SubtaskSpec, defaultModel, repoRoot stri
 	if inlineRead && repoRoot != "" {
 		var embeddedSection strings.Builder
 		totalBytes := 0
-		const maxBudget = 15360
+		const (
+			maxBudget         = 15360
+			maxNonRangedLines = 150
+			maxNonRangedBytes = 5120
+		)
 
 		for _, entry := range st.Read {
 			if totalBytes >= maxBudget {
@@ -238,6 +242,9 @@ func SynthesizeSubtaskPromptWithRepo(st SubtaskSpec, defaultModel, repoRoot stri
 				if endLine > 0 && currentLine > endLine {
 					break
 				}
+				if startLine == 0 && endLine == 0 && currentLine > maxNonRangedLines {
+					break
+				}
 				lines = append(lines, scanner.Text())
 			}
 			f.Close()
@@ -247,6 +254,9 @@ func SynthesizeSubtaskPromptWithRepo(st SubtaskSpec, defaultModel, repoRoot stri
 			}
 
 			content := strings.Join(lines, "\n")
+			if startLine == 0 && endLine == 0 && len(content) > maxNonRangedBytes {
+				content = content[:maxNonRangedBytes]
+			}
 			snippet := fmt.Sprintf("\n--- %s ---\n%s\n", entry, content)
 			if totalBytes+len(snippet) > maxBudget {
 				remaining := maxBudget - totalBytes

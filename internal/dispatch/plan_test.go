@@ -526,7 +526,7 @@ func TestSynthesizeSubtaskPromptSiblingTestInjection(t *testing.T) {
 	}
 	stC := SubtaskSpec{
 		Prompt: "budget test",
-		Read:   []string{"large.txt"},
+		Read:   []string{"large.txt:1-1"},
 		Paths:  []string{"pkg/alpha.go"},
 	}
 	promptC, _ := SynthesizeSubtaskPromptWithRepo(stC, "", tmpDir, true)
@@ -537,6 +537,68 @@ func TestSynthesizeSubtaskPromptSiblingTestInjection(t *testing.T) {
 	injectedLen := len(promptC[idxContext+len("[PRE-LOADED READ CONTEXT]"):])
 	if injectedLen > 15360 {
 		t.Errorf("expected injected context to be within 15360 bytes, got %d", injectedLen)
+	}
+}
+
+func TestSynthesizeSubtaskPromptWithRepoSizeBounds(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Non-ranged line limit (150 lines)
+	var lines []string
+	for i := 1; i <= 200; i++ {
+		lines = append(lines, fmt.Sprintf("line %03d", i))
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "lines.txt"), []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	stLines := SubtaskSpec{
+		Prompt: "test line bound",
+		Read:   []string{"lines.txt"},
+	}
+	promptLines, _ := SynthesizeSubtaskPromptWithRepo(stLines, "", tmpDir, true)
+	if !strings.Contains(promptLines, "line 150") {
+		t.Errorf("expected line 150 to be present in prompt")
+	}
+	if strings.Contains(promptLines, "line 151") {
+		t.Errorf("expected line 151 to be truncated by maxNonRangedLines bound")
+	}
+
+	// 2. Non-ranged byte limit (5 KB / 5120 bytes)
+	var largeLines []string
+	for i := 1; i <= 10; i++ {
+		largeLines = append(largeLines, strings.Repeat(fmt.Sprintf("%d", i%10), 1000))
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "large_bytes.txt"), []byte(strings.Join(largeLines, "\n")), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	stBytes := SubtaskSpec{
+		Prompt: "test byte bound",
+		Read:   []string{"large_bytes.txt"},
+	}
+	promptBytes, _ := SynthesizeSubtaskPromptWithRepo(stBytes, "", tmpDir, true)
+	header := "\n--- large_bytes.txt ---\n"
+	idx := strings.Index(promptBytes, header)
+	if idx == -1 {
+		t.Fatalf("expected header %q in prompt", header)
+	}
+	contentInjected := strings.TrimSuffix(promptBytes[idx+len(header):], "\n")
+	if len(contentInjected) > 5120 {
+		t.Errorf("expected injected content for non-ranged read to be capped at 5120 bytes, got %d", len(contentInjected))
+	}
+	if len(contentInjected) != 5120 {
+		t.Errorf("expected exactly 5120 bytes of capped content, got %d", len(contentInjected))
+	}
+
+	// 3. Ranged entry is not capped by non-ranged 150 lines bound
+	stRanged := SubtaskSpec{
+		Prompt: "test ranged entry",
+		Read:   []string{"lines.txt:1-180"},
+	}
+	promptRanged, _ := SynthesizeSubtaskPromptWithRepo(stRanged, "", tmpDir, true)
+	if !strings.Contains(promptRanged, "line 180") {
+		t.Errorf("expected line 180 to be present for ranged read entry")
 	}
 }
 
