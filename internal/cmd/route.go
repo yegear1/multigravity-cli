@@ -12,6 +12,12 @@ import (
 )
 
 func newRouteCmd() *cobra.Command {
+	var (
+		taskPrompt string
+		taskPaths  []string
+		taskRead   []string
+	)
+
 	cmd := &cobra.Command{
 		Use:   "route",
 		Short: "Recommend optimal profile and model based on measured quotas",
@@ -22,10 +28,30 @@ to provide deterministic profile and model route recommendations.`,
 			defer func() {
 				_ = cmd.Flags().Set("json", "false")
 				_ = cmd.Flags().Set("weight", "medium")
+				_ = cmd.Flags().Set("task", "")
+				_ = cmd.Flags().Set("paths", "")
+				_ = cmd.Flags().Set("read", "")
+				taskPrompt = ""
+				taskPaths = nil
+				taskRead = nil
+				for _, name := range []string{"weight", "json", "task", "paths", "read"} {
+					if f := cmd.Flags().Lookup(name); f != nil {
+						f.Changed = false
+					}
+				}
 			}()
 
 			weightStr, _ := cmd.Flags().GetString("weight")
 			jsonOutput, _ := cmd.Flags().GetBool("json")
+
+			if !cmd.Flags().Changed("weight") && (taskPrompt != "" || len(taskPaths) > 0 || len(taskRead) > 0) {
+				profile := quota.ClassifyTaskComplexity(quota.TaskComplexityInput{
+					Prompt: taskPrompt,
+					Paths:  taskPaths,
+					Read:   taskRead,
+				})
+				weightStr = string(profile.Weight)
+			}
 
 			weight, err := quota.ParseRouteWeight(weightStr)
 			if err != nil {
@@ -59,6 +85,9 @@ to provide deterministic profile and model route recommendations.`,
 
 	cmd.Flags().StringP("weight", "w", "medium", "Task complexity weight (light, medium, heavy)")
 	cmd.Flags().Bool("json", false, "Output route recommendation in JSON format")
+	cmd.Flags().StringVar(&taskPrompt, "task", "", "Task prompt or instruction to classify complexity")
+	cmd.Flags().StringSliceVar(&taskPaths, "paths", nil, "Target file paths to modify (comma-separated)")
+	cmd.Flags().StringSliceVar(&taskRead, "read", nil, "Reference file paths to read (comma-separated)")
 
 	_ = cmd.RegisterFlagCompletionFunc("weight", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"light", "medium", "heavy"}, cobra.ShellCompDirectiveNoFileComp
@@ -70,9 +99,11 @@ to provide deterministic profile and model route recommendations.`,
 func renderRoutePlan(out io.Writer, plan quota.RoutePlan) {
 	if plan.Recommended != nil {
 		rec := plan.Recommended
+		tierSpec := quota.DescribeModelTier(rec.Model)
 		fmt.Fprintln(out, "Recommended Route:")
 		fmt.Fprintf(out, "  Profile:  %s\n", rec.Profile)
 		fmt.Fprintf(out, "  Model:    %s\n", rec.Model)
+		fmt.Fprintf(out, "  Tier:     %s (tier %d)\n", tierSpec.TierName, tierSpec.Tier)
 		fmt.Fprintf(out, "  Weight:   %s\n", rec.Weight)
 		if rec.WindowType != "" {
 			fmt.Fprintf(out, "  Quota:    %.0f%% remaining (%s window)\n", rec.RemainingFraction*100, rec.WindowType)
@@ -86,7 +117,9 @@ func renderRoutePlan(out io.Writer, plan quota.RoutePlan) {
 		}
 		fmt.Fprintf(out, "  Reason:   %s\n", rec.Reason)
 	} else {
+		tierSpec := quota.DescribeModelTier(quota.ModelForWeight(quota.RouteWeight(plan.Weight)))
 		fmt.Fprintf(out, "No eligible profile found for '%s' weight workload.\n", plan.Weight)
+		fmt.Fprintf(out, "  Tier:     %s (tier %d)\n", tierSpec.TierName, tierSpec.Tier)
 	}
 
 	if len(plan.Candidates) > 0 {
