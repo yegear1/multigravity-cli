@@ -564,3 +564,171 @@ func TestExecutePlanEmptyDiffAuditAndOmitDiff(t *testing.T) {
 		t.Errorf("expected empty subtask Diff when OmitDiff=true, got %q", resOmit.Subtasks[0].Diff)
 	}
 }
+
+func TestClassifySubtaskFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		res  SubtaskResult
+		want string
+	}{
+		{
+			name: "completed success returns empty",
+			res: SubtaskResult{
+				Status:   StatusCompleted,
+				ExitCode: 0,
+			},
+			want: "",
+		},
+		{
+			name: "rate limited via 429 in log tail",
+			res: SubtaskResult{
+				Status:   StatusFailed,
+				ExitCode: 1,
+				LogTail:  "API request failed: HTTP 429 Too Many Requests",
+			},
+			want: "rate_limited",
+		},
+		{
+			name: "rate limited via quota in error",
+			res: SubtaskResult{
+				Status:   StatusFailed,
+				ExitCode: 1,
+				Error:    "RESOURCE_EXHAUSTED: quota exceeded for model",
+			},
+			want: "rate_limited",
+		},
+		{
+			name: "rate limited via rate-limit indicator",
+			res: SubtaskResult{
+				Status:   StatusFailed,
+				ExitCode: 1,
+				LogTail:  "Error: rate-limit reached, please retry later",
+			},
+			want: "rate_limited",
+		},
+		{
+			name: "timeout via context deadline exceeded",
+			res: SubtaskResult{
+				Status:   StatusCancelled,
+				ExitCode: -1,
+				Error:    "context deadline exceeded",
+			},
+			want: "timeout",
+		},
+		{
+			name: "timeout via cancelled status",
+			res: SubtaskResult{
+				Status:   StatusCancelled,
+				ExitCode: -1,
+			},
+			want: "timeout",
+		},
+		{
+			name: "empty diff via audit error",
+			res: SubtaskResult{
+				Status:   StatusAuditFailed,
+				ExitCode: 0,
+				Error:    "empty_diff: subtask exited without modifying any allowed paths",
+			},
+			want: "empty_diff",
+		},
+		{
+			name: "verify failed via non-zero verification exit code",
+			res: SubtaskResult{
+				Status:               StatusAuditFailed,
+				ExitCode:             0,
+				VerificationExitCode: 1,
+				VerificationOutput:   "FAIL\tgithub.com/ye-dev/multigravity-cli/internal/dispatch",
+				Diff:                 "diff --git a/foo.go b/foo.go",
+			},
+			want: "verify_failed",
+		},
+		{
+			name: "agent error via non-zero exit code",
+			res: SubtaskResult{
+				Status:   StatusFailed,
+				ExitCode: 2,
+				Error:    "exit status 2",
+				LogTail:  "fatal: unexpected error in session",
+			},
+			want: "agent_error",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ClassifySubtaskFailure(tc.res)
+			if got != tc.want {
+				t.Errorf("ClassifySubtaskFailure() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// Verify ExecutePlan populates FailureReason on non-succeeded subtasks and leaves it empty on success
+	repoDir := setupTestGitRepo(t)
+	setupTestProfiles(t, "dev1")
+	taskMgr := NewTaskManager(agent.NewManager())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	planRes, err := taskMgr.ExecutePlan(ctx, PlanRequest{
+		PlanID:   "plan-failure-reasons",
+		RepoPath: repoDir,
+		Workers:  2,
+		Subtasks: []SubtaskSpec{
+			{
+				ID:      "st-ok",
+				Profile: "dev1",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'ok' > ok_reason.txt"},
+			},
+			{
+				ID:      "st-empty-diff",
+				Profile: "dev1",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'noop'"},
+				Paths:   []string{"missing_reason.txt"},
+			},
+			{
+				ID:      "st-verify-fail",
+				Profile: "dev1",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'v' > v_reason.txt"},
+				Verify:  "sh -c 'echo verify-err && exit 1'",
+			},
+			{
+				ID:      "st-rate-limit",
+				Profile: "dev1",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'Error 429: rate limit exceeded' && exit 1"},
+			},
+			{
+				ID:      "st-agent-err",
+				Profile: "dev1",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'crash' && exit 3"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExecutePlan failed: %v", err)
+	}
+
+	expectedReasons := map[string]string{
+		"st-ok":          "",
+		"st-empty-diff":  "empty_diff",
+		"st-verify-fail": "verify_failed",
+		"st-rate-limit":  "rate_limited",
+		"st-agent-err":   "agent_error",
+	}
+	for _, st := range planRes.Subtasks {
+		want, ok := expectedReasons[st.ID]
+		if !ok {
+			t.Fatalf("unexpected subtask ID %q", st.ID)
+		}
+		if st.FailureReason != want {
+			t.Errorf("subtask %q: FailureReason = %q, want %q (status=%s, err=%q)", st.ID, st.FailureReason, want, st.Status, st.Error)
+		}
+	}
+}

@@ -86,6 +86,7 @@ type SubtaskResult struct {
 	Commit               string          `json:"commit,omitempty"`
 	RecoveredFromTimeout bool            `json:"recovered_from_timeout,omitempty"`
 	Model                string          `json:"model,omitempty"`
+	FailureReason        string          `json:"failure_reason,omitempty"`
 }
 
 // UnifiedDiffSummary aggregates diff statistics, affected files, and scope collision analysis.
@@ -284,6 +285,65 @@ func SynthesizeCascadeRetryPrompt(basePrompt, prevModel, verifyOutput, logTail s
 	return fmt.Sprintf("%s\n\n[PREVIOUS ATTEMPT FAILED ON MODEL %s]\nDiagnostic Output:\n%s\nFix the root cause above without regressing allowed paths.", basePrompt, modelName, diag)
 }
 
+// ClassifySubtaskFailure inspects a SubtaskResult and returns a structured failure reason
+// ('timeout' | 'rate_limited' | 'empty_diff' | 'verify_failed' | 'agent_error'), or "" if succeeded.
+func ClassifySubtaskFailure(res SubtaskResult) string {
+	errLower := strings.ToLower(res.Error)
+	logLower := strings.ToLower(res.LogTail)
+	verifyLower := strings.ToLower(res.VerificationOutput)
+
+	if res.Status == StatusCompleted && res.ExitCode == 0 && res.VerificationExitCode == 0 && strings.TrimSpace(res.Error) == "" {
+		return ""
+	}
+	if res.Status == "" && res.ExitCode == 0 && res.VerificationExitCode == 0 && strings.TrimSpace(res.Error) == "" && strings.TrimSpace(res.VerificationOutput) == "" && strings.TrimSpace(res.LogTail) == "" {
+		return ""
+	}
+
+	combined := errLower + "\n" + logLower + "\n" + verifyLower
+	for _, indicator := range []string{
+		"429",
+		"rate limit",
+		"rate-limit",
+		"rate_limit",
+		"ratelimit",
+		"too many requests",
+		"quota",
+		"resource_exhausted",
+		"resource exhausted",
+	} {
+		if strings.Contains(combined, indicator) {
+			return "rate_limited"
+		}
+	}
+
+	for _, indicator := range []string{
+		"context deadline exceeded",
+		"deadline exceeded",
+		"timed out",
+		"timeout",
+	} {
+		if strings.Contains(errLower, indicator) || strings.Contains(logLower, indicator) {
+			return "timeout"
+		}
+	}
+	if res.Status == StatusCancelled {
+		return "timeout"
+	}
+
+	if strings.Contains(errLower, "empty_diff") || strings.Contains(errLower, "empty diff") || strings.Contains(errLower, "without modifying") {
+		return "empty_diff"
+	}
+	if res.Status == StatusAuditFailed && res.VerificationExitCode == 0 && strings.TrimSpace(res.VerificationOutput) == "" && strings.TrimSpace(res.Diff) == "" {
+		return "empty_diff"
+	}
+
+	if res.VerificationExitCode != 0 || strings.TrimSpace(res.VerificationOutput) != "" || res.Status == StatusAuditFailed || strings.Contains(errLower, "verify") || strings.Contains(errLower, "verification") {
+		return "verify_failed"
+	}
+
+	return "agent_error"
+}
+
 func getPlansDir(repoRoot string) string {
 	if repoRoot != "" {
 		return filepath.Join(repoRoot, ".multigravity", "plans")
@@ -432,6 +492,7 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 				if err != nil {
 					res.Status = StatusFailed
 					res.Error = err.Error()
+					res.FailureReason = ClassifySubtaskFailure(res)
 					subtaskResults[idx] = res
 					continue
 				}
@@ -546,6 +607,10 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 							}
 						}
 					}
+				}
+
+				if res.Status != StatusCompleted || res.ExitCode != 0 {
+					res.FailureReason = ClassifySubtaskFailure(res)
 				}
 
 				if req.OmitDiff {
