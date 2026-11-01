@@ -214,3 +214,137 @@ func TestIsWindowsMountPath(t *testing.T) {
 		}
 	}
 }
+
+func TestPopulateWorktreeProjectEnv(t *testing.T) {
+	// 1. Early returns
+	// nil map should not panic
+	PopulateWorktreeProjectEnv(nil, "/base", "/worktree")
+
+	// empty base or worktree
+	env := make(map[string]string)
+	PopulateWorktreeProjectEnv(env, "", "/worktree")
+	if len(env) != 0 {
+		t.Errorf("expected empty env for empty baseRepoPath, got: %v", env)
+	}
+
+	PopulateWorktreeProjectEnv(env, "   ", "/worktree")
+	if len(env) != 0 {
+		t.Errorf("expected empty env for whitespace baseRepoPath, got: %v", env)
+	}
+
+	PopulateWorktreeProjectEnv(env, "/base", "")
+	if len(env) != 0 {
+		t.Errorf("expected empty env for empty worktreePath, got: %v", env)
+	}
+
+	// base == worktree
+	PopulateWorktreeProjectEnv(env, "/base", "/base")
+	if len(env) != 0 {
+		t.Errorf("expected empty env when baseRepoPath == worktreePath, got: %v", env)
+	}
+
+	// 2. Full setup with .venv (with src/) and node_modules
+	tempDir := t.TempDir()
+	baseRepo := filepath.Join(tempDir, "base-repo")
+	worktree := filepath.Join(tempDir, "base-repo", ".multigravity", "worktrees", "wt-1")
+	worktreeSrc := filepath.Join(worktree, "src")
+
+	binName := "bin"
+	if runtime.GOOS == "windows" {
+		binName = "Scripts"
+	}
+	venvBin := filepath.Join(baseRepo, ".venv", binName)
+	nodeBin := filepath.Join(baseRepo, "node_modules", ".bin")
+
+	for _, d := range []string{venvBin, nodeBin, worktreeSrc} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatalf("failed to create dir %s: %v", d, err)
+		}
+	}
+
+	envFull := map[string]string{
+		"PATH": "/usr/bin",
+	}
+	PopulateWorktreeProjectEnv(envFull, baseRepo, worktree)
+
+	expectedVenv := filepath.Join(baseRepo, ".venv")
+	if envFull["UV_PROJECT_ENVIRONMENT"] != expectedVenv {
+		t.Errorf("UV_PROJECT_ENVIRONMENT = %q; want %q", envFull["UV_PROJECT_ENVIRONMENT"], expectedVenv)
+	}
+	if envFull["VIRTUAL_ENV"] != expectedVenv {
+		t.Errorf("VIRTUAL_ENV = %q; want %q", envFull["VIRTUAL_ENV"], expectedVenv)
+	}
+
+	expectedNodeModules := filepath.Join(baseRepo, "node_modules")
+	if envFull["NODE_PATH"] != expectedNodeModules {
+		t.Errorf("NODE_PATH = %q; want %q", envFull["NODE_PATH"], expectedNodeModules)
+	}
+
+	sep := string(os.PathListSeparator)
+	expectedPythonPath := worktreeSrc + sep + worktree
+	if envFull["PYTHONPATH"] != expectedPythonPath {
+		t.Errorf("PYTHONPATH = %q; want %q", envFull["PYTHONPATH"], expectedPythonPath)
+	}
+
+	// PATH should contain nodeBin and venvBin prepended
+	pathParts := strings.Split(envFull["PATH"], sep)
+	if len(pathParts) < 3 {
+		t.Fatalf("expected at least 3 parts in PATH, got %v", pathParts)
+	}
+	if filepath.Clean(pathParts[0]) != filepath.Clean(nodeBin) {
+		t.Errorf("expected nodeBin first in PATH, got %q (want %q)", pathParts[0], nodeBin)
+	}
+	if filepath.Clean(pathParts[1]) != filepath.Clean(venvBin) {
+		t.Errorf("expected venvBin second in PATH, got %q (want %q)", pathParts[1], venvBin)
+	}
+
+	// 3. Worktree without src/ directory
+	worktreeNoSrc := filepath.Join(tempDir, "base-repo", ".multigravity", "worktrees", "wt-no-src")
+	if err := os.MkdirAll(worktreeNoSrc, 0755); err != nil {
+		t.Fatal(err)
+	}
+	envNoSrc := make(map[string]string)
+	PopulateWorktreeProjectEnv(envNoSrc, baseRepo, worktreeNoSrc)
+	if envNoSrc["PYTHONPATH"] != worktreeNoSrc {
+		t.Errorf("PYTHONPATH without src = %q; want %q", envNoSrc["PYTHONPATH"], worktreeNoSrc)
+	}
+
+	// 4. Pre-existing values and idempotency
+	envExisting := map[string]string{
+		"UV_PROJECT_ENVIRONMENT": "/custom/uv",
+		"VIRTUAL_ENV":            "/custom/venv",
+		"NODE_PATH":              "/custom/node",
+		"PATH":                   nodeBin + sep + venvBin + sep + "/bin",
+		"PYTHONPATH":             "/custom/python",
+	}
+	PopulateWorktreeProjectEnv(envExisting, baseRepo, worktree)
+	if envExisting["UV_PROJECT_ENVIRONMENT"] != "/custom/uv" {
+		t.Errorf("expected preserved UV_PROJECT_ENVIRONMENT, got %q", envExisting["UV_PROJECT_ENVIRONMENT"])
+	}
+	if envExisting["VIRTUAL_ENV"] != "/custom/venv" {
+		t.Errorf("expected preserved VIRTUAL_ENV, got %q", envExisting["VIRTUAL_ENV"])
+	}
+	if envExisting["NODE_PATH"] != "/custom/node" {
+		t.Errorf("expected preserved NODE_PATH, got %q", envExisting["NODE_PATH"])
+	}
+	// PATH shouldn't have duplicate nodeBin or venvBin
+	parts := strings.Split(envExisting["PATH"], sep)
+	countNode := 0
+	countVenv := 0
+	for _, p := range parts {
+		if filepath.Clean(p) == filepath.Clean(nodeBin) {
+			countNode++
+		}
+		if filepath.Clean(p) == filepath.Clean(venvBin) {
+			countVenv++
+		}
+	}
+	if countNode != 1 || countVenv != 1 {
+		t.Errorf("expected exactly 1 instance each in PATH, got node=%d, venv=%d in %s", countNode, countVenv, envExisting["PATH"])
+	}
+	// PYTHONPATH should have worktree paths prepended before existing
+	expectedPrependedPy := worktreeSrc + sep + worktree + sep + "/custom/python"
+	if envExisting["PYTHONPATH"] != expectedPrependedPy {
+		t.Errorf("PYTHONPATH with existing = %q; want %q", envExisting["PYTHONPATH"], expectedPrependedPy)
+	}
+}

@@ -578,3 +578,99 @@ func TestBuildAgentEnvTraceID(t *testing.T) {
 		t.Errorf("expected MAESTRI_TRACE_ID=tr-host-env-xyz in env from host, got: %v", env2)
 	}
 }
+
+func TestBuildAgentEnv_Worktree(t *testing.T) {
+	tempHome := t.TempDir()
+	baseRepo := filepath.Join(tempHome, "repos", "sample-project")
+	worktreeDir := filepath.Join(baseRepo, ".multigravity", "worktrees", "wave-42-task-01")
+	worktreeSrc := filepath.Join(worktreeDir, "src")
+
+	binName := "bin"
+	if os.PathSeparator == '\\' {
+		binName = "Scripts"
+	}
+	venvBin := filepath.Join(baseRepo, ".venv", binName)
+	nodeBin := filepath.Join(baseRepo, "node_modules", ".bin")
+
+	for _, d := range []string{venvBin, nodeBin, worktreeSrc} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatalf("failed to create directory %s: %v", d, err)
+		}
+	}
+
+	// Case 1: WorktreeID and explicit RepoPath
+	opts := CreateSessionOptions{
+		Command:    "echo",
+		WorktreeID: "wave-42-task-01",
+		RepoPath:   baseRepo,
+		Cwd:        worktreeDir,
+	}
+
+	env, err := BuildAgentEnv(opts)
+	if err != nil {
+		t.Fatalf("BuildAgentEnv failed: %v", err)
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	expectedVenv := filepath.Join(baseRepo, ".venv")
+	if envMap["UV_PROJECT_ENVIRONMENT"] != expectedVenv {
+		t.Errorf("expected UV_PROJECT_ENVIRONMENT=%q, got %q", expectedVenv, envMap["UV_PROJECT_ENVIRONMENT"])
+	}
+	if envMap["VIRTUAL_ENV"] != expectedVenv {
+		t.Errorf("expected VIRTUAL_ENV=%q, got %q", expectedVenv, envMap["VIRTUAL_ENV"])
+	}
+
+	expectedNodeModules := filepath.Join(baseRepo, "node_modules")
+	if envMap["NODE_PATH"] != expectedNodeModules {
+		t.Errorf("expected NODE_PATH=%q, got %q", expectedNodeModules, envMap["NODE_PATH"])
+	}
+
+	sep := string(os.PathListSeparator)
+	expectedPythonPath := worktreeSrc + sep + worktreeDir
+	if envMap["PYTHONPATH"] != expectedPythonPath {
+		t.Errorf("expected PYTHONPATH=%q, got %q", expectedPythonPath, envMap["PYTHONPATH"])
+	}
+
+	if !strings.Contains(envMap["PATH"], venvBin) {
+		t.Errorf("expected PATH to contain venv bin %q, got: %s", venvBin, envMap["PATH"])
+	}
+	if !strings.Contains(envMap["PATH"], nodeBin) {
+		t.Errorf("expected PATH to contain node_modules bin %q, got: %s", nodeBin, envMap["PATH"])
+	}
+
+	// Case 2: Inferred baseRepoPath from Cwd containing .multigravity/worktrees/ without RepoPath
+	optsInferred := CreateSessionOptions{
+		Command: "echo",
+		Cwd:     worktreeDir,
+	}
+
+	envInferred, err := BuildAgentEnv(optsInferred)
+	if err != nil {
+		t.Fatalf("BuildAgentEnv (inferred) failed: %v", err)
+	}
+
+	envMapInferred := make(map[string]string)
+	for _, e := range envInferred {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMapInferred[parts[0]] = parts[1]
+		}
+	}
+
+	if envMapInferred["UV_PROJECT_ENVIRONMENT"] != expectedVenv {
+		t.Errorf("inferred: expected UV_PROJECT_ENVIRONMENT=%q, got %q", expectedVenv, envMapInferred["UV_PROJECT_ENVIRONMENT"])
+	}
+	if envMapInferred["NODE_PATH"] != expectedNodeModules {
+		t.Errorf("inferred: expected NODE_PATH=%q, got %q", expectedNodeModules, envMapInferred["NODE_PATH"])
+	}
+	if envMapInferred["PYTHONPATH"] != expectedPythonPath {
+		t.Errorf("inferred: expected PYTHONPATH=%q, got %q", expectedPythonPath, envMapInferred["PYTHONPATH"])
+	}
+}

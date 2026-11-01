@@ -148,3 +148,114 @@ func PopulateToolchainEnv(envMap map[string]string, hostHome string) {
 		envMap["GOPATH"] = filepath.Join(hostHome, "go")
 	}
 }
+
+// PopulateWorktreeProjectEnv enriches the agent environment with project-level runtime
+// dependencies (.venv, node_modules) from baseRepoPath and points PYTHONPATH to worktreePath.
+func PopulateWorktreeProjectEnv(envMap map[string]string, baseRepoPath, worktreePath string) {
+	if envMap == nil || strings.TrimSpace(baseRepoPath) == "" || strings.TrimSpace(worktreePath) == "" {
+		return
+	}
+
+	baseRepoPath = filepath.Clean(baseRepoPath)
+	worktreePath = filepath.Clean(worktreePath)
+	if baseRepoPath == worktreePath {
+		return
+	}
+
+	// 1. Python venv from base repository
+	venvDir := filepath.Join(baseRepoPath, ".venv")
+	if fi, err := os.Stat(venvDir); err == nil && fi.IsDir() {
+		if envMap["UV_PROJECT_ENVIRONMENT"] == "" {
+			envMap["UV_PROJECT_ENVIRONMENT"] = venvDir
+		}
+		if envMap["VIRTUAL_ENV"] == "" {
+			envMap["VIRTUAL_ENV"] = venvDir
+		}
+
+		binDirName := "bin"
+		if runtime.GOOS == "windows" {
+			binDirName = "Scripts"
+		}
+		venvBinDir := filepath.Join(venvDir, binDirName)
+		if fiBin, err := os.Stat(venvBinDir); err == nil && fiBin.IsDir() {
+			prependPathEntry(envMap, "PATH", venvBinDir)
+		}
+
+		srcDir := filepath.Join(worktreePath, "src")
+		var pyDirs []string
+		if fiSrc, err := os.Stat(srcDir); err == nil && fiSrc.IsDir() {
+			pyDirs = []string{srcDir, worktreePath}
+		} else {
+			pyDirs = []string{worktreePath}
+		}
+		prependPathEntries(envMap, "PYTHONPATH", pyDirs)
+	}
+
+	// 2. Node modules from base repository
+	nodeModulesDir := filepath.Join(baseRepoPath, "node_modules")
+	if fi, err := os.Stat(nodeModulesDir); err == nil && fi.IsDir() {
+		if envMap["NODE_PATH"] == "" {
+			envMap["NODE_PATH"] = nodeModulesDir
+		}
+		nodeBinDir := filepath.Join(nodeModulesDir, ".bin")
+		if fiBin, err := os.Stat(nodeBinDir); err == nil && fiBin.IsDir() {
+			prependPathEntry(envMap, "PATH", nodeBinDir)
+		}
+	}
+}
+
+func prependPathEntry(envMap map[string]string, key, dir string) {
+	if dir == "" {
+		return
+	}
+	cur := envMap[key]
+	if cur == "" {
+		envMap[key] = dir
+		return
+	}
+	sep := string(os.PathListSeparator)
+	cleanDir := filepath.Clean(dir)
+	for _, p := range strings.Split(cur, sep) {
+		if filepath.Clean(p) == cleanDir {
+			return
+		}
+	}
+	envMap[key] = dir + sep + cur
+}
+
+func prependPathEntries(envMap map[string]string, key string, dirs []string) {
+	if len(dirs) == 0 {
+		return
+	}
+	sep := string(os.PathListSeparator)
+	cur := envMap[key]
+	if cur == "" {
+		envMap[key] = strings.Join(dirs, sep)
+		return
+	}
+
+	var existingParts []string
+	cleanExisting := make(map[string]bool)
+	for _, p := range strings.Split(cur, sep) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		cleanExisting[filepath.Clean(p)] = true
+		existingParts = append(existingParts, p)
+	}
+
+	var newParts []string
+	for _, d := range dirs {
+		if !cleanExisting[filepath.Clean(d)] {
+			newParts = append(newParts, d)
+		}
+	}
+
+	if len(newParts) == 0 {
+		return
+	}
+
+	all := append(newParts, existingParts...)
+	envMap[key] = strings.Join(all, sep)
+}

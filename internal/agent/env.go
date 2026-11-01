@@ -163,6 +163,27 @@ func BuildAgentEnv(opts CreateSessionOptions) ([]string, error) {
 		envMap["MULTIGRAVITY_TRACE_ID"] = traceID
 	}
 
+	// Worktree project runtime environment enrichment
+	isWorktree := opts.WorktreeID != "" ||
+		strings.Contains(opts.Cwd, ".multigravity/worktrees/") ||
+		strings.Contains(opts.Cwd, ".multigravity\\worktrees\\")
+
+	if isWorktree {
+		baseRepoPath := strings.TrimSpace(opts.RepoPath)
+		if baseRepoPath == "" && opts.Cwd != "" {
+			slashCwd := filepath.ToSlash(opts.Cwd)
+			const marker = ".multigravity/worktrees"
+			if idx := strings.Index(slashCwd, marker); idx >= 0 {
+				parent := strings.TrimRight(opts.Cwd[:idx], "/\\")
+				if parent != "" {
+					baseRepoPath = filepath.Clean(parent)
+				}
+			}
+		}
+		worktreePath := opts.Cwd
+		profile.PopulateWorktreeProjectEnv(envMap, baseRepoPath, worktreePath)
+	}
+
 	// 4. Custom user-supplied overrides
 	for k, v := range opts.Env {
 		envMap[k] = v
