@@ -121,7 +121,7 @@ multigravity alerts --json
 | :--- | :--- | :--- |
 | **Critical Quota Floor** | `remaining_fraction <= 0.01` | **BLOCKED.** Profile depleted below 1% floor. Wait for reset or prime. |
 | **Complex-Task Preflight** | `remaining_fraction < 0.15` (Tier 2/3) | **INSUFFICIENT.** Quota below 15% preflight threshold for complex tasks. Route to higher-quota profile or demote. |
-| **Active Cooldown** | `cooldown_until > now` | **BLOCKED.** Profile hit HTTP 429/403. Route to alternate profile. |
+| **Active Cooldown** | `cooldown_until > now` (`quota-history.jsonl`) | **BLOCKED.** Profile hit HTTP 429/403 (persisted via `SourceCooldown = "cooldown"` with parsed `"Resets in ..."` TTL). Route to alternate profile. |
 | **5h Window Available** | `windowType == "5h"` and `remaining_fraction >= 0.50` | **ASSIGN.** High-priority for bursty, token-dense generation tasks. |
 | **Weekly Window Only** | `windowType == "weekly"` and `remaining_fraction >= 0.30` | **ASSIGN.** Medium/large architectural tasks. Conserve if < 30%. |
 | **Idle 5h Refresh** | `canWarm5hWindow == true` | **TRIGGER WARM-UP.** Run `multigravity prime <profile> --warm-5h` before starting task. |
@@ -141,12 +141,13 @@ multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] [--lint] --json
 3. **Line-Ranged & Sibling Test Pre-Injection (`inline_read: true`):**
    - Pre-injects line-ranged reference slices (`Read: path/to/file.go:start-end`) AND sibling `*_test.go` trailing lines directly into the prompt payload within the 15 KB budget.
    - Sibling test trailing lines provide subagents with immediate test assertions, fixtures, and contract expectations without requiring discovery turns or repo exploration.
-4. **Atomic Execution:**
+4. **Atomic Execution & Installed-Runner Auto-Discovery:**
    - Subtasks execute atomically using `--apply-atomic` and `--omit-diff` flags in `multigravity dispatch plan`.
+   - When `agent_type` and `command` are omitted, `DiscoverInstalledAgent` probes the enriched `PATH` (`claude`, `agy`, `codex`, `opencode`, `aider`), automatically skipping uninstalled binaries and passing `--dangerously-skip-permissions --disable-slash-commands` when `agy` runs autonomously.
    - Worktree diffs are validated and applied cleanly to the target branch.
-5. **`failure_reason`-Gated Retry & Model Escalation:**
+5. **`failure_reason`-Gated Retry, Persistent Cooldown & Model Escalation:**
    - Retry behavior is strictly gated by the categorized `failure_reason`:
-     - `rate_limited`: Re-dispatches the subtask on an alternate healthy profile using the same model tier (no model escalation; preserves reasoning capacity).
+     - `rate_limited`: Extracts the provider reset window (`ParseQuotaResetDuration`, e.g. `"Resets in 151h56m34s"`), persists the cooldown in `<profile>/.multigravity/quota-history.jsonl` (`SourceCooldown = "cooldown"`), and re-dispatches the subtask on an alternate healthy profile using the same model tier (no model escalation; preserves reasoning capacity).
      - `verify_failed`: Triggers progressive model escalation (`EscalateModel`) to a higher capability tier, excludes the failed profile from candidate selection, and injects previous verification failure diagnostics into the retry prompt via `SynthesizeCascadeRetryPrompt`.
      - `empty_diff` or `timeout`: Re-routes or escalates models depending on stall conditions; halts if execution cannot make forward progress.
 6. **Automated State Tracking & Git Hygiene:**
