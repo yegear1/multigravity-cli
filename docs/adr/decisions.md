@@ -133,3 +133,25 @@ type: architectural-decision-log
 
 ### [Spec 05.5] Synchronize `multigravity-orchestrator` Skill with Micro-Contract & Zero-Diff-Bloat Wave Patterns
 - **Objective:** Update `skills/multigravity-orchestrator/SKILL.md` to document `Read:/Paths:/Verify:` micro-contracts, `--effort low` / `gemini-3.8-flash-low` defaults for scoped subtasks, and bounded `verification_output`/`log_tail` inspection.
+
+### [Spec 05.6] Immutable SHA `BaseCommit` Resolution & Path-Scoped `GitDiff` (`internal/worktree`)
+- **Objective:** Prevent reverse-patch corruption during parallel wave commits when `BaseCommit` is passed as a symbolic branch name (e.g. `"main"`), and allow scoping worktree diffs strictly to declared `Paths`.
+- **Mechanics:**
+  1. In `CreateWorktree` (`internal/worktree/manager.go`), after `GitWorktreeAdd` creates the worktree at `absTargetDir`, if `headCommit != ""` set `wt.BaseCommit = headCommit` (the resolved immutable commit SHA) rather than storing a symbolic branch name like `"main"` that advances as sibling wave tasks commit.
+  2. Extend `DiffOptions` (`internal/worktree/types.go`) with `Paths []string json:"paths,omitempty"`.
+  3. Update `GitDiff` (`internal/worktree/git.go`) and `GetWorktreeDiff` (`internal/worktree/manager.go`) to accept optional `paths ...string` (or `opts.Paths`) so `git diff` and untracked file collection (`ls-files --others --exclude-standard`) filter strictly to matching paths when specified.
+
+### [Spec 05.7] Secondary-Account Quota Auto-Selection (`SelectEligibleProfiles` in `internal/quota`)
+- **Objective:** Enable `multigravity dispatch plan` to automatically route subtasks across secondary Antigravity accounts with $> 5\%$ quota while preserving the active IDE account's quota for human planning.
+- **Mechanics:**
+  1. Add `SelectEligibleProfiles(count int, weight RouteWeight, excludeProfiles ...string) ([]string, error)` (and testable `SelectEligibleProfilesFromCandidates(candidates []RouteCandidate, count int, excludeProfiles ...string) []string`) in `internal/quota/routing.go`.
+  2. Partition eligible candidates (`Eligible == true`, i.e., `RemainingFraction > 0.05`) into non-excluded (secondary) profiles first, sorted by `RecommendRoute` score, followed by excluded profiles as a fallback only when fewer than `count` secondary profiles are eligible.
+
+### [Spec 05.8] Native Micro-Contracts, `agy` Model/Effort Normalization, Auto-Profile Routing & Atomic Wave Commits (`internal/dispatch` & `internal/cmd`)
+- **Objective:** Eliminate external bash/python wrapper overhead (`run-wave.sh`) and reduce worker/orchestrator token consumption by building micro-contract prompt synthesis, `agy` flag normalization,Verify-on-Timeout recovery, path-scoped atomic commits, and zero-diff-bloat JSON output directly into `multigravity dispatch plan`.
+- **Mechanics:**
+  1. **`agy` `--model` / `--effort` Flag Normalization (`internal/dispatch/manager.go`):** In `ResolveAgentCommandWithCwd`, when the runner is `agy` and `args` contain both `--model <m>` (with `-low`, `-medium`, or `-high` suffix) and `--effort <e>`, normalize the model suffix to `<e>` and strip the redundant `--effort <e>` flag so `agy` never aborts with `conflicts with --effort=...`.
+  2. **Micro-Contract Fields & Fast-Edit Prompt Synthesis (`internal/dispatch/plan.go`):** Extend `SubtaskSpec` with `Read []string`, `Paths []string`, `CommitMessage string`, and `Model string`, and `PlanRequest` with `DefaultModel string`, `ApplyAtomic bool`, and `OmitDiff bool`. When `st.Read` or `st.Paths` are non-empty, default `NoGovernance: true` on `DispatchOptions` (avoiding duplicate `AGENTS.md`/`TASK.md` injection) and synthesize a compact micro-contract prompt (`READ ONLY`, `ALLOWED MUTABLE PATHS`, `Do NOT run baseline tests before editing`, `Exit immediately once validation passes without writing a prose summary`).
+  3. **Auto-Profile Routing:** In `ExecutePlan`, when `st.Profile == ""` or `"auto"`, automatically resolve eligible secondary profiles via `quota.SelectEligibleProfiles` (detecting current profile from `HOME` under `AntigravityProfiles/<name>`) and assign subtasks in round-robin.
+  4. **Verify-on-Timeout, `--apply-atomic` & `--omit-diff`:** When `req.ApplyAtomic` is true, if a subtask timed out or completed, run `st.Verify` in the worktree if needed, extract the diff against the worktree's `BaseCommit` (`HEAD` at creation) filtered by `st.Paths`, apply to `repoRoot`, stage `st.Paths`, create an atomic `git commit -m <CommitMessage>`, populate `Commit string` on `SubtaskResult`, and remove the ephemeral worktree and branch. When `req.OmitDiff` is true, omit raw unified diffs from `SubtaskResult.Diff` and `UnifiedSummary.CombinedDiff`.
+  5. **CLI Flags (`internal/cmd/dispatch.go`):** Add `--apply-atomic` and `--omit-diff` flags to `multigravity dispatch plan`.

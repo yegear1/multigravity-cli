@@ -7,18 +7,22 @@
 
 ## Active Task
 
-### 📌 Task [05.6]: None (Queue Empty — Awaiting Next Task)
+### 📌 Task [05.6]: Immutable SHA `BaseCommit` Resolution & Path-Scoped `GitDiff` (`internal/worktree`)
 
-- **Description:** All queued tasks (`[05.2]`–`[05.5]`) have been executed, verified, and committed across parallel waves (`W1`/`W2`).
-- **Systems Involved:** N/A
+- **Description:** Resolve symbolic `BaseCommit` refs (such as `"main"`) to their immutable commit SHA (`headCommit`) during `CreateWorktree` so advancing `main` in multi-task waves never causes `GetWorktreeDiff` to emit reverse patches of earlier wave commits, and add `Paths []string` filtering to `DiffOptions` and `GitDiff`.
+- **Systems Involved:** `internal/worktree`
 - **Action Type:**
   - [ ] Read-only / Documentation
-  - [ ] Source code changes
-- **Status:** READY FOR PLANNING
+  - [x] Source code changes
+- **Status:** APPROVED
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] Define next task scope with user.
+- [ ] In `CreateWorktree` (`internal/worktree/manager.go`), store the resolved commit SHA (`headCommit`) in `wt.BaseCommit` when `headCommit != ""` so subsequent commits to `main` do not shift the worktree diff baseline.
+- [ ] Add `Paths []string` to `DiffOptions` in `internal/worktree/types.go`.
+- [ ] Update `GitDiff` (`internal/worktree/git.go`) and `GetWorktreeDiff` (`internal/worktree/manager.go`) to filter tracked diffs and untracked files to `opts.Paths` when non-empty.
+- [ ] Add unit tests in `internal/worktree/worktree_test.go` asserting that committing to `main` after worktree creation does not pollute `GetWorktreeDiff` and that `DiffOptions.Paths` filters out unrelated files.
+- [ ] Verify with `go test -v ./internal/worktree`.
 
 ---
 
@@ -58,7 +62,18 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [ ] *(Queue empty — awaiting next planning session)*
+- [ ] **[05.6]** `[APPROVED]` `[PARALLEL: W1]` Resolve symbolic `BaseCommit` refs to immutable SHA in `CreateWorktree` and add `Paths` filtering to `DiffOptions` / `GitDiff`
+  - `Read:` `internal/worktree/manager.go, internal/worktree/git.go, internal/worktree/types.go`
+  - `Paths:` `internal/worktree/manager.go, internal/worktree/git.go, internal/worktree/types.go, internal/worktree/worktree_test.go`
+  - `Verify:` `go test -v ./internal/worktree`
+- [ ] **[05.7]** `[APPROVED]` `[PARALLEL: W1]` Add `SelectEligibleProfiles` and `SelectEligibleProfilesFromCandidates` with secondary-account priority (`excludeProfiles`) in `internal/quota`
+  - `Read:` `internal/quota/routing.go, internal/quota/routing_test.go`
+  - `Paths:` `internal/quota/routing.go, internal/quota/routing_test.go`
+  - `Verify:` `go test -v ./internal/quota -run "TestRecommendRoute|TestSelectEligibleProfiles"`
+- [ ] **[05.8]** `[APPROVED]` `[SEQ: W2]` Add native micro-contract fields (`Read`/`Paths`/`CommitMessage`), `agy` `--model`/`--effort` conflict normalization, auto-profile routing, and `--apply-atomic` / `--omit-diff` wave execution to `dispatch plan`
+  - `Read:` `internal/dispatch/plan.go, internal/dispatch/manager.go, internal/cmd/dispatch.go`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go, internal/dispatch/manager.go, internal/dispatch/dispatch_test.go, internal/cmd/dispatch.go`
+  - `Verify:` `go test -v ./internal/dispatch ./internal/cmd -run "Test.*Plan|TestResolveAgentCommand"`
 
 ---
 
