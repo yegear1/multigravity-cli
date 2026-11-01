@@ -7,18 +7,19 @@
 
 ## Active Task
 
-### 📌 Task [05.14]: *(Queue Empty — Awaiting Next Ideation)*
+### 📌 Task [05.17]: Gate model escalation in `ExecuteTaskWave` on `res.FailureReason`
 
-- **Description:** All tasks in Wave `W1`–`W8` (`[05.6]`–`[05.13.5]`) have been executed, verified, and committed.
-- **Systems Involved:** —
+- **Description:** Gate model escalation in `ExecuteTaskWave` on `res.FailureReason`: on `rate_limited`, record profile cooldown and retry with the **same** model on an alternate profile; on `verify_failed` (with non-empty verification output), escalate via `quota.EscalateModel`; on `empty_diff` or `timeout` with empty diagnostics, skip retry and preserve failure reason.
+- **Systems Involved:** `internal/dispatch/wave.go`, `internal/dispatch/wave_test.go`, `internal/dispatch/plan.go`
 - **Action Type:**
-  - [x] Read-only / Documentation
-  - [ ] Source code changes
-- **Status:** READY FOR PLANNING
+  - [ ] Read-only / Documentation
+  - [x] Source code changes
+- **Status:** RUNNING
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] Define and approve next task in `.agent/TASK.md`.
+- [ ] `ExecuteTaskWave` in `internal/dispatch/wave.go` inspects `res.FailureReason` to distinguish `rate_limited`, `verify_failed`, and `empty_diff`/`timeout`.
+- [ ] `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` in `internal/dispatch/plan.go` wires `ClassifyTaskComplexity` and passes `--model <resolvedModel>` to `dOpts.Args`.
 
 ---
 
@@ -26,6 +27,9 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.16] | Add structured `FailureReason string` (`ClassifySubtaskFailure`) in `SubtaskResult` inspecting status, exit code, verification output, and `log_tail` | [`266bec2`](https://github.com/yegear1/multigravity-cli/commit/266bec2) | 2026-11-01 |
+| [05.15] | Add quota pre-flight (`DefaultSafetyQuotaThreshold = 0.20`, cooldown tracking, and `PreflightProfilesForModel`) in `internal/quota/routing.go` | [`8be6cae`](https://github.com/yegear1/multigravity-cli/commit/8be6cae) | 2026-11-01 |
+| [05.14] | Automate `.agent/TASK.md` promotion and Completed Tasks Log recording in `dispatch wave` | [`eb5f857`](https://github.com/yegear1/multigravity-cli/commit/eb5f857) | 2026-11-01 |
 | [05.13.5] | Synchronize `skills/multigravity-orchestrator/SKILL.md` with inference tier matrix, complexity classification, and cascade escalation | [`d6af449`](https://github.com/yegear1/multigravity-cli/commit/d6af449) | 2026-11-01 |
 | [05.13.4] | Add `--task`, `--paths`, and `--read` support with inference tier visualization to `multigravity route` in `internal/cmd/route.go` | [`74198d6`](https://github.com/yegear1/multigravity-cli/commit/74198d6) | 2026-11-01 |
 | [05.13.3b] | Wire `quota.EscalateModel` and `SynthesizeCascadeRetryPrompt` into `ExecuteTaskWave` in `internal/dispatch/wave.go` and add unit tests in `internal/dispatch/wave_test.go` | [`19248bb`](https://github.com/yegear1/multigravity-cli/commit/19248bb) | 2026-11-01 |
@@ -85,40 +89,36 @@
 - [x] **[05.13.4]** `[APPROVED]` `[PARALLEL: W8]` Add `--task`, `--paths`, and `--read` support with inference tier visualization to `multigravity route` in `internal/cmd/route.go` (`74198d6`)
 - [x] **[05.13.5]** `[APPROVED]` `[PARALLEL: W8]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with inference tier matrix, complexity classification, and cascade escalation (`d6af449`)
 
-> **Epic 05.14–05.21 — Orchestration token economy.** Derived from the `[05.13]` execution retrospective. Not yet `[APPROVED]`: `Read:` line ranges are provisional and MUST be refined during planning. Tasks touching the same file are `SEQ`, never `PARALLEL`. Suggested priority: 05.14, 05.15, 05.16 first (highest return, independent), then 05.17, 05.18, then 05.19–05.21 (need measured data).
+> **Epic 05.14–05.21 — Orchestration token economy.** Derived from the `[05.13]` execution retrospective and architectural review. Grouped into 4 disjoint-file waves (`W9`–`W12`).
 
-- [ ] **[05.14]** `[PLANNING]` `[SEQ: W9]` Automate `.agent/TASK.md` promotion in `dispatch wave`: after a wave completes, also mark Acceptance Criteria `[x]`, replace `## Active Task` with the next backlog task, and set Status. *(Retrospective #5 — removes ~2–3 large manual edits per wave)*
-  - `Read:` `internal/dispatch/wave.go` (`markTasksCompletedInFile` and `ExecuteTaskWave` completion block)
-  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Wave|Test.*Promot"`
-- [ ] **[05.15]** `[PLANNING]` `[PARALLEL: W9]` Quota pre-flight before dispatch: reject profiles below a configurable safety threshold (default 20%) or under cooldown, so 429-exhausted profiles are never selected. *(Retrospective #1 — `joaoww` 429 wasted a full attempt)*
-  - `Read:` `internal/quota/routing.go` (`SelectEligibleProfilesForModel`, `ScoreServerForBucket`)
-  - `Paths:` `internal/quota/routing.go, internal/quota/routing_test.go`
-  - `Verify:` `go test -v ./internal/quota -run "Test.*Select|Test.*Preflight"`
-- [ ] **[05.16]** `[PLANNING]` `[SEQ: W10]` Structured `failure_reason` in `SubtaskResult` (`timeout | rate_limited | empty_diff | verify_failed | agent_error`) capturing agent `stderr` and termination cause, so empty `log_tail` no longer hides the root cause. *(Retrospective #2)*
-  - `Read:` `internal/dispatch/plan.go` (`SubtaskResult`, `ExecutePlan` result assembly)
-  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan|Test.*FailureReason"`
-- [ ] **[05.17]** `[PLANNING]` `[SEQ: W11]` Gate model escalation on failure cause: escalate only on `verify_failed` with non-empty output; on `empty_diff`/`timeout` with empty diagnostics, halt and recommend scope reduction. Depends on `[05.16]`. *(Retrospective #4 — `argon` retry on `05.13.3` did not help)*
-  - `Read:` `internal/dispatch/wave.go` (retry block in `ExecuteTaskWave`), `internal/quota/tiers.go`
+- [x] **[05.14]** `[APPROVED]` `[PARALLEL: W9]` Automate `.agent/TASK.md` promotion in `dispatch wave`: prepend completed tasks to `## Completed Tasks Log`, mark `## Active Task` Acceptance Criteria `[x]`, and promote the next uncompleted backlog task into `## Active Task` (`eb5f857`)
+- [x] **[05.15]** `[APPROVED]` `[PARALLEL: W9]` Quota pre-flight before dispatch: add `DefaultSafetyQuotaThreshold = 0.20`, cooldown tracking (`RecordProfileCooldown` / `IsProfileOnCooldown`), and `PreflightProfilesForModel(count int, model string, weight RouteWeight, minFraction float64, excludeProfiles ...string)` rejecting profiles below threshold or under active 429 cooldown while preserving existing `ScoreServerForBucket` behavior (`8be6cae`)
+- [x] **[05.16]** `[APPROVED]` `[PARALLEL: W9]` Add structured `FailureReason string` (`timeout | rate_limited | empty_diff | verify_failed | agent_error`) in `SubtaskResult` (`ClassifySubtaskFailure`) inspecting status, exit code, verification output, and `log_tail` (429/rate-limit/quota indicators) so empty or terse logs never hide the root cause (`266bec2`)
+- [ ] **[05.17]** `[APPROVED]` `[PARALLEL: W10]` Gate model escalation in `ExecuteTaskWave` on `res.FailureReason`: on `rate_limited`, record profile cooldown and retry with the **same** model on an alternate profile; on `verify_failed` (with non-empty verification output), escalate via `quota.EscalateModel`; on `empty_diff` or `timeout` with empty diagnostics, skip retry and preserve failure reason.
+  - `Read:` `internal/dispatch/wave.go:303-370, internal/dispatch/wave_test.go:120-214, internal/quota/tiers.go:74-93`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
   - `Verify:` `go test -v ./internal/dispatch -run "Test.*Wave"`
-- [ ] **[05.18]** `[PLANNING]` `[SEQ: W12]` Add `multigravity dispatch wave --lint`: warn when a task has more than 2 `Paths:` files, more than 3 `Read:` files, or spans multiple Go packages; exit non-zero on violation. *(Retrospective #3 — would have prevented the manual split of `05.13.3`)*
-  - `Read:` `internal/dispatch/wave.go` (`ParseTaskWave`), `internal/cmd/dispatch.go` (wave subcommand flags)
+  - `Model:` `gemini-3.8-flash-medium`
+- [ ] **[05.20]** `[APPROVED]` `[PARALLEL: W10]` Wire `ClassifyTaskComplexity` into `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` when `st.Model == ""` and `defaultModel == ""` (preserving `gemini-3.8-flash-low` for single-path or line-ranged micro-contracts) AND pass `--model <resolvedModel>` into `dOpts.Args` when `st.Command == ""` and `--model` is not already present in `st.Args`.
+  - `Read:` `internal/dispatch/plan.go:117-145, internal/dispatch/plan.go:383-435, internal/quota/classifier.go:67-130, internal/dispatch/plan_test.go:393-449`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan|TestSynthesizeSubtaskPrompt"`
+  - `Model:` `gemini-3.8-flash-medium`
+- [ ] **[05.19]** `[APPROVED]` `[PARALLEL: W11]` Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` so commit messages (`feat(id): <clean title>`) and worker prompts do not leak markdown metadata tags.
+  - `Read:` `internal/dispatch/wave.go:53-165, internal/dispatch/wave.go:270-296, internal/dispatch/wave_test.go:17-118`
+  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Wave"`
+  - `Model:` `gemini-3.8-flash-low`
+- [ ] **[05.21]** `[APPROVED]` `[PARALLEL: W11]` Include `Verify: <st.Verify>` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files for `st.Paths` using only residual space within the 15 KB `maxBudget` after all explicit `st.Read` slices are loaded, and record estimated prompt/completion `TokensUsed int` in `SubtaskResult`.
+  - `Read:` `internal/dispatch/plan.go:64-90, internal/dispatch/plan.go:122-231, internal/dispatch/plan_test.go:393-449`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan|TestSynthesizeSubtaskPrompt"`
+  - `Model:` `gemini-3.8-flash-medium`
+- [ ] **[05.18]** `[APPROVED]` `[SEQ: W12]` Add `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` and `--lint` flag to `multigravity dispatch wave` in `internal/cmd/dispatch.go`: report violations when a `TierMicro` (`gemini-3.8-flash-low`) task has `> 2` `Paths:` files or spans multiple Go packages, or when any task has `> 4` `Read:` entries or missing `Verify:`; exit non-zero when violations are found.
+  - `Read:` `internal/dispatch/wave.go:17-95, internal/cmd/dispatch.go:220-235, internal/cmd/dispatch.go:1078-1130`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go, internal/cmd/dispatch.go`
   - `Verify:` `go test -v ./internal/dispatch ./internal/cmd -run "Test.*Wave|Test.*Lint"`
-- [ ] **[05.19]** `[PLANNING]` `[SEQ: W13]` Derive the worker prompt from the `TASK.md` contract (title, `Read:`, `Paths:`, `Verify:`) when no explicit prompt is given, so orchestrators stop duplicating specifications in JSON. *(Retrospective #6)*
-  - `Read:` `internal/dispatch/wave.go` (`ExecuteTaskWave` subtask construction), `internal/dispatch/plan.go` (`SynthesizeSubtaskPromptWithRepo`)
-  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Wave|Test.*Prompt"`
-- [ ] **[05.20]** `[PLANNING]` `[SEQ: W14]` Wire `ClassifyTaskComplexity` into `ExecutePlan`/`ExecuteTaskWave` as the default model selector (e.g. `low` for scoped tasks), keeping the cascade as fallback and all existing model expectations passing. *(Retrospective #7)*
-  - `Read:` `internal/dispatch/plan.go` (model resolution in `ExecutePlan`), `internal/quota/classifier.go`
-  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan"`
-- [ ] **[05.21]** `[PLANNING]` `[SEQ: W15]` Pre-inject sibling tests of each `Paths:` file (`*_test.go`) into `[PRE-LOADED READ CONTEXT]` within the existing 15 KB budget, so workers skip exploratory reads; additionally record per-task/per-attempt token usage in `SubtaskResult` to measure savings. *(Retrospective #8 + missing measurement)*
-  - `Read:` `internal/dispatch/plan.go` (`InlineRead` / `SynthesizeSubtaskPromptWithRepo`), `internal/telemetry`
-  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan|Test.*InlineRead"`
+  - `Model:` `gemini-3.8-flash-medium`
 
 ---
 
