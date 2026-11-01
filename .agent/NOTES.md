@@ -19,6 +19,9 @@
 
 ## Active Technical Contracts & Decisions
 
+- **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
+
+
 ### 2026-10-31 [Task 05.1] Centralized PATH Enrichment, Host Toolchain Preservation, and Doctor Toolchain Bleed Detection
 
 - **Context:** Isolated profile execution (`profile/launcher.go`, `headless/manager.go`, `agent/env.go`) duplicated logic for enriching `PATH` and did not discover modern JS runtime toolchains (`pnpm`, `fnm`, `volta`, `nvm`). On WSL2, unmanaged ordering allowed Windows mount paths (`/mnt/c/...`) to shadow Linux runtimes. In addition, redirecting `HOME` to `profileDir` caused Cargo, Rustup, and Go to default their toolchain directories to `<profileDir>/.cargo`, `<profileDir>/.rustup`, and `<profileDir>/go`, breaking compiler shims and triggering accidental toolchain downloads into profiles.

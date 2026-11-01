@@ -38,13 +38,14 @@ The agent MUST optimize context loading using the following progressive disclosu
 - **Architectural Decisions (`docs/adr/decisions.md`):** Consult on demand when researching historical rationales or trade-offs.
 - **Knowledge Base (`.agent/knowledge/`):** Consult on demand when diagnosing obscure runtime errors, platform gotchas, or adding workarounds.
 - **Legacy Discovery:** Inspect configuration files (`go.mod`, `Makefile`, shell scripts) ONLY during Discovery or when dependency/tool changes are explicitly tasked.
+- **Transversal Skills:** Reference external organizational playbooks (`agent-skills`) ONLY when tasks require UI porting, QA audit, sequential/parallel subagent queue execution (`task-queue`), or host-level orchestration.
 
 ---
 
 ## Execution Protocol
 
 1. Read `AGENTS.md`, `.agent/TASK.md`, and `.agent/NOTES.md`. Inspect `.agent/INVARIANTS.md` before touching schemas, paths, or integrations.
-2. **Plan first:** Set `Status` in `.agent/TASK.md` to `PLANNING`; submit plan (including regression risk, characterization strategy, and library vs stdlib trade-offs favoring latest stable/LTS releases grounded on current date if new capabilities are required); await approval; then set to `RUNNING`.
+2. **Plan first (or Pre-Approved Fast-Track):** If `Status` in `.agent/TASK.md` is `READY FOR PLANNING`, set to `PLANNING`; submit plan (including regression risk, characterization strategy, and library vs stdlib trade-offs favoring latest stable/LTS releases grounded on current date if new capabilities are required); await approval; then set to `RUNNING`. If task scope was already decided during planning (`Status: APPROVED`) with zero open questions/blockers, transition directly to `RUNNING` on `proceed` (or use the `task-queue` skill on `proceed queue` to execute sequential/parallel subagents with multi-account quota routing; tag independent tasks that have strictly disjoint file scopes with `[PARALLEL: Wx]` and `Paths:`). Halt and revert to `PLANNING` if any ambiguity or unapproved dependency arises.
 3. **Confinement:** Diffs MUST be surgical and microscopic.
 4. **Falsifiable Definition of Done (DoD):**
    A task MUST NOT be declared complete based on subjective appraisal. It MUST satisfy:
