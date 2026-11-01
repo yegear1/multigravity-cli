@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-11-01
+
+### Added
+- **Multi-Wave Autonomous Dispatcher (`multigravity dispatch wave`):** Added automated wave orchestrator parsing `.agent/TASK.md` sequential and parallel wave specifications (`[PARALLEL: Wx]`, `[SEQ: Wx]`), executing plans across isolated ephemeral Git worktrees, handling verification retry loops, and automatically updating task completion logs. Added `--lint` validation flag.
+- **Model-Aware Quota Routing & Inference Tiers:** Canonical tier classification (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`) mapped to live models (e.g. `gemini-3.8-flash-low/medium/high`). Static zero-token complexity classifier (`ClassifyTaskComplexity`), intelligent model escalation on failure, and model-aware quota bucket selection prioritizing secondary accounts.
+- **Quota Cooldown Persistence & Calibration:** Persistent 429 rate limit cooldown tracking via `<profileDir>/.multigravity/quota-history.jsonl` with reset duration parsing (`ParseQuotaResetDuration`). Configurable safety quota floors (`DefaultSafetyQuotaThreshold`) and dynamic token calibration against live Cloud Code responses.
+- **Installed Agent Auto-Discovery:** Dynamic agent CLI discovery (`DiscoverInstalledAgent`) across `claude`, `agy`, `codex`, `opencode`, and `aider` to avoid dispatching to missing runners.
+- **Worktree Environment Seeding & Atomic Apply:** Ephemeral Git worktrees automatically inherit root repository Python virtual environments (`UV_PROJECT_ENVIRONMENT`, `VIRTUAL_ENV`, `PYTHONPATH`) and `NODE_PATH`. Added `--apply-atomic` and `multigravity dispatch apply` for topological merges with SHA base verification.
+
+### Fixed
+- **Runner Flag Normalization:** Fixed flag conflicts between `--model` and `--effort` for `agy` execution and rejected false-positive zero exit codes from empty Go test runs.
+- **Profile Boundary Isolation:** Enforced per-profile Linux OAuth token file isolation by bypassing global D-Bus Secret Service keyrings in `language_server`, and fixed Google OAuth client secret resolution.
+- **Task Cancellation & Timeout Cleanup:** Added cross-process PID termination fallback during plan cancellation and bounded diagnostic log tail ingestion on subtask failure.
+
 ## [2.2.1] - 2026-09-29
 
 ### Added
