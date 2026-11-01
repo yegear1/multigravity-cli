@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/agent"
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
 
 func TestSynthesizeCascadeRetryPrompt(t *testing.T) {
@@ -1095,6 +1096,95 @@ func TestExecutePlanVerifyOnTimeout(t *testing.T) {
 		}
 		if stRes.VerificationExitCode != 1 {
 			t.Errorf("expected verification exit code 1, got %d", stRes.VerificationExitCode)
+		}
+	})
+}
+
+func TestProfileAwareConcurrency(t *testing.T) {
+	t.Run("countActiveEligibleProfiles with explicit profiles", func(t *testing.T) {
+		subtasks := []SubtaskSpec{
+			{ID: "st1", Profile: "p1"},
+			{ID: "st2", Profile: "p2"},
+			{ID: "st3", Profile: "p1"},
+		}
+		count := countActiveEligibleProfiles(subtasks, "")
+		if count != 2 {
+			t.Errorf("expected 2 active profiles, got %d", count)
+		}
+	})
+
+	t.Run("countActiveEligibleProfiles excludes profiles on cooldown", func(t *testing.T) {
+		home := setupTestProfiles(t, "healthy-p1", "cooldown-p2")
+		_ = home
+		quota.RecordProfileCooldown("cooldown-p2", 10*time.Minute)
+		defer quota.RecordProfileCooldown("cooldown-p2", -1*time.Minute)
+
+		subtasks := []SubtaskSpec{
+			{ID: "st1", Profile: "healthy-p1"},
+			{ID: "st2", Profile: "cooldown-p2"},
+		}
+		count := countActiveEligibleProfiles(subtasks, "")
+		if count != 1 {
+			t.Errorf("expected 1 active profile, got %d", count)
+		}
+	})
+
+	t.Run("countActiveEligibleProfiles resolves auto with available profiles", func(t *testing.T) {
+		setupTestProfiles(t, "auto-prof1", "auto-prof2")
+		subtasks := []SubtaskSpec{
+			{ID: "st1", Profile: "auto"},
+			{ID: "st2", Profile: "auto"},
+		}
+		count := countActiveEligibleProfiles(subtasks, "")
+		if count < 2 {
+			t.Errorf("expected at least 2 active profiles for auto, got %d", count)
+		}
+	})
+
+	t.Run("ExecutePlan clamps workers to active eligible profile count", func(t *testing.T) {
+		repoDir := setupTestGitRepo(t)
+		setupTestProfiles(t, "single-prof")
+
+		agentMgr := agent.NewManager()
+		taskMgr := NewTaskManager(agentMgr)
+
+		req := PlanRequest{
+			PlanID:   "plan-clamp-workers",
+			RepoPath: repoDir,
+			Workers:  8, // Requested 8 workers, but only 1 profile exists
+			Subtasks: []SubtaskSpec{
+				{
+					ID:      "subtask-1",
+					Profile: "auto",
+					Command: "sh",
+					Args:    []string{"-c", "echo 'st1' > st1.txt && git add -A"},
+				},
+				{
+					ID:      "subtask-2",
+					Profile: "auto",
+					Command: "sh",
+					Args:    []string{"-c", "echo 'st2' > st2.txt && git add -A"},
+				},
+			},
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		result, err := taskMgr.ExecutePlan(ctx, req)
+		if err != nil {
+			t.Fatalf("ExecutePlan failed: %v", err)
+		}
+		if result.Status != "completed" {
+			t.Errorf("expected status completed, got %q", result.Status)
+		}
+		if len(result.Subtasks) != 2 {
+			t.Fatalf("expected 2 subtask results, got %d", len(result.Subtasks))
+		}
+		for _, st := range result.Subtasks {
+			if st.Profile != "single-prof" {
+				t.Errorf("expected subtask profile 'single-prof', got %q", st.Profile)
+			}
 		}
 	})
 }

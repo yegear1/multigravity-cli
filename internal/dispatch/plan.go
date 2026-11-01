@@ -462,6 +462,60 @@ func getPlansDir(repoRoot string) string {
 	return filepath.Join(config.GetMultigravityHome(), ".plans")
 }
 
+func resolveEligibleProfilesForModel(model string) []string {
+	threshold := quota.SafetyThresholdForModel(model, quota.WeightMedium)
+	candidates, err := quota.PreflightProfilesForModel(0, model, quota.WeightMedium, threshold)
+	if (err != nil || len(candidates) == 0) && threshold > quota.DefaultSafetyQuotaThreshold {
+		candidates, err = quota.PreflightProfilesForModel(0, model, quota.WeightMedium, quota.DefaultSafetyQuotaThreshold)
+	}
+	var eligible []string
+	if err == nil && len(candidates) > 0 {
+		for _, c := range candidates {
+			if profile.ProfileExists(c.Profile) && !quota.IsProfileOnCooldown(c.Profile) {
+				eligible = append(eligible, c.Profile)
+			}
+		}
+	}
+	if len(eligible) > 0 {
+		return eligible
+	}
+	if profs, err := profile.ListProfiles(); err == nil {
+		for _, p := range profs {
+			if !quota.IsProfileOnCooldown(p) {
+				eligible = append(eligible, p)
+			}
+		}
+	}
+	return eligible
+}
+
+func countActiveEligibleProfiles(subtasks []SubtaskSpec, defaultModel string) int {
+	hasAuto := false
+	explicitSet := make(map[string]struct{})
+	model := strings.TrimSpace(defaultModel)
+
+	for _, st := range subtasks {
+		if model == "" && strings.TrimSpace(st.Model) != "" {
+			model = strings.TrimSpace(st.Model)
+		}
+		prof := strings.TrimSpace(st.Profile)
+		if prof == "" || prof == "auto" {
+			hasAuto = true
+		} else if !quota.IsProfileOnCooldown(prof) {
+			explicitSet[prof] = struct{}{}
+		}
+	}
+
+	if !hasAuto {
+		return len(explicitSet)
+	}
+
+	for _, p := range resolveEligibleProfilesForModel(model) {
+		explicitSet[p] = struct{}{}
+	}
+	return len(explicitSet)
+}
+
 // ExecutePlan dispatches multiple subtasks concurrently across isolated worktrees and returns a unified summary.
 func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanResult, error) {
 	subtasks := req.Subtasks
@@ -520,6 +574,13 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 	if workers <= 0 || workers > len(subtasks) {
 		workers = len(subtasks)
 	}
+	activeEligibleProfiles := countActiveEligibleProfiles(subtasks, req.DefaultModel)
+	if activeEligibleProfiles <= 0 {
+		activeEligibleProfiles = 1
+	}
+	if workers > activeEligibleProfiles {
+		workers = activeEligibleProfiles
+	}
 
 	startTime := time.Now().UTC()
 	subtaskResults := make([]SubtaskResult, len(subtasks))
@@ -557,17 +618,10 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 				// Resolve profile if empty or "auto"
 				effectiveProfile := strings.TrimSpace(st.Profile)
 				if effectiveProfile == "" || effectiveProfile == "auto" {
-					threshold := quota.SafetyThresholdForModel(resolvedModel, quota.WeightMedium)
-					candidates, err := quota.PreflightProfilesForModel(1, resolvedModel, quota.WeightMedium, threshold)
-					if (err != nil || len(candidates) == 0) && threshold > quota.DefaultSafetyQuotaThreshold {
-						candidates, err = quota.PreflightProfilesForModel(1, resolvedModel, quota.WeightMedium, quota.DefaultSafetyQuotaThreshold)
-					}
-					if err == nil && len(candidates) > 0 {
-						effectiveProfile = candidates[0].Profile
-					} else {
-						if profs, err := profile.ListProfiles(); err == nil && len(profs) > 0 {
-							effectiveProfile = profs[0]
-						}
+					if eligible := resolveEligibleProfilesForModel(resolvedModel); len(eligible) > 0 {
+						effectiveProfile = eligible[idx%len(eligible)]
+					} else if profs, err := profile.ListProfiles(); err == nil && len(profs) > 0 {
+						effectiveProfile = profs[idx%len(profs)]
 					}
 				}
 
