@@ -712,6 +712,71 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					}
 				}
 
+				// Verify-on-Timeout recovery: run Verify: on deadline if diff exists; recover as completed on exit 0
+				isDeadline := errors.Is(planCtx.Err(), context.DeadlineExceeded) ||
+					errors.Is(waitErr, context.DeadlineExceeded) ||
+					(planCtx.Err() != nil && strings.Contains(planCtx.Err().Error(), "deadline exceeded")) ||
+					(waitErr != nil && strings.Contains(waitErr.Error(), "deadline exceeded"))
+
+				if isDeadline && strings.TrimSpace(st.Verify) != "" && strings.TrimSpace(res.Diff) != "" {
+					verifyDir := res.WorktreePath
+					if verifyDir == "" {
+						verifyDir = repoRoot
+					}
+					out, exitCode, vErr := executeVerifyCommand(verifyDir, st.Verify)
+					res.VerificationExitCode = exitCode
+					res.VerificationOutput = tailString(string(out), 1000)
+
+					if completedTask != nil && completedTask.LogPath != "" {
+						if f, err := os.OpenFile(completedTask.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+							_, _ = fmt.Fprintf(f, "\n=== Verification (%s) ===\n%s\n", st.Verify, string(out))
+							_ = f.Close()
+						}
+					}
+
+					if exitCode == 0 && vErr == nil {
+						res.Status = StatusCompleted
+						res.ExitCode = 0
+						res.Error = ""
+						if completedTask != nil {
+							completedTask.Status = StatusCompleted
+							completedTask.ExitCode = 0
+							completedTask.Error = ""
+							completedTask.VerificationExitCode = 0
+							completedTask.VerificationOutput = string(out)
+							taskDir := filepath.Join(getTasksDir(repoRoot), taskID)
+							_ = saveTaskFile(taskDir, completedTask)
+							taskMu.Lock()
+							if manifest, err := m.loadManifest(repoRoot); err == nil {
+								manifest.Tasks[taskID] = *completedTask
+								_ = m.saveManifest(repoRoot, manifest)
+							}
+							taskMu.Unlock()
+						}
+					} else {
+						if vErr != nil && exitCode == 0 {
+							res.Error = fmt.Sprintf("verification execution error: %v", vErr)
+						} else {
+							res.Error = fmt.Sprintf("verification command failed with exit code %d", exitCode)
+						}
+						res.Status = StatusAuditFailed
+						if completedTask != nil {
+							completedTask.Status = StatusAuditFailed
+							completedTask.VerificationExitCode = exitCode
+							completedTask.VerificationOutput = string(out)
+							completedTask.Error = res.Error
+							taskDir := filepath.Join(getTasksDir(repoRoot), taskID)
+							_ = saveTaskFile(taskDir, completedTask)
+							taskMu.Lock()
+							if manifest, err := m.loadManifest(repoRoot); err == nil {
+								manifest.Tasks[taskID] = *completedTask
+								_ = m.saveManifest(repoRoot, manifest)
+							}
+							taskMu.Unlock()
+						}
+					}
+				}
+
 				if res.Status != StatusCompleted || strings.TrimSpace(res.Diff) == "" {
 					if logs, err := m.GetTaskLogs(repoRoot, taskID, 1000); err == nil && len(logs) > 0 {
 						res.LogTail = string(logs)
@@ -840,7 +905,9 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 	sort.Strings(conflictingFiles)
 
 	overallStatus := "completed"
-	if planCtx.Err() == context.DeadlineExceeded {
+	if failedCount == 0 && succeededCount > 0 {
+		overallStatus = "completed"
+	} else if planCtx.Err() == context.DeadlineExceeded {
 		overallStatus = "timeout"
 	} else if planCtx.Err() == context.Canceled {
 		overallStatus = "cancelled"

@@ -999,3 +999,102 @@ func TestExecutePlanPersistsRunArtifact(t *testing.T) {
 	}
 	_ = result
 }
+
+func TestExecutePlanVerifyOnTimeout(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev1")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	t.Run("recovers as completed when verify succeeds", func(t *testing.T) {
+		req := PlanRequest{
+			PlanID:   "plan-verify-timeout-success",
+			RepoPath: repoDir,
+			Workers:  1,
+			Timeout:  "500ms",
+			Subtasks: []SubtaskSpec{
+				{
+					ID:      "subtask-slow-success",
+					Profile: "dev1",
+					Command: "sh",
+					Args:    []string{"-c", "echo 'recovered content' > recovered.txt && sleep 10"},
+					Verify:  "cat recovered.txt",
+				},
+			},
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		result, err := taskMgr.ExecutePlan(ctx, req)
+		if err != nil {
+			t.Fatalf("ExecutePlan failed: %v", err)
+		}
+
+		if result.Status != "completed" {
+			t.Errorf("expected plan status 'completed', got %q", result.Status)
+		}
+		if len(result.Subtasks) != 1 {
+			t.Fatalf("expected 1 subtask result, got %d", len(result.Subtasks))
+		}
+
+		stRes := result.Subtasks[0]
+		if stRes.Status != StatusCompleted {
+			t.Errorf("expected subtask status 'completed', got %q (error: %s)", stRes.Status, stRes.Error)
+		}
+		if stRes.ExitCode != 0 {
+			t.Errorf("expected exit code 0, got %d", stRes.ExitCode)
+		}
+		if stRes.VerificationExitCode != 0 {
+			t.Errorf("expected verification exit code 0, got %d", stRes.VerificationExitCode)
+		}
+		if !strings.Contains(stRes.VerificationOutput, "recovered content") {
+			t.Errorf("expected verification output to contain 'recovered content', got %q", stRes.VerificationOutput)
+		}
+		if !strings.Contains(stRes.Diff, "recovered.txt") {
+			t.Errorf("expected diff to contain 'recovered.txt', got:\n%s", stRes.Diff)
+		}
+	})
+
+	t.Run("audit fails when verify fails on timeout", func(t *testing.T) {
+		req := PlanRequest{
+			PlanID:   "plan-verify-timeout-failure",
+			RepoPath: repoDir,
+			Workers:  1,
+			Timeout:  "500ms",
+			Subtasks: []SubtaskSpec{
+				{
+					ID:      "subtask-slow-fail",
+					Profile: "dev1",
+					Command: "sh",
+					Args:    []string{"-c", "echo 'partial content' > unverified.txt && sleep 10"},
+					Verify:  "sh -c 'echo \"test failed\" >&2 && exit 1'",
+				},
+			},
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		result, err := taskMgr.ExecutePlan(ctx, req)
+		if err != nil {
+			t.Fatalf("ExecutePlan failed: %v", err)
+		}
+
+		if result.Status != "timeout" {
+			t.Errorf("expected plan status 'timeout', got %q", result.Status)
+		}
+		if len(result.Subtasks) != 1 {
+			t.Fatalf("expected 1 subtask result, got %d", len(result.Subtasks))
+		}
+
+		stRes := result.Subtasks[0]
+		if stRes.Status != StatusAuditFailed {
+			t.Errorf("expected subtask status 'audit_failed', got %q", stRes.Status)
+		}
+		if stRes.VerificationExitCode != 1 {
+			t.Errorf("expected verification exit code 1, got %d", stRes.VerificationExitCode)
+		}
+	})
+}
