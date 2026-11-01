@@ -48,12 +48,14 @@ var (
 	dpPlanRepo        string
 	dpPlanApplyAtomic bool
 	dpPlanOmitDiff    bool
+	dpPlanFull        bool
 	dpWaveTag         string
 	dpWaveFile        string
 	dpWaveRepo        string
 	dpWaveTimeout     string
 	dpWaveNoRetry     bool
 	dpWaveLint        bool
+	dpWaveFull        bool
 	dpRunProfile      string
 	dpRunRepo     string
 	dpSandbox     bool
@@ -218,6 +220,7 @@ git worktrees, returning a unified summary of execution status and diffs. Use '-
 	planSubCmd.Flags().StringVar(&dpPlanRepo, "repo", "", "Target git repository directory")
 	planSubCmd.Flags().BoolVar(&dpPlanApplyAtomic, "apply-atomic", false, "Atomically apply diffs to base repo after completion")
 	planSubCmd.Flags().BoolVar(&dpPlanOmitDiff, "omit-diff", false, "Omit diff bodies in output for token efficiency")
+	planSubCmd.Flags().BoolVar(&dpPlanFull, "full", false, "Output full verbose plan result including prompts and diffs")
 
 	// Wave Subcommand
 	waveSubCmd := &cobra.Command{
@@ -234,6 +237,7 @@ and execute them in parallel or sequence with automatic profile and quota routin
 	waveSubCmd.Flags().StringVar(&dpWaveTimeout, "timeout", "4m", "Execution timeout duration (e.g. 4m, 300s)")
 	waveSubCmd.Flags().BoolVar(&dpWaveNoRetry, "no-retry", false, "Disable automatic retry of failed subtasks")
 	waveSubCmd.Flags().BoolVar(&dpWaveLint, "lint", false, "Validate task wave specifications against governance lint rules without executing")
+	waveSubCmd.Flags().BoolVar(&dpWaveFull, "full", false, "Output full verbose wave execution result including subtask prompts and diffs")
 
 	// Apply Subcommand
 	applySubCmd := &cobra.Command{
@@ -975,6 +979,7 @@ func runDispatchPlan(cmd *cobra.Command, args []string) error {
 		dpPlanRepo = ""
 		dpPlanApplyAtomic = false
 		dpPlanOmitDiff = false
+		dpPlanFull = false
 		dpJSON = false
 	}()
 
@@ -1024,9 +1029,13 @@ func runDispatchPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	if dpJSON {
+		outResult := result
+		if !dpPlanFull {
+			outResult = result.ToCompact()
+		}
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return enc.Encode(outResult)
 	}
 
 	statusStr := dpGreen(result.Status)
@@ -1086,6 +1095,7 @@ func runDispatchWave(cmd *cobra.Command, args []string) error {
 		dpWaveTimeout = ""
 		dpWaveNoRetry = false
 		dpWaveLint = false
+		dpWaveFull = false
 		dpJSON = false
 	}()
 
@@ -1170,17 +1180,25 @@ func runDispatchWave(cmd *cobra.Command, args []string) error {
 	result, err := mgr.ExecuteTaskWave(cmd.Context(), opts)
 	if err != nil {
 		if result != nil && dpJSON {
+			outResult := result
+			if !dpWaveFull {
+				outResult = result.ToCompact()
+			}
 			enc := json.NewEncoder(out)
 			enc.SetIndent("", "  ")
-			_ = enc.Encode(result)
+			_ = enc.Encode(outResult)
 		}
 		return err
 	}
 
 	if dpJSON {
+		outResult := result
+		if !dpWaveFull {
+			outResult = result.ToCompact()
+		}
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return enc.Encode(outResult)
 	}
 
 	statusStr := dpGreen(result.WaveStatus)

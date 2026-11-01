@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -863,4 +864,138 @@ func TestClassifySubtaskFailure(t *testing.T) {
 			t.Errorf("subtask %q: FailureReason = %q, want %q (status=%s, err=%q)", st.ID, st.FailureReason, want, st.Status, st.Error)
 		}
 	}
+}
+
+func TestPlanResultToCompact(t *testing.T) {
+	planRes := &PlanResult{
+		PlanID: "plan-compact-test",
+		Subtasks: []SubtaskResult{
+			{
+				ID:     "st-1",
+				Prompt: "do task 1 with very long prompt...",
+				Diff:   "diff --git a/file1.go b/file1.go\n...",
+			},
+			{
+				ID:     "st-2",
+				Prompt: "do task 2",
+				Diff:   "diff --git a/file2.go b/file2.go\n...",
+			},
+		},
+		UnifiedSummary: UnifiedDiffSummary{
+			TotalFilesChanged: 2,
+			CombinedDiff:      "combined diff content...",
+		},
+	}
+
+	compact := planRes.ToCompact()
+	if compact == nil {
+		t.Fatal("expected non-nil compact plan result")
+	}
+
+	// Verify original is not modified
+	if planRes.Subtasks[0].Prompt == "" || planRes.Subtasks[0].Diff == "" || planRes.UnifiedSummary.CombinedDiff == "" {
+		t.Errorf("original plan result should not be mutated")
+	}
+
+	// Verify compact clears prompts and diffs
+	if compact.PlanID != "plan-compact-test" {
+		t.Errorf("expected plan ID to be preserved, got %q", compact.PlanID)
+	}
+	if compact.UnifiedSummary.CombinedDiff != "" {
+		t.Errorf("expected CombinedDiff to be cleared, got %q", compact.UnifiedSummary.CombinedDiff)
+	}
+	for i, st := range compact.Subtasks {
+		if st.Prompt != "" {
+			t.Errorf("subtask %d: expected empty Prompt, got %q", i, st.Prompt)
+		}
+		if st.Diff != "" {
+			t.Errorf("subtask %d: expected empty Diff, got %q", i, st.Diff)
+		}
+	}
+}
+
+func TestWaveExecutionResultToCompact(t *testing.T) {
+	waveRes := &WaveExecutionResult{
+		WaveStatus: "completed",
+		WaveTag:    "W1",
+		Tasks: []SubtaskResult{
+			{
+				ID:     "task-1",
+				Prompt: "prompt 1",
+				Diff:   "diff 1",
+			},
+		},
+	}
+
+	compact := waveRes.ToCompact()
+	if compact == nil {
+		t.Fatal("expected non-nil compact result")
+	}
+	if waveRes.Tasks[0].Prompt == "" || waveRes.Tasks[0].Diff == "" {
+		t.Errorf("original wave result should not be mutated")
+	}
+	if compact.Tasks[0].Prompt != "" || compact.Tasks[0].Diff != "" {
+		t.Errorf("compact wave result should have empty prompt and diff")
+	}
+}
+
+func TestExecutePlanPersistsRunArtifact(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfiles(t, "dev1")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	planID := "plan-run-persist-test"
+	req := PlanRequest{
+		PlanID:   planID,
+		RepoPath: repoDir,
+		Workers:  1,
+		Subtasks: []SubtaskSpec{
+			{
+				ID:      "st-1",
+				Profile: "dev1",
+				Prompt:  "echo test run artifact",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'hello' > run_test.txt && git add -A"},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	result, err := taskMgr.ExecutePlan(ctx, req)
+	if err != nil {
+		t.Fatalf("ExecutePlan failed: %v", err)
+	}
+
+	runFile := filepath.Join(repoDir, ".multigravity", "runs", planID+".json")
+	data, err := os.ReadFile(runFile)
+	if err != nil {
+		t.Fatalf("failed to read persisted run artifact at %s: %v", runFile, err)
+	}
+
+	var persisted PlanResult
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("failed to unmarshal persisted run artifact: %v", err)
+	}
+
+	if persisted.PlanID != planID {
+		t.Errorf("expected persisted plan ID %q, got %q", planID, persisted.PlanID)
+	}
+	if len(persisted.Subtasks) != 1 {
+		t.Fatalf("expected 1 subtask, got %d", len(persisted.Subtasks))
+	}
+	// Verify run artifact is complete and uncompacted (has prompt and diff)
+	if persisted.Subtasks[0].Prompt == "" {
+		t.Errorf("expected persisted subtask to retain prompt")
+	}
+	if persisted.Subtasks[0].Diff == "" {
+		t.Errorf("expected persisted subtask to retain diff")
+	}
+	if persisted.UnifiedSummary.CombinedDiff == "" {
+		t.Errorf("expected persisted unified summary to retain CombinedDiff")
+	}
+	_ = result
 }

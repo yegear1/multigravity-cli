@@ -116,6 +116,31 @@ type PlanResult struct {
 	UnifiedSummary  UnifiedDiffSummary `json:"unified_summary"`
 }
 
+// ToCompact returns a copy of PlanResult where each SubtaskResult has Prompt: "" and Diff: "",
+// and UnifiedSummary.CombinedDiff is empty, omitting prompt dumps and raw diffs.
+func (p *PlanResult) ToCompact() *PlanResult {
+	if p == nil {
+		return nil
+	}
+	compact := *p
+	if len(p.Subtasks) > 0 {
+		compact.Subtasks = make([]SubtaskResult, len(p.Subtasks))
+		for i, st := range p.Subtasks {
+			stCopy := st
+			stCopy.Prompt = ""
+			stCopy.Diff = ""
+			compact.Subtasks[i] = stCopy
+		}
+	}
+	compact.UnifiedSummary.CombinedDiff = ""
+	return &compact
+}
+
+// Compact is an alias for ToCompact.
+func (p *PlanResult) Compact() *PlanResult {
+	return p.ToCompact()
+}
+
 func hasLineRangeSlice(entries []string) bool {
 	return quota.HasLineRangedRead(entries)
 }
@@ -858,6 +883,16 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 	planFile := filepath.Join(plansDir, planID+".json")
 	if data, err := json.MarshalIndent(planResult, "", "  "); err == nil {
 		_ = os.WriteFile(planFile, append(data, '\n'), 0644)
+	}
+
+	// Persist complete run artifact to <repoRoot>/.multigravity/runs/<plan_id>.json
+	if repoRoot != "" {
+		runsDir := filepath.Join(repoRoot, ".multigravity", "runs")
+		_ = os.MkdirAll(runsDir, 0755)
+		runFile := filepath.Join(runsDir, planID+".json")
+		if data, err := json.MarshalIndent(planResult, "", "  "); err == nil {
+			_ = os.WriteFile(runFile, append(data, '\n'), 0644)
+		}
 	}
 
 	return planResult, nil
