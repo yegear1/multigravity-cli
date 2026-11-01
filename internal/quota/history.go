@@ -20,6 +20,7 @@ const (
 	SourceQuota    = "quota"
 	SourceGateway  = "gateway"
 	SourceHeadless = "headless"
+	SourceCooldown = "cooldown"
 
 	historyFileName       = "quota-history.jsonl"
 	maxHistorySamples     = 2000
@@ -53,13 +54,14 @@ type TokenPoint struct {
 
 // Sample is one row in the per-profile quota and token series.
 type Sample struct {
-	Timestamp time.Time     `json:"timestamp"`
-	Profile   string        `json:"profile"`
-	Source    string        `json:"source"`
-	TraceID   string        `json:"trace_id,omitempty"`
-	TaskID    string        `json:"task_id,omitempty"`
-	Buckets   []BucketPoint `json:"buckets,omitempty"`
-	Tokens    *TokenPoint   `json:"tokens,omitempty"`
+	Timestamp     time.Time     `json:"timestamp"`
+	Profile       string        `json:"profile"`
+	Source        string        `json:"source"`
+	TraceID       string        `json:"trace_id,omitempty"`
+	TaskID        string        `json:"task_id,omitempty"`
+	CooldownUntil string        `json:"cooldown_until,omitempty"`
+	Buckets       []BucketPoint `json:"buckets,omitempty"`
+	Tokens        *TokenPoint   `json:"tokens,omitempty"`
 }
 
 // HistoryQuery filters the stored series.
@@ -220,7 +222,7 @@ func ParseHistoryQuery(sinceRaw, untilRaw, sourceRaw, limitRaw string) (HistoryQ
 	}
 	sourceRaw = strings.TrimSpace(sourceRaw)
 	switch sourceRaw {
-	case "", SourceQuota, SourceGateway, SourceHeadless:
+	case "", SourceQuota, SourceGateway, SourceHeadless, SourceCooldown:
 		q.Source = sourceRaw
 	default:
 		return HistoryQuery{}, fmt.Errorf("invalid source %q", sourceRaw)

@@ -1,7 +1,11 @@
 package quota
 
-import "testing"
-import "time"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
 
 func TestRoutingFractionUsesTightestWindow(t *testing.T) {
 	now := time.Date(2026, 9, 27, 3, 0, 0, 0, time.UTC)
@@ -882,5 +886,47 @@ func TestSafetyThresholdForModel(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("SafetyThresholdForModel(%q, %q) = %v, want %v", tt.model, tt.weight, got, tt.expected)
 		}
+	}
+}
+
+func TestParseQuotaResetDurationAndPersistentCooldown(t *testing.T) {
+	dur := ParseQuotaResetDuration("error: Individual quota reached. Resets in 151h56m34s.\r\n", 5*time.Minute)
+	expected, _ := time.ParseDuration("151h56m34s")
+	if dur != expected {
+		t.Errorf("expected parsed duration %v, got %v", expected, dur)
+	}
+
+	fallbackDur := ParseQuotaResetDuration("some generic 429 error without reset window", 5*time.Minute)
+	if fallbackDur != 5*time.Minute {
+		t.Errorf("expected fallback duration 5m, got %v", fallbackDur)
+	}
+
+	home := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", home)
+	prof := "cd-persist-prof"
+	if err := os.MkdirAll(filepath.Join(home, prof), 0755); err != nil {
+		t.Fatalf("failed to create test profile dir: %v", err)
+	}
+
+	RecordProfileCooldown(prof, 10*time.Minute)
+	defer RecordProfileCooldown(prof, 0)
+
+	// Simulate fresh CLI invocation by clearing in-memory map
+	profileCooldownMu.Lock()
+	delete(profileCooldowns, prof)
+	profileCooldownMu.Unlock()
+
+	if !IsProfileOnCooldown(prof) {
+		t.Errorf("expected IsProfileOnCooldown(%q) to reload active cooldown from quota-history.jsonl", prof)
+	}
+
+	// Clearing cooldown persists cleared state
+	RecordProfileCooldown(prof, 0)
+	profileCooldownMu.Lock()
+	delete(profileCooldowns, prof)
+	profileCooldownMu.Unlock()
+
+	if IsProfileOnCooldown(prof) {
+		t.Errorf("expected IsProfileOnCooldown(%q) to be false after clearing cooldown", prof)
 	}
 }

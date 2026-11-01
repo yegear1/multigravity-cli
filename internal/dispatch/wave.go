@@ -382,7 +382,8 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 			retryModel := currentModel
 			if res.FailureReason == "rate_limited" {
 				if res.Profile != "" {
-					quota.RecordProfileCooldown(res.Profile, 5*time.Minute)
+					dur := quota.ParseQuotaResetDuration(res.LogTail+"\n"+res.Error, 5*time.Minute)
+					quota.RecordProfileCooldown(res.Profile, dur)
 				}
 				// retry with the SAME model on an alternate profile (do not escalate model)
 				retryModel = currentModel

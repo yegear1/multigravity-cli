@@ -756,34 +756,90 @@ var (
 	profileCooldowns  = make(map[string]time.Time)
 )
 
-// RecordProfileCooldown records a cooldown duration for a profile, preventing it from being selected during preflight.
+// ParseQuotaResetDuration extracts a reset duration from provider rate-limit error messages
+// (e.g., "Resets in 151h56m34s" or "Resets in 45m10s."), defaulting to fallback when absent or invalid.
+func ParseQuotaResetDuration(logText string, fallback time.Duration) time.Duration {
+	idx := strings.Index(strings.ToLower(logText), "resets in ")
+	if idx != -1 {
+		rest := strings.TrimSpace(logText[idx+len("resets in "):])
+		var token strings.Builder
+		for i := 0; i < len(rest); i++ {
+			ch := rest[i]
+			if (ch >= '0' && ch <= '9') || ch == 'h' || ch == 'm' || ch == 's' || ch == '.' {
+				token.WriteByte(ch)
+			} else {
+				break
+			}
+		}
+		durStr := strings.TrimRight(token.String(), ".")
+		if durStr != "" {
+			if d, err := time.ParseDuration(durStr); err == nil && d > 0 {
+				return d
+			}
+		}
+	}
+	return fallback
+}
+
+// RecordProfileCooldown records a cooldown duration for a profile in memory and persists it
+// to the profile's quota-history.jsonl so separate CLI invocations respect active 429 cooldowns.
 func RecordProfileCooldown(profile string, duration time.Duration) {
 	prof := strings.TrimSpace(profile)
 	if prof == "" {
 		return
 	}
 	profileCooldownMu.Lock()
-	defer profileCooldownMu.Unlock()
 	if duration <= 0 {
 		delete(profileCooldowns, prof)
+		profileCooldownMu.Unlock()
+		_ = appendSample(prof, Sample{
+			Timestamp:     historyNow().UTC(),
+			Profile:       prof,
+			Source:        SourceCooldown,
+			CooldownUntil: time.Time{}.UTC().Format(time.RFC3339),
+		})
 		return
 	}
-	profileCooldowns[prof] = time.Now().Add(duration)
+	until := time.Now().UTC().Add(duration)
+	profileCooldowns[prof] = until
+	profileCooldownMu.Unlock()
+
+	_ = appendSample(prof, Sample{
+		Timestamp:     historyNow().UTC(),
+		Profile:       prof,
+		Source:        SourceCooldown,
+		CooldownUntil: until.Format(time.RFC3339),
+	})
 }
 
-// IsProfileOnCooldown reports whether the profile is currently under an active cooldown.
+// IsProfileOnCooldown reports whether the profile is currently under an active cooldown,
+// checking in-memory state first and falling back to the latest cooldown sample in quota-history.jsonl.
 func IsProfileOnCooldown(profile string) bool {
 	prof := strings.TrimSpace(profile)
 	if prof == "" {
 		return false
 	}
+	now := time.Now()
 	profileCooldownMu.RLock()
-	defer profileCooldownMu.RUnlock()
 	until, ok := profileCooldowns[prof]
-	if !ok {
-		return false
+	profileCooldownMu.RUnlock()
+	if ok {
+		return now.Before(until)
 	}
-	return time.Now().Before(until)
+
+	samples, err := readSamples(prof, HistoryQuery{Source: SourceCooldown, Limit: 5})
+	if err == nil && len(samples) > 0 {
+		last := samples[len(samples)-1]
+		if last.CooldownUntil != "" {
+			if parsed, pErr := time.Parse(time.RFC3339, last.CooldownUntil); pErr == nil {
+				profileCooldownMu.Lock()
+				profileCooldowns[prof] = parsed
+				profileCooldownMu.Unlock()
+				return now.Before(parsed)
+			}
+		}
+	}
+	return false
 }
 
 // PreflightProfilesForModel discovers running servers, scores each for the requested model's bucket group,

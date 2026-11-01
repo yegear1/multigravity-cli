@@ -560,7 +560,23 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 
 				dArgs := append([]string(nil), st.Args...)
 				cmd := strings.TrimSpace(st.Command)
-				if (cmd == "" || cmd == "agy") && resolvedModel != "" {
+				effectiveAgentType := strings.ToLower(strings.TrimSpace(st.AgentType))
+				if cmd == "" && effectiveAgentType == "" {
+					effectiveAgentType = DiscoverInstalledAgent()
+				}
+				isAgy := cmd == "agy" || strings.HasSuffix(cmd, "/agy") || effectiveAgentType == "agy"
+				if (cmd == "" || isAgy) && resolvedModel != "" {
+					if resolvedPrompt != "" && !hasFlag(dArgs, "-p", "--prompt") {
+						dArgs = append([]string{"-p", resolvedPrompt}, dArgs...)
+					}
+					if isAgy {
+						if !hasFlag(dArgs, "--dangerously-skip-permissions") {
+							dArgs = append(dArgs, "--dangerously-skip-permissions")
+						}
+						if !hasFlag(dArgs, "--disable-slash-commands") {
+							dArgs = append(dArgs, "--disable-slash-commands")
+						}
+					}
 					hasModel := false
 					for _, arg := range dArgs {
 						if arg == "--model" || strings.HasPrefix(arg, "--model=") {
@@ -570,6 +586,16 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					}
 					if !hasModel {
 						dArgs = append(dArgs, "--model", resolvedModel)
+					}
+				} else if isAgy {
+					if resolvedPrompt != "" && !hasFlag(dArgs, "-p", "--prompt") {
+						dArgs = append([]string{"-p", resolvedPrompt}, dArgs...)
+					}
+					if !hasFlag(dArgs, "--dangerously-skip-permissions") {
+						dArgs = append(dArgs, "--dangerously-skip-permissions")
+					}
+					if !hasFlag(dArgs, "--disable-slash-commands") {
+						dArgs = append(dArgs, "--disable-slash-commands")
 					}
 				}
 
@@ -717,6 +743,10 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 
 				if res.Status != StatusCompleted || res.ExitCode != 0 {
 					res.FailureReason = ClassifySubtaskFailure(res)
+					if res.FailureReason == "rate_limited" && res.Profile != "" {
+						dur := quota.ParseQuotaResetDuration(res.LogTail+"\n"+res.Error, 5*time.Minute)
+						quota.RecordProfileCooldown(res.Profile, dur)
+					}
 				}
 
 				res.TokensUsed = quota.EstimateTokens(res.Prompt + res.LogTail + res.Diff)
