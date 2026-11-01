@@ -575,7 +575,7 @@ func markTasksCompletedInFile(filePath string, commitMap map[string]string) erro
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "## ") {
-			inBacklog = (trimmed == "## Backlog")
+			inBacklog = strings.HasPrefix(trimmed, "## Backlog")
 		}
 
 		if taskItemRegex.MatchString(trimmed) {

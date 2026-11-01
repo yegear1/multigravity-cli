@@ -7,14 +7,14 @@
 
 ## Active Task
 
-### Queue Empty — Awaiting Next Ideation
+### [06.5] Profile-aware concurrency throttling
 - Status: READY FOR PLANNING
 - Priority: P1
 - Model: `gemini-3.8-flash-medium`
-- Read: `internal/dispatch/plan.go:500-600`
+- Read: `internal/dispatch/plan.go:490-545`
 - Paths: `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
-- Verify: `go test -v ./internal/dispatch -run TestExecutePlanVerifyOnTimeout`
-- Description: In `ExecutePlan`, on context deadline expiration or subtask timeout, before cancelling the task, run the verification command inside the worktree if a non-empty diff exists on allowed paths; if verification exits 0, recover the subtask as completed (`RecoveredFromTimeout = true`) and apply its diff.
+- Verify: `go test -v ./internal/dispatch -run TestProfileAwareConcurrency`
+- Description: Clamp workers to `min(req.Workers, activeEligibleProfiles)` to prevent single-profile starvation.
 
 ---
 
