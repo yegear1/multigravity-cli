@@ -638,3 +638,208 @@ func TestSelectEligibleProfilesForModel(t *testing.T) {
 		t.Fatal("expected error when no server has argon bucket, got nil")
 	}
 }
+
+func TestProfileCooldown(t *testing.T) {
+	prof := "test-cooldown-profile"
+	t.Cleanup(func() {
+		RecordProfileCooldown(prof, 0)
+	})
+
+	if IsProfileOnCooldown(prof) {
+		t.Fatalf("expected profile %q not to be on cooldown initially", prof)
+	}
+
+	RecordProfileCooldown(prof, 10*time.Minute)
+	if !IsProfileOnCooldown(prof) {
+		t.Fatalf("expected profile %q to be on active cooldown", prof)
+	}
+	if !IsProfileOnCooldown("  " + prof + "  ") {
+		t.Fatalf("expected trimmed profile %q to be on active cooldown", prof)
+	}
+
+	// Clearing cooldown with 0 duration
+	RecordProfileCooldown(prof, 0)
+	if IsProfileOnCooldown(prof) {
+		t.Fatalf("expected cooldown for %q to be cleared", prof)
+	}
+
+	// Negative duration should not be on cooldown
+	RecordProfileCooldown(prof, -1*time.Minute)
+	if IsProfileOnCooldown(prof) {
+		t.Fatalf("expected negative cooldown for %q to return false", prof)
+	}
+}
+
+func TestPreflightProfilesForModelFromCandidates(t *testing.T) {
+	p1 := "preflight-p1"
+	p2 := "preflight-p2"
+	p3 := "preflight-p3"
+	t.Cleanup(func() {
+		RecordProfileCooldown(p1, 0)
+		RecordProfileCooldown(p2, 0)
+		RecordProfileCooldown(p3, 0)
+	})
+
+	t.Run("default safety threshold (0.20) rejects low quota", func(t *testing.T) {
+		candidates := []RouteCandidate{
+			{Profile: p1, RemainingFraction: 0.15, Eligible: true, Score: 150},
+			{Profile: p2, RemainingFraction: 0.40, Eligible: true, Score: 400},
+		}
+
+		selected, err := PreflightProfilesForModelFromCandidates(candidates, 2, "gemini-2.5-pro", 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(selected) != 1 || selected[0].Profile != p2 {
+			t.Fatalf("expected only %s above default 0.20 threshold, got %+v", p2, selected)
+		}
+	})
+
+	t.Run("rejects active 429 cooldown", func(t *testing.T) {
+		candidates := []RouteCandidate{
+			{Profile: p1, RemainingFraction: 0.50, Eligible: true, Score: 500},
+			{Profile: p2, RemainingFraction: 0.40, Eligible: true, Score: 400},
+		}
+
+		RecordProfileCooldown(p1, 5*time.Minute)
+		defer RecordProfileCooldown(p1, 0)
+
+		selected, err := PreflightProfilesForModelFromCandidates(candidates, 2, "gemini-2.5-pro", 0.20)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(selected) != 1 || selected[0].Profile != p2 {
+			t.Fatalf("expected %s on cooldown to be skipped, got %+v", p1, selected)
+		}
+	})
+
+	t.Run("custom minFraction threshold", func(t *testing.T) {
+		candidates := []RouteCandidate{
+			{Profile: p1, RemainingFraction: 0.25, Eligible: true, Score: 250},
+			{Profile: p2, RemainingFraction: 0.45, Eligible: true, Score: 450},
+		}
+
+		// minFraction 0.30 should reject p1
+		selected, err := PreflightProfilesForModelFromCandidates(candidates, 2, "gemini-2.5-pro", 0.30)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(selected) != 1 || selected[0].Profile != p2 {
+			t.Fatalf("expected only %s above 0.30, got %+v", p2, selected)
+		}
+
+		// minFraction 0.50 should reject both and return error
+		_, err = PreflightProfilesForModelFromCandidates(candidates, 2, "gemini-2.5-pro", 0.50)
+		if err == nil {
+			t.Fatal("expected error when no candidates meet minFraction 0.50, got nil")
+		}
+	})
+
+	t.Run("fallback to excluded profiles", func(t *testing.T) {
+		candidates := []RouteCandidate{
+			{Profile: p1, RemainingFraction: 0.10, Eligible: true, Score: 100}, // below threshold
+			{Profile: p2, RemainingFraction: 0.60, Eligible: true, Score: 600}, // excluded but healthy
+		}
+
+		// p1 is rejected due to threshold; p2 is excluded but serves as fallback
+		selected, err := PreflightProfilesForModelFromCandidates(candidates, 1, "gemini-2.5-pro", 0.20, p2)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(selected) != 1 || selected[0].Profile != p2 {
+			t.Fatalf("expected fallback to %s, got %+v", p2, selected)
+		}
+	})
+
+	t.Run("ineligible candidates are rejected", func(t *testing.T) {
+		candidates := []RouteCandidate{
+			{Profile: p1, RemainingFraction: 0.80, Eligible: false, Score: -1000},
+		}
+
+		_, err := PreflightProfilesForModelFromCandidates(candidates, 1, "gemini-2.5-pro", 0.20)
+		if err == nil {
+			t.Fatal("expected error when candidate is ineligible, got nil")
+		}
+	})
+}
+
+func TestPreflightProfilesForModel(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	profHealthy := "preflight-srv-healthy"
+	profLow := "preflight-srv-low"
+	profCooldown := "preflight-srv-cooldown"
+
+	t.Cleanup(func() {
+		RecordProfileCooldown(profCooldown, 0)
+	})
+
+	cleanup := SetTestHooks(func(targetProf string) ([]ActiveServer, error) {
+		return []ActiveServer{
+			{
+				Profile:    profHealthy,
+				QuotaKnown: true,
+				Data: &QuotaSummaryResponse{
+					Response: QuotaResponse{
+						Groups: []QuotaGroup{{
+							DisplayName: "Gemini",
+							Buckets: []QuotaBucket{
+								{BucketID: "gemini-weekly", RemainingFraction: 0.75, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+								{BucketID: "gemini-5h", RemainingFraction: 0.80, ResetTime: now.Add(3 * time.Hour).Format(time.RFC3339)},
+							},
+						}},
+					},
+				},
+			},
+			{
+				Profile:    profLow,
+				QuotaKnown: true,
+				Data: &QuotaSummaryResponse{
+					Response: QuotaResponse{
+						Groups: []QuotaGroup{{
+							DisplayName: "Gemini",
+							Buckets: []QuotaBucket{
+								{BucketID: "gemini-weekly", RemainingFraction: 0.12, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+								{BucketID: "gemini-5h", RemainingFraction: 0.15, ResetTime: now.Add(3 * time.Hour).Format(time.RFC3339)},
+							},
+						}},
+					},
+				},
+			},
+			{
+				Profile:    profCooldown,
+				QuotaKnown: true,
+				Data: &QuotaSummaryResponse{
+					Response: QuotaResponse{
+						Groups: []QuotaGroup{{
+							DisplayName: "Gemini",
+							Buckets: []QuotaBucket{
+								{BucketID: "gemini-weekly", RemainingFraction: 0.70, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+								{BucketID: "gemini-5h", RemainingFraction: 0.70, ResetTime: now.Add(3 * time.Hour).Format(time.RFC3339)},
+							},
+						}},
+					},
+				},
+			},
+		}, nil
+	})
+	defer cleanup()
+
+	RecordProfileCooldown(profCooldown, 5*time.Minute)
+
+	selected, err := PreflightProfilesForModel(3, "gemini-2.5-pro", WeightMedium, 0.20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(selected) != 1 || selected[0].Profile != profHealthy {
+		t.Fatalf("expected only [%s] to pass preflight (profLow below 0.20, profCooldown on cd), got %+v", profHealthy, selected)
+	}
+
+	// Putting profHealthy on cooldown leaves 0 profiles passing preflight -> should error
+	RecordProfileCooldown(profHealthy, 5*time.Minute)
+	defer RecordProfileCooldown(profHealthy, 0)
+
+	_, err = PreflightProfilesForModel(1, "gemini-2.5-pro", WeightMedium, 0.20)
+	if err == nil {
+		t.Fatal("expected error when all eligible servers are on cooldown or below threshold, got nil")
+	}
+}

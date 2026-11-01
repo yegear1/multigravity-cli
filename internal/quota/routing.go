@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,9 @@ const (
 
 	// CriticalQuotaThreshold defines the depleted quota floor fraction (5%).
 	CriticalQuotaThreshold = MinRemainingFraction
+
+	// DefaultSafetyQuotaThreshold defines the safety quota floor fraction (20%) when minFraction <= 0.
+	DefaultSafetyQuotaThreshold = 0.20
 )
 
 // NormalizeWeight normalizes and validates an empty or custom weight to RouteWeight.
@@ -728,4 +732,129 @@ func SelectEligibleProfilesForModel(count int, model string, weight RouteWeight,
 		return nil, fmt.Errorf("no eligible profiles found for model %s (bucket %s, weight %s)", model, bucketGroup, normWeight)
 	}
 	return selected, nil
+}
+
+var (
+	profileCooldownMu sync.RWMutex
+	profileCooldowns  = make(map[string]time.Time)
+)
+
+// RecordProfileCooldown records a cooldown duration for a profile, preventing it from being selected during preflight.
+func RecordProfileCooldown(profile string, duration time.Duration) {
+	prof := strings.TrimSpace(profile)
+	if prof == "" {
+		return
+	}
+	profileCooldownMu.Lock()
+	defer profileCooldownMu.Unlock()
+	if duration <= 0 {
+		delete(profileCooldowns, prof)
+		return
+	}
+	profileCooldowns[prof] = time.Now().Add(duration)
+}
+
+// IsProfileOnCooldown reports whether the profile is currently under an active cooldown.
+func IsProfileOnCooldown(profile string) bool {
+	prof := strings.TrimSpace(profile)
+	if prof == "" {
+		return false
+	}
+	profileCooldownMu.RLock()
+	defer profileCooldownMu.RUnlock()
+	until, ok := profileCooldowns[prof]
+	if !ok {
+		return false
+	}
+	return time.Now().Before(until)
+}
+
+// PreflightProfilesForModel discovers running servers, scores each for the requested model's bucket group,
+// sorts candidates deterministically, and delegates to PreflightProfilesForModelFromCandidates.
+func PreflightProfilesForModel(count int, model string, weight RouteWeight, minFraction float64, excludeProfiles ...string) ([]RouteCandidate, error) {
+	servers, err := fetchActiveServers("")
+	if err != nil {
+		return nil, fmt.Errorf("fetching active servers: %w", err)
+	}
+
+	bucketGroup := BucketGroupForModel(model)
+	normWeight := NormalizeWeight(weight)
+	now := time.Now()
+
+	bestByProfile := make(map[string]RouteCandidate)
+	for _, srv := range servers {
+		prof := strings.TrimSpace(srv.Profile)
+		if prof == "" || prof == "host" {
+			continue
+		}
+		cand := ScoreServerForBucket(srv, bucketGroup, normWeight, now)
+		existing, found := bestByProfile[prof]
+		if !found || compareCandidates(cand, existing) < 0 {
+			bestByProfile[prof] = cand
+		}
+	}
+
+	candidates := make([]RouteCandidate, 0, len(bestByProfile))
+	for _, cand := range bestByProfile {
+		candidates = append(candidates, cand)
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return compareCandidates(candidates[i], candidates[j]) < 0
+	})
+
+	return PreflightProfilesForModelFromCandidates(candidates, count, model, minFraction, excludeProfiles...)
+}
+
+// PreflightProfilesForModelFromCandidates filters candidates rejecting profiles with RemainingFraction below minFraction
+// (defaulting to DefaultSafetyQuotaThreshold when minFraction <= 0) or currently under active cooldown.
+// It partitions non-excluded profiles first, followed by excluded profiles as fallback, returning up to count candidates.
+func PreflightProfilesForModelFromCandidates(candidates []RouteCandidate, count int, model string, minFraction float64, excludeProfiles ...string) ([]RouteCandidate, error) {
+	if minFraction <= 0 {
+		minFraction = DefaultSafetyQuotaThreshold
+	}
+
+	excludedSet := make(map[string]bool, len(excludeProfiles))
+	for _, p := range excludeProfiles {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			excludedSet[p] = true
+		}
+	}
+
+	var nonExcluded []RouteCandidate
+	var excluded []RouteCandidate
+	seen := make(map[string]bool)
+
+	for _, c := range candidates {
+		if !c.Eligible {
+			continue
+		}
+		prof := strings.TrimSpace(c.Profile)
+		if prof == "" || seen[prof] {
+			continue
+		}
+		if c.RemainingFraction < minFraction {
+			continue
+		}
+		if IsProfileOnCooldown(prof) {
+			continue
+		}
+		seen[prof] = true
+
+		if excludedSet[prof] {
+			excluded = append(excluded, c)
+		} else {
+			nonExcluded = append(nonExcluded, c)
+		}
+	}
+
+	combined := append(nonExcluded, excluded...)
+	if count > 0 && len(combined) > count {
+		combined = combined[:count]
+	}
+	if len(combined) == 0 {
+		return nil, fmt.Errorf("no eligible profiles meet preflight threshold %.2f for model %s", minFraction, model)
+	}
+	return combined, nil
 }
