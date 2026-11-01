@@ -75,6 +75,7 @@ Decompose engineering objectives into a Directed Acyclic Graph (DAG) with explic
 1. **Disjoint Scope Rule:** Parallel worker nodes scheduled concurrently MUST have mutually exclusive file sets. If Node A touches `pkg/foo`, Node B MUST NOT touch `pkg/foo`.
 2. **Contract-First Rule:** If Node B depends on interfaces produced by Node A, Node A MUST complete and publish interface schemas or stubs before Node B is dispatched.
 3. **Fail-Fast Barrier:** If any node in Stage $N$ fails its internal test suite, all dependent nodes in Stage $N+1$ MUST be paused or cancelled immediately.
+4. **Micro-Contract Rule:** Subtask prompts MUST define explicit `Read: / Paths: / Verify:` boundaries and instruct workers not to explore the repository or run baseline tests before editing.
 
 ## 5. Quota-Aware Profile Routing Matrix
 
@@ -109,7 +110,12 @@ A git diff that will be merged uses `dispatch` in every phase below. Any other o
 1. Analyze the user request, affected repositories, and target architectural boundaries.
 2. Identify independent components vs sequential prerequisites.
 3. Partition target file paths into disjoint sets per subtask.
-4. Record the planned DAG in your working memory:
+4. Format subtask prompts using the **`Read: / Paths: / Verify:` Micro-Contract Pattern**:
+   - `Read:` Explicit list of reference files for the worker to read (prevents token-wasting repo-wide grep/find exploration).
+   - `Paths:` Exact mutable file paths permitted for modification (strict blast radius confinement).
+   - `Verify:` Exact verification command to run after editing.
+   - Instruct workers: *"Do NOT explore the repository or run baseline tests prior to editing."*
+5. Record the planned DAG in your working memory:
    - Node ID, Target Profile, Dependent Node IDs (`depends_on`), Disjoint Scope Paths, Prompt Specification.
 
 ### Phase 2: Quota Pre-Flight & Profile Allocation
@@ -156,7 +162,49 @@ A git diff that will be merged uses `dispatch` in every phase below. Any other o
    # Or via REST API:
    # POST /api/v1/dispatch/plans with {"subtasks": [...], "workers": 4}
    ```
+
+   Example `plan.json` stage definition:
+   ```json
+   {
+     "workers": 2,
+     "subtasks": [
+       {
+         "id": "task-01",
+         "profile": "dev1",
+         "paths": ["internal/auth/schema.go"],
+         "args": [
+           "-p",
+           "Read: internal/auth/schema.go\nPaths: internal/auth/schema.go\nVerify: go test ./internal/auth\nDo NOT run baseline tests before editing. Implement user authentication schema.",
+           "--model",
+           "gemini-3.8-flash-low"
+         ],
+         "verify": "go test ./internal/auth"
+       },
+       {
+         "id": "task-02",
+         "profile": "dev2",
+         "paths": ["pkg/client/client.go"],
+         "args": [
+           "-p",
+           "Read: docs/schema.json, pkg/client/client.go\nPaths: pkg/client/client.go\nVerify: go test ./pkg/client\nDo NOT run baseline tests before editing. Implement client SDK types.",
+           "--model",
+           "gemini-3.8-flash-medium"
+         ],
+         "verify": "go test ./pkg/client"
+       }
+     ]
+   }
+   ```
+
+   > [!NOTE]
+   > **Agy Model IDs & Reasoning Effort:** `agy` CLI model IDs already encode the reasoning effort tier suffix (`gemini-3.8-flash-low`, `gemini-3.8-flash-medium`, `gemini-3.8-flash-high`). Do **NOT** pass a conflicting `--effort` flag alongside a tiered `--model` ID.
+
    *`dispatch run` provisions its worktree from the process working directory, so those two commands assume the shell is already in `$REPO`. A different local repository, including one with no `origin`, uses `dispatch plan --repo "$REPO"`. Using `--new-worktree` or `dispatch plan` creates ephemeral directories under `.multigravity/worktrees/<task-id>` without modifying `.gitignore` (tracked safely via `.git/info/exclude`). The plan aggregator synchronizes execution across all worktrees and returns a unified summary of diffs, additions/deletions, and checks disjoint scopes automatically.*
+
+   **Automatic Virtualenv & Toolchain Inheritance:**
+   Ephemeral worktrees automatically inherit the parent repository's toolchain and dependency environments:
+   - **Python / uv (`.venv`):** If `<repo>/.venv` exists, Multigravity automatically sets `UV_PROJECT_ENVIRONMENT=<repo>/.venv`, `VIRTUAL_ENV=<repo>/.venv`, prepends `<repo>/.venv/bin` to `PATH`, and prepends `<worktree>/src:<worktree>` to `PYTHONPATH`. Prepending worktree `src/` to `PYTHONPATH` ensures that modified worktree files take precedence over stale editable install (`.pth`) links in the parent repository's `.venv`.
+   - **Node.js (`node_modules`):** If `<repo>/node_modules` exists, Multigravity sets `NODE_PATH=<repo>/node_modules` and prepends `<repo>/node_modules/.bin` to `PATH`.
 
 ### Phase 4: Monitoring, Progress Tracking & Circuit Breaker
 1. Track running tasks and session status:
@@ -165,13 +213,21 @@ A git diff that will be merged uses `dispatch` in every phase below. Any other o
    # Or inspect specific task:
    multigravity dispatch status <task-id> --json
    ```
-2. Inspect or tail execution logs if progress verification is needed:
+2. **Zero-Bloat Failure Diagnosis (`SubtaskResult`):**
+   When executing plans via `multigravity dispatch plan --json`, `SubtaskResult` surfaces bounded diagnostic fields:
+   - `verification_exit_code`: Numeric exit code of the post-execution verification command.
+   - `verification_output`: Trailing output from the verification run (bounded to $\le 1000$ bytes).
+   - `log_tail`: Trailing execution log (last $\le 1000$ bytes when `status != "completed"`).
+   Orchestrators can diagnose failures directly from the JSON summary without flooding context windows by reading entire log files or agent transcripts.
+3. Inspect or tail execution logs if deeper progress verification is needed:
    ```bash
    multigravity dispatch logs <task-id> --tail 50
    ```
-3. **Circuit Breaker:**
+4. **Plan Timeout & Process Termination:**
+   `ExecutePlan` automatically cancels and terminates active child subtasks and their underlying OS processes if the plan timeout is reached. This prevents orphaned `agy` or `language_server` processes from continuing to run in deleted worktrees or corrupting the main working tree.
+5. **Circuit Breaker:**
    - If a task exits with `status: "failed"`:
-     1. Read execution error from `multigravity dispatch logs <task-id> --tail 100`.
+     1. Read execution error from `SubtaskResult` (`verification_output` or `log_tail`, or `multigravity dispatch logs <task-id> --tail 100`).
      2. If caused by quota/rate-limit, requeue node with an alternate healthy profile.
      3. If caused by implementation or test failure, inspect diff (`multigravity dispatch diff <task-id> --structured`), fix prompt instructions, and retry in a fresh task.
      4. If 2 consecutive failures occur on the same node, HALT DAG execution and escalate to user.
@@ -231,17 +287,27 @@ Merge completed branches back into the target branch following DAG topological o
 
 ## 7. Contrast Pairs
 
-### Task Decomposition
+### Task Decomposition & Micro-Contracts
 ```text
 BAD:
-Assigning a single prompt "refactor the entire codebase and write new tests" to one worker.
-Risk: Context exhaustion, runaway loops, unmanageable diff.
+Assigning an open-ended prompt without scope boundaries:
+"Refactor the entire codebase and write new tests."
+Risk: Worker burns 20,000 thinking tokens running baseline pytest twice, explores irrelevant directories, hits plan timeout.
 
 GOOD:
-Decomposing into DAG:
-Node 1: Extract types and interfaces (Profile: dev1, Scope: internal/types/)
-Node 2: Implement business logic (Profile: dev2, Scope: internal/service/, Depends on: Node 1)
-Node 3: Unit test suite (Profile: dev3, Scope: internal/service/*_test.go, Depends on: Node 2)
+Decomposing into micro-contracts with explicit constraints:
+Node 1:
+Read: internal/types/models.go
+Paths: internal/types/models.go
+Verify: go test ./internal/types
+Prompt: "Do NOT run baseline tests before editing. Extract models and interfaces."
+Model: gemini-3.8-flash-low
+Node 2:
+Read: internal/types/models.go, internal/service/service.go
+Paths: internal/service/service.go
+Verify: go test ./internal/service
+Prompt: "Do NOT run baseline tests before editing. Implement service logic."
+Model: gemini-3.8-flash-medium
 ```
 
 ### Profile Allocation
@@ -267,6 +333,17 @@ REPO=$(git -C /home/user/github/polyglot-terminal rev-parse --show-toplevel)
 multigravity dispatch plan plan.json --repo "$REPO" --json
 ```
 
+### Failure Diagnosis
+```text
+BAD:
+Dumping full run.log or reading entire ~/.gemini/ transcripts when a subtask fails.
+Result: Context window exhausted by thousands of repetitive log lines and internal planner thoughts.
+
+GOOD:
+Inspecting bounded SubtaskResult fields (verification_output, verification_exit_code, log_tail <= 1000 bytes) from multigravity dispatch plan --json.
+Result: Instant, zero-bloat diagnosis of compile errors, test failures, or timeouts.
+```
+
 ### Merge Discipline
 ```bash
 # BAD: Merging worktree branch directly into main without testing in the worktree
@@ -285,10 +362,15 @@ git merge --no-ff task/feature-x -m "feat: merge verified task/feature-x"
 - [ ] Target repository root resolved with `git -C <target> rev-parse --show-toplevel`, and that worktree is clean (`git -C "$REPO" status --porcelain` is empty).
 - [ ] Plan dispatched with `--repo "$REPO"` from the current workspace. `move_agent_to_root` was not used when `origin` is absent.
 - [ ] DAG nodes have mutually disjoint file sets for all concurrent stages.
+- [ ] Subtask prompts follow the `Read: / Paths: / Verify:` micro-contract and prohibit baseline test runs before editing.
+- [ ] Tiered `agy` model IDs (`gemini-3.8-flash-low` or `gemini-3.8-flash-medium`) used without conflicting `--effort` flags.
+- [ ] Ephemeral worktrees leverage automatic `.venv` (`PYTHONPATH` with worktree `src/` precedence) and `node_modules` inheritance.
 - [ ] Target profiles verified to be authenticated (`multigravity login status`) and healthy (`remaining_fraction > 0.05`).
 - [ ] Ephemeral worktrees reside under `.multigravity/worktrees/` and are tracked in `.git/info/exclude`.
 - [ ] Task execution monitored until `completed` status before scheduling dependents.
 - [ ] In-worktree validation tests executed and passed (code 0) prior to merging.
+- [ ] Subtask failures diagnosed using bounded `SubtaskResult` diagnostic fields (`log_tail`, `verification_output` $\le 1000$ bytes).
+- [ ] No orphaned child subtask processes surviving plan timeouts (`ExecutePlan` lifecycle termination).
 - [ ] Merge conducted topologically with explicit commit messages.
 - [ ] Post-merge regression test suite executed cleanly on the base branch.
 - [ ] Completed worktrees and task records deleted via `multigravity dispatch delete <task-id> --worktree`.
