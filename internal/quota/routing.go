@@ -14,7 +14,18 @@ const (
 	WeightLight  RouteWeight = "light"
 	WeightMedium RouteWeight = "medium"
 	WeightHeavy  RouteWeight = "heavy"
+
+	// CriticalQuotaThreshold defines the depleted quota floor fraction (5%).
+	CriticalQuotaThreshold = MinRemainingFraction
 )
+
+// NormalizeWeight normalizes and validates an empty or custom weight to RouteWeight.
+func NormalizeWeight(w RouteWeight) RouteWeight {
+	if w == "" {
+		return WeightMedium
+	}
+	return w
+}
 
 // ParseRouteWeight normalizes and validates a weight parameter
 func ParseRouteWeight(s string) (RouteWeight, error) {
@@ -112,6 +123,22 @@ func EffortForWeight(w RouteWeight) string {
 	}
 }
 
+// fetchActiveServers discovers running language servers and populates their quota summaries.
+func fetchActiveServers(targetProf string) ([]ActiveServer, error) {
+	live, err := FindActiveServers(targetProf)
+	if err != nil {
+		return nil, fmt.Errorf("finding active servers: %w", err)
+	}
+	servers, err := BuildQuotaSummary(targetProf, live)
+	if err != nil {
+		servers = live
+		for i := range servers {
+			servers[i].QuotaKnown = true
+		}
+	}
+	return servers, nil
+}
+
 // RecommendRoute evaluates active servers and generates a deterministic route recommendation
 func RecommendRoute(servers []ActiveServer, weight RouteWeight, now time.Time) RoutePlan {
 	normWeight := weight
@@ -156,6 +183,11 @@ func RecommendRoute(servers []ActiveServer, weight RouteWeight, now time.Time) R
 	}
 
 	return plan
+}
+
+// RecommendRouteFromServers evaluates active servers and generates a deterministic route recommendation.
+func RecommendRouteFromServers(servers []ActiveServer, weight RouteWeight, now time.Time) RoutePlan {
+	return RecommendRoute(servers, weight, now)
 }
 
 func evaluateServer(srv ActiveServer, weight RouteWeight, model string, now time.Time) RouteCandidate {
@@ -402,25 +434,298 @@ func SelectEligibleProfilesFromCandidates(candidates []RouteCandidate, count int
 	return combined
 }
 
+// BucketGroupForModel maps model identifiers to their corresponding quota bucket family:
+// - gemini-4-argon-* or containing "argon" -> "argon"
+// - claude-*, gpt-*, o1-*, o3-*, 3p* -> "3p"
+// - gemini-* or empty "" -> "gemini"
+func BucketGroupForModel(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return "gemini"
+	}
+	if strings.Contains(m, "argon") {
+		return "argon"
+	}
+	if strings.HasPrefix(m, "claude-") ||
+		strings.HasPrefix(m, "gpt-") ||
+		strings.HasPrefix(m, "o1-") ||
+		strings.HasPrefix(m, "o3-") ||
+		strings.HasPrefix(m, "3p") {
+		return "3p"
+	}
+	return "gemini"
+}
+
+// ScoreServerForBucket extracts weekly and 5h quota fractions for target bucketGroup and scores the candidate.
+func ScoreServerForBucket(srv ActiveServer, bucketGroup string, weight RouteWeight, now time.Time) RouteCandidate {
+	if bucketGroup == "" {
+		bucketGroup = "gemini"
+	}
+	normWeight := NormalizeWeight(weight)
+	model := ModelForWeight(normWeight)
+
+	cand := RouteCandidate{
+		Profile:  srv.Profile,
+		Model:    model,
+		Weight:   string(normWeight),
+		Eligible: false,
+	}
+
+	if srv.Data == nil || !srv.QuotaKnown || len(srv.Data.Response.Groups) == 0 {
+		cand.Score = -1000
+		cand.Reason = "quota unknown / telemetry unavailable"
+		return cand
+	}
+
+	// Check if any bucket on the server has RemainingFraction <= CriticalQuotaThreshold.
+	for _, group := range srv.Data.Response.Groups {
+		for _, b := range group.Buckets {
+			if b.RemainingFraction <= CriticalQuotaThreshold {
+				cand.Score = -1000
+				cand.RemainingFraction = b.RemainingFraction
+				cand.ResetTime = b.ResetTime
+				cand.Reason = fmt.Sprintf("critical quota on bucket %s (%.0f%% remaining, <=5%%)", b.BucketID, b.RemainingFraction*100)
+				return cand
+			}
+		}
+	}
+
+	var targetWeekly, target5h *QuotaBucket
+	var hasTargetWeekly bool
+	var hasAnyNamedBucket bool
+
+	for _, group := range srv.Data.Response.Groups {
+		for i := range group.Buckets {
+			b := group.Buckets[i]
+			bID := strings.TrimSpace(strings.ToLower(b.BucketID))
+			if bID != "" {
+				hasAnyNamedBucket = true
+			}
+
+			// Match logic:
+			// Backward compatibility: when b.BucketID == "", treat unnamed buckets as matching the target bucket.
+			matchesTargetWeekly := false
+			matchesTarget5h := false
+
+			if bID == "" {
+				w := ClassifyWindow(b, now)
+				if w == WindowWeekly {
+					matchesTargetWeekly = true
+				} else if w == Window5h {
+					matchesTarget5h = true
+				}
+			} else {
+				switch bucketGroup {
+				case "argon":
+					if bID == "gemini-argon-wtu-weekly" || strings.Contains(bID, "argon") {
+						matchesTargetWeekly = true
+					}
+					// Argon typically shares 5h with gemini or has gemini-5h
+					if bID == "gemini-5h" || (strings.Contains(bID, "5h") && strings.Contains(bID, "argon")) {
+						matchesTarget5h = true
+					}
+				case "3p":
+					if bID == "3p-weekly" || strings.HasPrefix(bID, "3p-") && strings.Contains(bID, "weekly") {
+						matchesTargetWeekly = true
+					}
+					if bID == "3p-5h" || strings.HasPrefix(bID, "3p-") && strings.Contains(bID, "5h") {
+						matchesTarget5h = true
+					}
+				default: // "gemini"
+					if bID == "gemini-weekly" || (strings.Contains(bID, "gemini") && strings.Contains(bID, "weekly") && !strings.Contains(bID, "argon")) {
+						matchesTargetWeekly = true
+					}
+					if bID == "gemini-5h" || (strings.Contains(bID, "gemini") && strings.Contains(bID, "5h") && !strings.Contains(bID, "argon")) {
+						matchesTarget5h = true
+					}
+				}
+			}
+
+			if matchesTargetWeekly {
+				hasTargetWeekly = true
+				if targetWeekly == nil || b.RemainingFraction < targetWeekly.RemainingFraction {
+					copied := b
+					targetWeekly = &copied
+				}
+			}
+			if matchesTarget5h {
+				if target5h == nil || b.RemainingFraction < target5h.RemainingFraction {
+					copied := b
+					target5h = &copied
+				}
+			}
+		}
+	}
+
+	// Specification rule:
+	// When named BucketIDs are present in srv.Data.Response.Groups, do NOT assume default_untouched = 1.0
+	// for a missing target weekly bucket when only unrelated bucket families exist
+	// (e.g. only 3p-weekly is present in buckets when scoring gemini or argon, or only gemini-weekly is present when scoring 3p)
+	if hasAnyNamedBucket && !hasTargetWeekly {
+		cand.Score = -1000
+		cand.Reason = fmt.Sprintf("no recognized weekly quota window for bucket group %s", bucketGroup)
+		return cand
+	}
+
+	switch normWeight {
+	case WeightLight:
+		if target5h != nil {
+			cand.RemainingFraction = target5h.RemainingFraction
+			cand.ResetTime = target5h.ResetTime
+			cand.WindowType = Window5h
+			if target5h.RemainingFraction <= MinRemainingFraction {
+				if targetWeekly != nil && targetWeekly.RemainingFraction > MinRemainingFraction {
+					cand.RemainingFraction = targetWeekly.RemainingFraction
+					cand.ResetTime = targetWeekly.ResetTime
+					cand.WindowType = WindowWeekly
+					cand.Eligible = true
+					cand.Score = targetWeekly.RemainingFraction * 1000.0
+					cand.Reason = fmt.Sprintf("5h window depleted (<=5%%); fallback to weekly quota (%.0f%% remaining)", cand.RemainingFraction*100)
+				} else {
+					cand.Score = -1000
+					cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=5%%)", target5h.RemainingFraction*100)
+				}
+			} else if target5h.RemainingFraction >= 0.50 {
+				cand.Eligible = true
+				cand.Score = target5h.RemainingFraction*1000.0 + 100.0
+				cand.Reason = fmt.Sprintf("healthy 5h quota window (%.0f%% remaining)", target5h.RemainingFraction*100)
+			} else {
+				cand.Eligible = true
+				cand.Score = target5h.RemainingFraction * 1000.0
+				cand.Reason = fmt.Sprintf("available 5h quota window (%.0f%% remaining)", target5h.RemainingFraction*100)
+			}
+		} else if targetWeekly != nil {
+			cand.RemainingFraction = targetWeekly.RemainingFraction
+			cand.ResetTime = targetWeekly.ResetTime
+			cand.WindowType = WindowWeekly
+			if targetWeekly.RemainingFraction <= MinRemainingFraction {
+				cand.Score = -1000
+				cand.Reason = fmt.Sprintf("critical weekly quota (%.0f%% remaining, <=5%%)", targetWeekly.RemainingFraction*100)
+			} else {
+				cand.Eligible = true
+				cand.Score = targetWeekly.RemainingFraction * 1000.0
+				cand.Reason = fmt.Sprintf("available weekly quota (%.0f%% remaining)", targetWeekly.RemainingFraction*100)
+			}
+		} else {
+			cand.Score = -1000
+			cand.Reason = "no recognized 5h or weekly quota window"
+		}
+
+	case WeightHeavy:
+		if targetWeekly != nil {
+			cand.RemainingFraction = targetWeekly.RemainingFraction
+			cand.ResetTime = targetWeekly.ResetTime
+			cand.WindowType = WindowWeekly
+			if targetWeekly.RemainingFraction <= 0.15 {
+				cand.Score = -1000
+				cand.Reason = fmt.Sprintf("insufficient weekly quota for heavy workload (%.0f%% remaining, threshold >15%%)", targetWeekly.RemainingFraction*100)
+			} else if targetWeekly.RemainingFraction >= 0.35 {
+				cand.Eligible = true
+				cand.Score = targetWeekly.RemainingFraction*1000.0 + 50.0
+				cand.Reason = fmt.Sprintf("optimal weekly quota (%.0f%% remaining)", targetWeekly.RemainingFraction*100)
+			} else {
+				cand.Eligible = true
+				cand.Score = targetWeekly.RemainingFraction * 1000.0
+				cand.Reason = fmt.Sprintf("moderate weekly quota (%.0f%% remaining)", targetWeekly.RemainingFraction*100)
+			}
+		} else {
+			cand.Score = -1000
+			cand.Reason = "no recognized weekly quota window for heavy workload"
+		}
+
+	default: // WeightMedium
+		var tightest *QuotaBucket
+		if targetWeekly != nil && (tightest == nil || targetWeekly.RemainingFraction < tightest.RemainingFraction) {
+			tightest = targetWeekly
+		}
+		if target5h != nil && (tightest == nil || target5h.RemainingFraction < tightest.RemainingFraction) {
+			tightest = target5h
+		}
+
+		if tightest == nil {
+			cand.Score = -1000
+			cand.Reason = "no recognized 5h or weekly quota window"
+			return cand
+		}
+
+		cand.RemainingFraction = tightest.RemainingFraction
+		cand.ResetTime = tightest.ResetTime
+		if target5h != nil && target5h.RemainingFraction == tightest.RemainingFraction {
+			cand.WindowType = Window5h
+		} else {
+			cand.WindowType = WindowWeekly
+		}
+
+		if tightest.RemainingFraction <= MinRemainingFraction {
+			cand.Score = -1000
+			cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=5%%)", tightest.RemainingFraction*100)
+		} else if tightest.RemainingFraction < 0.20 {
+			cand.Eligible = true
+			cand.Score = tightest.RemainingFraction * 1000.0
+			cand.Reason = fmt.Sprintf("low quota budget (%.0f%% remaining)", tightest.RemainingFraction*100)
+		} else {
+			cand.Eligible = true
+			cand.Score = tightest.RemainingFraction * 1000.0
+			cand.Reason = fmt.Sprintf("healthy quota budget (%.0f%% remaining)", tightest.RemainingFraction*100)
+		}
+	}
+
+	return cand
+}
+
 // SelectEligibleProfiles discovers running language servers, computes route recommendations,
 // delegates to SelectEligibleProfilesFromCandidates, and returns up to count eligible profile names.
 // It returns an error if the resulting slice is empty or if discovery fails.
 func SelectEligibleProfiles(count int, weight RouteWeight, excludeProfiles ...string) ([]string, error) {
-	live, err := FindActiveServers("")
+	servers, err := fetchActiveServers("")
 	if err != nil {
 		return nil, fmt.Errorf("finding active servers: %w", err)
-	}
-	servers, err := BuildQuotaSummary("", live)
-	if err != nil {
-		servers = live
-		for i := range servers {
-			servers[i].QuotaKnown = true
-		}
 	}
 	rec := RecommendRoute(servers, weight, time.Now())
 	selected := SelectEligibleProfilesFromCandidates(rec.Candidates, count, excludeProfiles...)
 	if len(selected) == 0 {
 		return nil, fmt.Errorf("no eligible profiles found for workload weight %s", weight)
+	}
+	return selected, nil
+}
+
+// SelectEligibleProfilesForModel discovers running servers, scores each for the requested model's bucket group,
+// sorts candidates deterministically, and delegates to SelectEligibleProfilesFromCandidates.
+func SelectEligibleProfilesForModel(count int, model string, weight RouteWeight, excludeProfiles ...string) ([]string, error) {
+	servers, err := fetchActiveServers("")
+	if err != nil {
+		return nil, fmt.Errorf("fetching active servers: %w", err)
+	}
+
+	bucketGroup := BucketGroupForModel(model)
+	normWeight := NormalizeWeight(weight)
+	now := time.Now()
+
+	bestByProfile := make(map[string]RouteCandidate)
+	for _, srv := range servers {
+		prof := strings.TrimSpace(srv.Profile)
+		if prof == "" || prof == "host" {
+			continue
+		}
+		cand := ScoreServerForBucket(srv, bucketGroup, normWeight, now)
+		existing, found := bestByProfile[prof]
+		if !found || compareCandidates(cand, existing) < 0 {
+			bestByProfile[prof] = cand
+		}
+	}
+
+	candidates := make([]RouteCandidate, 0, len(bestByProfile))
+	for _, cand := range bestByProfile {
+		candidates = append(candidates, cand)
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return compareCandidates(candidates[i], candidates[j]) < 0
+	})
+
+	selected := SelectEligibleProfilesFromCandidates(candidates, count, excludeProfiles...)
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("no eligible profiles found for model %s (bucket %s, weight %s)", model, bucketGroup, normWeight)
 	}
 	return selected, nil
 }

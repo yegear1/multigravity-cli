@@ -437,3 +437,204 @@ func TestSelectEligibleProfiles_NoEligibleReturnsError(t *testing.T) {
 		t.Fatal("expected error when no eligible profiles available, got nil")
 	}
 }
+
+func TestBucketGroupForModel(t *testing.T) {
+	tests := []struct {
+		model    string
+		expected string
+	}{
+		{"gemini-4-argon-low", "argon"},
+		{"gemini-argon-pro", "argon"},
+		{"custom-argon-model", "argon"},
+		{"claude-3-7-sonnet", "3p"},
+		{"gpt-4o", "3p"},
+		{"o1-preview", "3p"},
+		{"o3-mini", "3p"},
+		{"3p-model-x", "3p"},
+		{"3p", "3p"},
+		{"gemini-2.5-pro", "gemini"},
+		{"gemini-3.8-flash", "gemini"},
+		{"", "gemini"},
+		{"other-unknown", "gemini"},
+	}
+
+	for _, tt := range tests {
+		got := BucketGroupForModel(tt.model)
+		if got != tt.expected {
+			t.Errorf("BucketGroupForModel(%q) = %q, want %q", tt.model, got, tt.expected)
+		}
+	}
+}
+
+func TestScoreServerForBucket(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+
+	t.Run("backward compatibility with unnamed BucketID", func(t *testing.T) {
+		srv := ActiveServer{
+			Profile:    "unnamed-prof",
+			QuotaKnown: true,
+			Data: &QuotaSummaryResponse{
+				Response: QuotaResponse{
+					Groups: []QuotaGroup{{
+						DisplayName: "General",
+						Buckets: []QuotaBucket{
+							{BucketID: "", RemainingFraction: 0.80, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+						},
+					}},
+				},
+			},
+		}
+
+		// When BucketID == "", it should match the target bucket regardless of group
+		candGemini := ScoreServerForBucket(srv, "gemini", WeightMedium, now)
+		if !candGemini.Eligible || candGemini.RemainingFraction != 0.80 {
+			t.Fatalf("expected eligible candidate with 0.80 remaining, got %+v", candGemini)
+		}
+
+		candArgon := ScoreServerForBucket(srv, "argon", WeightMedium, now)
+		if !candArgon.Eligible || candArgon.RemainingFraction != 0.80 {
+			t.Fatalf("expected eligible candidate for argon with 0.80 remaining, got %+v", candArgon)
+		}
+	})
+
+	t.Run("missing target weekly bucket when only unrelated named buckets exist", func(t *testing.T) {
+		srv3POnly := ActiveServer{
+			Profile:    "3p-only-prof",
+			QuotaKnown: true,
+			Data: &QuotaSummaryResponse{
+				Response: QuotaResponse{
+					Groups: []QuotaGroup{{
+						DisplayName: "3P Models",
+						Buckets: []QuotaBucket{
+							{BucketID: "3p-weekly", RemainingFraction: 0.90, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+						},
+					}},
+				},
+			},
+		}
+
+		// Scoring gemini or argon when only 3p-weekly exists should NOT assume default 1.0 or be eligible
+		candGemini := ScoreServerForBucket(srv3POnly, "gemini", WeightMedium, now)
+		if candGemini.Eligible || candGemini.Score != -1000 {
+			t.Fatalf("expected ineligible candidate for gemini when only 3p-weekly exists, got %+v", candGemini)
+		}
+
+		candArgon := ScoreServerForBucket(srv3POnly, "argon", WeightMedium, now)
+		if candArgon.Eligible || candArgon.Score != -1000 {
+			t.Fatalf("expected ineligible candidate for argon when only 3p-weekly exists, got %+v", candArgon)
+		}
+
+		// But scoring 3p on this server should be eligible
+		cand3P := ScoreServerForBucket(srv3POnly, "3p", WeightMedium, now)
+		if !cand3P.Eligible || cand3P.RemainingFraction != 0.90 {
+			t.Fatalf("expected eligible candidate for 3p, got %+v", cand3P)
+		}
+
+		// Conversely, server with only gemini-weekly scored for 3p
+		srvGeminiOnly := ActiveServer{
+			Profile:    "gemini-only-prof",
+			QuotaKnown: true,
+			Data: &QuotaSummaryResponse{
+				Response: QuotaResponse{
+					Groups: []QuotaGroup{{
+						DisplayName: "Gemini Models",
+						Buckets: []QuotaBucket{
+							{BucketID: "gemini-weekly", RemainingFraction: 0.90, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+						},
+					}},
+				},
+			},
+		}
+		cand3PFromGemini := ScoreServerForBucket(srvGeminiOnly, "3p", WeightMedium, now)
+		if cand3PFromGemini.Eligible || cand3PFromGemini.Score != -1000 {
+			t.Fatalf("expected ineligible candidate for 3p when only gemini-weekly exists, got %+v", cand3PFromGemini)
+		}
+	})
+
+	t.Run("any bucket on server has critical quota", func(t *testing.T) {
+		srvWithCritical := ActiveServer{
+			Profile:    "partially-depleted",
+			QuotaKnown: true,
+			Data: &QuotaSummaryResponse{
+				Response: QuotaResponse{
+					Groups: []QuotaGroup{{
+						DisplayName: "Models",
+						Buckets: []QuotaBucket{
+							{BucketID: "gemini-weekly", RemainingFraction: 0.90, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+							{BucketID: "3p-weekly", RemainingFraction: 0.03, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+						},
+					}},
+				},
+			},
+		}
+
+		cand := ScoreServerForBucket(srvWithCritical, "gemini", WeightMedium, now)
+		if cand.Eligible || cand.Score != -1000 {
+			t.Fatalf("expected ineligible candidate because server has bucket with <= 5%% quota, got %+v", cand)
+		}
+	})
+}
+
+func TestSelectEligibleProfilesForModel(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+
+	cleanup := SetTestHooks(func(targetProf string) ([]ActiveServer, error) {
+		return []ActiveServer{
+			{
+				Profile:    "gemini-rich",
+				QuotaKnown: true,
+				Data: &QuotaSummaryResponse{
+					Response: QuotaResponse{
+						Groups: []QuotaGroup{{
+							DisplayName: "Gemini",
+							Buckets: []QuotaBucket{
+								{BucketID: "gemini-weekly", RemainingFraction: 0.85, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+								{BucketID: "gemini-5h", RemainingFraction: 0.90, ResetTime: now.Add(3 * time.Hour).Format(time.RFC3339)},
+							},
+						}},
+					},
+				},
+			},
+			{
+				Profile:    "3p-rich",
+				QuotaKnown: true,
+				Data: &QuotaSummaryResponse{
+					Response: QuotaResponse{
+						Groups: []QuotaGroup{{
+							DisplayName: "3P",
+							Buckets: []QuotaBucket{
+								{BucketID: "3p-weekly", RemainingFraction: 0.80, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+								{BucketID: "3p-5h", RemainingFraction: 0.85, ResetTime: now.Add(3 * time.Hour).Format(time.RFC3339)},
+							},
+						}},
+					},
+				},
+			},
+		}, nil
+	})
+	defer cleanup()
+
+	// Select for Claude model should select 3p-rich
+	selected3P, err := SelectEligibleProfilesForModel(1, "claude-3-7-sonnet", WeightMedium)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(selected3P) != 1 || selected3P[0] != "3p-rich" {
+		t.Fatalf("expected [3p-rich], got %v", selected3P)
+	}
+
+	// Select for Gemini model should select gemini-rich
+	selectedGemini, err := SelectEligibleProfilesForModel(1, "gemini-2.5-pro", WeightMedium)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(selectedGemini) != 1 || selectedGemini[0] != "gemini-rich" {
+		t.Fatalf("expected [gemini-rich], got %v", selectedGemini)
+	}
+
+	// Requesting unavailable bucket family returns error
+	_, err = SelectEligibleProfilesForModel(1, "gemini-4-argon-flash", WeightMedium)
+	if err == nil {
+		t.Fatal("expected error when no server has argon bucket, got nil")
+	}
+}
