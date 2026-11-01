@@ -7,24 +7,18 @@
 
 ## Active Task
 
-### 📌 Task [05.13.4]: Add `--task`, `--paths`, and `--read` Support to `multigravity route` (`internal/cmd/route.go`)
+### 📌 Task [05.14]: *(Queue Empty — Awaiting Next Ideation)*
 
-- **Description:** Add `--task`, `--paths`, and `--read` support with inference tier visualization to `multigravity route` in `internal/cmd/route.go` (`[05.13.4]`), and synchronize `skills/multigravity-orchestrator/SKILL.md` (`[05.13.5]`).
-- **Systems Involved:** `internal/cmd`, `skills/multigravity-orchestrator`
+- **Description:** All tasks in Wave `W1`–`W8` (`[05.6]`–`[05.13.5]`) have been executed, verified, and committed.
+- **Systems Involved:** —
 - **Action Type:**
-  - [ ] Read-only / Documentation
-  - [x] Source code changes
-- **Status:** RUNNING
+  - [x] Read-only / Documentation
+  - [ ] Source code changes
+- **Status:** READY FOR PLANNING
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [x] Define canonical inference tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), ranking matrix, and `EscalateModel(model)` in `internal/quota/tiers.go`.
-- [x] Implement `ClassifyTaskComplexity(input)` based on `Paths`, `Read` line-ranges, and prompt heuristics in `internal/quota/classifier.go`.
-- [x] Add `SynthesizeCascadeRetryPrompt` in `internal/dispatch/plan.go` and unit tests in `internal/dispatch/plan_test.go` (`[05.13.3a]`).
-- [x] Wire `quota.EscalateModel` and `SynthesizeCascadeRetryPrompt` into `ExecuteTaskWave` in `internal/dispatch/wave.go` and unit tests in `internal/dispatch/wave_test.go` (`[05.13.3b]`).
-- [ ] Add `--task`, `--paths`, and `--read` support to `multigravity route` in `internal/cmd/route.go` (`[05.13.4]`).
-- [ ] Synchronize `skills/multigravity-orchestrator/SKILL.md` with inference tier matrix and cascade escalation (`[05.13.5]`).
-- [ ] Verify test suite with `go test -v ./internal/quota ./internal/dispatch ./internal/cmd`.
+- [ ] Define and approve next task in `.agent/TASK.md`.
 
 ---
 
@@ -32,6 +26,8 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.13.5] | Synchronize `skills/multigravity-orchestrator/SKILL.md` with inference tier matrix, complexity classification, and cascade escalation | [`d6af449`](https://github.com/yegear1/multigravity-cli/commit/d6af449) | 2026-11-01 |
+| [05.13.4] | Add `--task`, `--paths`, and `--read` support with inference tier visualization to `multigravity route` in `internal/cmd/route.go` | [`74198d6`](https://github.com/yegear1/multigravity-cli/commit/74198d6) | 2026-11-01 |
 | [05.13.3b] | Wire `quota.EscalateModel` and `SynthesizeCascadeRetryPrompt` into `ExecuteTaskWave` in `internal/dispatch/wave.go` and add unit tests in `internal/dispatch/wave_test.go` | [`19248bb`](https://github.com/yegear1/multigravity-cli/commit/19248bb) | 2026-11-01 |
 | [05.13.3a] | Add `SynthesizeCascadeRetryPrompt` helper in `internal/dispatch/plan.go` and unit tests in `internal/dispatch/plan_test.go` | [`f4b34d2`](https://github.com/yegear1/multigravity-cli/commit/f4b34d2) | 2026-11-01 |
 | [05.13.2] | Implement static zero-token task complexity classifier (`ClassifyTaskComplexity`) in `internal/quota/classifier.go` | [`407eec5`](https://github.com/yegear1/multigravity-cli/commit/407eec5) | 2026-11-01 |
@@ -86,14 +82,8 @@
 - [x] **[05.13.2]** `[APPROVED]` `[PARALLEL: W6]` Implement static zero-token task complexity classifier (`ClassifyTaskComplexity`) in `internal/quota/classifier.go` (`407eec5`)
 - [x] **[05.13.3a]** `[APPROVED]` `[SEQ: W7]` Add `SynthesizeCascadeRetryPrompt` helper in `internal/dispatch/plan.go` and unit tests in `internal/dispatch/plan_test.go` (`f4b34d2`)
 - [x] **[05.13.3b]** `[APPROVED]` `[SEQ: W7b]` Wire `quota.EscalateModel` and `SynthesizeCascadeRetryPrompt` into `ExecuteTaskWave` in `internal/dispatch/wave.go` and add unit tests in `internal/dispatch/wave_test.go` (`19248bb`)
-- [ ] **[05.13.4]** `[APPROVED]` `[PARALLEL: W8]` Add `--task`, `--paths`, and `--read` support with inference tier visualization to `multigravity route` in `internal/cmd/route.go`
-  - `Read:` `internal/cmd/route.go:1-118`
-  - `Paths:` `internal/cmd/route.go, internal/cmd/route_test.go`
-  - `Verify:` `go test -v ./internal/cmd -run "Test.*Route"`
-- [ ] **[05.13.5]** `[APPROVED]` `[PARALLEL: W8]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with inference tier matrix, complexity classification, and cascade escalation
-  - `Read:` `skills/multigravity-orchestrator/SKILL.md:80-140`
-  - `Paths:` `skills/multigravity-orchestrator/SKILL.md`
-  - `Verify:` `git diff --check skills/multigravity-orchestrator/SKILL.md`
+- [x] **[05.13.4]** `[APPROVED]` `[PARALLEL: W8]` Add `--task`, `--paths`, and `--read` support with inference tier visualization to `multigravity route` in `internal/cmd/route.go` (`74198d6`)
+- [x] **[05.13.5]** `[APPROVED]` `[PARALLEL: W8]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with inference tier matrix, complexity classification, and cascade escalation (`d6af449`)
 
 ---
 
