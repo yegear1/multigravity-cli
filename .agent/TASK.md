@@ -85,6 +85,41 @@
 - [x] **[05.13.4]** `[APPROVED]` `[PARALLEL: W8]` Add `--task`, `--paths`, and `--read` support with inference tier visualization to `multigravity route` in `internal/cmd/route.go` (`74198d6`)
 - [x] **[05.13.5]** `[APPROVED]` `[PARALLEL: W8]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with inference tier matrix, complexity classification, and cascade escalation (`d6af449`)
 
+> **Epic 05.14–05.21 — Orchestration token economy.** Derived from the `[05.13]` execution retrospective. Not yet `[APPROVED]`: `Read:` line ranges are provisional and MUST be refined during planning. Tasks touching the same file are `SEQ`, never `PARALLEL`. Suggested priority: 05.14, 05.15, 05.16 first (highest return, independent), then 05.17, 05.18, then 05.19–05.21 (need measured data).
+
+- [ ] **[05.14]** `[PLANNING]` `[SEQ: W9]` Automate `.agent/TASK.md` promotion in `dispatch wave`: after a wave completes, also mark Acceptance Criteria `[x]`, replace `## Active Task` with the next backlog task, and set Status. *(Retrospective #5 — removes ~2–3 large manual edits per wave)*
+  - `Read:` `internal/dispatch/wave.go` (`markTasksCompletedInFile` and `ExecuteTaskWave` completion block)
+  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Wave|Test.*Promot"`
+- [ ] **[05.15]** `[PLANNING]` `[PARALLEL: W9]` Quota pre-flight before dispatch: reject profiles below a configurable safety threshold (default 20%) or under cooldown, so 429-exhausted profiles are never selected. *(Retrospective #1 — `joaoww` 429 wasted a full attempt)*
+  - `Read:` `internal/quota/routing.go` (`SelectEligibleProfilesForModel`, `ScoreServerForBucket`)
+  - `Paths:` `internal/quota/routing.go, internal/quota/routing_test.go`
+  - `Verify:` `go test -v ./internal/quota -run "Test.*Select|Test.*Preflight"`
+- [ ] **[05.16]** `[PLANNING]` `[SEQ: W10]` Structured `failure_reason` in `SubtaskResult` (`timeout | rate_limited | empty_diff | verify_failed | agent_error`) capturing agent `stderr` and termination cause, so empty `log_tail` no longer hides the root cause. *(Retrospective #2)*
+  - `Read:` `internal/dispatch/plan.go` (`SubtaskResult`, `ExecutePlan` result assembly)
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan|Test.*FailureReason"`
+- [ ] **[05.17]** `[PLANNING]` `[SEQ: W11]` Gate model escalation on failure cause: escalate only on `verify_failed` with non-empty output; on `empty_diff`/`timeout` with empty diagnostics, halt and recommend scope reduction. Depends on `[05.16]`. *(Retrospective #4 — `argon` retry on `05.13.3` did not help)*
+  - `Read:` `internal/dispatch/wave.go` (retry block in `ExecuteTaskWave`), `internal/quota/tiers.go`
+  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Wave"`
+- [ ] **[05.18]** `[PLANNING]` `[SEQ: W12]` Add `multigravity dispatch wave --lint`: warn when a task has more than 2 `Paths:` files, more than 3 `Read:` files, or spans multiple Go packages; exit non-zero on violation. *(Retrospective #3 — would have prevented the manual split of `05.13.3`)*
+  - `Read:` `internal/dispatch/wave.go` (`ParseTaskWave`), `internal/cmd/dispatch.go` (wave subcommand flags)
+  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go, internal/cmd/dispatch.go`
+  - `Verify:` `go test -v ./internal/dispatch ./internal/cmd -run "Test.*Wave|Test.*Lint"`
+- [ ] **[05.19]** `[PLANNING]` `[SEQ: W13]` Derive the worker prompt from the `TASK.md` contract (title, `Read:`, `Paths:`, `Verify:`) when no explicit prompt is given, so orchestrators stop duplicating specifications in JSON. *(Retrospective #6)*
+  - `Read:` `internal/dispatch/wave.go` (`ExecuteTaskWave` subtask construction), `internal/dispatch/plan.go` (`SynthesizeSubtaskPromptWithRepo`)
+  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Wave|Test.*Prompt"`
+- [ ] **[05.20]** `[PLANNING]` `[SEQ: W14]` Wire `ClassifyTaskComplexity` into `ExecutePlan`/`ExecuteTaskWave` as the default model selector (e.g. `low` for scoped tasks), keeping the cascade as fallback and all existing model expectations passing. *(Retrospective #7)*
+  - `Read:` `internal/dispatch/plan.go` (model resolution in `ExecutePlan`), `internal/quota/classifier.go`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan"`
+- [ ] **[05.21]** `[PLANNING]` `[SEQ: W15]` Pre-inject sibling tests of each `Paths:` file (`*_test.go`) into `[PRE-LOADED READ CONTEXT]` within the existing 15 KB budget, so workers skip exploratory reads; additionally record per-task/per-attempt token usage in `SubtaskResult` to measure savings. *(Retrospective #8 + missing measurement)*
+  - `Read:` `internal/dispatch/plan.go` (`InlineRead` / `SynthesizeSubtaskPromptWithRepo`), `internal/telemetry`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan|Test.*InlineRead"`
+
 ---
 
 ## Release / Cycle Wrap-up (Not the next task)
