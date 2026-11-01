@@ -532,9 +532,13 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 				// Resolve profile if empty or "auto"
 				effectiveProfile := strings.TrimSpace(st.Profile)
 				if effectiveProfile == "" || effectiveProfile == "auto" {
-					eligible, err := quota.SelectEligibleProfilesForModel(1, resolvedModel, quota.WeightMedium)
-					if err == nil && len(eligible) > 0 {
-						effectiveProfile = eligible[0]
+					threshold := quota.SafetyThresholdForModel(resolvedModel, quota.WeightMedium)
+					candidates, err := quota.PreflightProfilesForModel(1, resolvedModel, quota.WeightMedium, threshold)
+					if (err != nil || len(candidates) == 0) && threshold > quota.DefaultSafetyQuotaThreshold {
+						candidates, err = quota.PreflightProfilesForModel(1, resolvedModel, quota.WeightMedium, quota.DefaultSafetyQuotaThreshold)
+					}
+					if err == nil && len(candidates) > 0 {
+						effectiveProfile = candidates[0].Profile
 					} else {
 						if profs, err := profile.ListProfiles(); err == nil && len(profs) > 0 {
 							effectiveProfile = profs[0]

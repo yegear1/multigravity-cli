@@ -186,7 +186,7 @@ func TestRecommendRoute_CriticalQuotaAndEligibility(t *testing.T) {
 				Groups: []QuotaGroup{{
 					DisplayName: "Gemini",
 					Buckets: []QuotaBucket{
-						{BucketID: "gemini-weekly", RemainingFraction: 0.03, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+						{BucketID: "gemini-weekly", RemainingFraction: 0.01, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
 					},
 				}},
 			},
@@ -299,30 +299,30 @@ func TestSelectEligibleProfilesFromCandidates(t *testing.T) {
 		}
 	})
 
-	t.Run("<=5% floor enforcement", func(t *testing.T) {
+	t.Run("<=1% floor enforcement", func(t *testing.T) {
 		candidates := []RouteCandidate{
-			{Profile: "depleted-floor", Eligible: false, RemainingFraction: 0.04, Score: -1000},
-			{Profile: "exact-floor", Eligible: false, RemainingFraction: 0.05, Score: -1000},
+			{Profile: "depleted-floor", Eligible: false, RemainingFraction: 0.005, Score: -1000},
+			{Profile: "exact-floor", Eligible: false, RemainingFraction: 0.01, Score: -1000},
 			{Profile: "healthy-account", Eligible: true, RemainingFraction: 0.50, Score: 600},
 		}
 
-		// Even when requesting count=5, ineligible profiles (<=5% floor) must never be returned
+		// Even when requesting count=5, ineligible profiles (<=1% floor) must never be returned
 		selected := SelectEligibleProfilesFromCandidates(candidates, 5)
 		if len(selected) != 1 || selected[0] != "healthy-account" {
 			t.Fatalf("expected [healthy-account], got %v", selected)
 		}
 
-		// When all candidates are <= 5% (Eligible == false), result must be empty
+		// When all candidates are <= 1% (Eligible == false), result must be empty
 		allDepleted := []RouteCandidate{
-			{Profile: "depleted-1", Eligible: false, RemainingFraction: 0.02},
-			{Profile: "depleted-2", Eligible: false, RemainingFraction: 0.05},
+			{Profile: "depleted-1", Eligible: false, RemainingFraction: 0.005},
+			{Profile: "depleted-2", Eligible: false, RemainingFraction: 0.01},
 		}
 		selectedEmpty := SelectEligibleProfilesFromCandidates(allDepleted, 2)
 		if len(selectedEmpty) != 0 {
 			t.Fatalf("expected empty slice, got %v", selectedEmpty)
 		}
 
-		// End-to-end evaluation check with RecommendRoute confirming <=5% floor marks Eligible=false
+		// End-to-end evaluation check with RecommendRoute confirming <=1% floor marks Eligible=false
 		now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 		depletedServer := ActiveServer{
 			Profile:    "critical-prof",
@@ -332,7 +332,7 @@ func TestSelectEligibleProfilesFromCandidates(t *testing.T) {
 					Groups: []QuotaGroup{{
 						DisplayName: "Gemini",
 						Buckets: []QuotaBucket{
-							{BucketID: "gemini-weekly", RemainingFraction: 0.05, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+							{BucketID: "gemini-weekly", RemainingFraction: 0.01, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
 						},
 					}},
 				},
@@ -399,7 +399,7 @@ func TestSelectEligibleProfiles(t *testing.T) {
 						Groups: []QuotaGroup{{
 							DisplayName: "Gemini",
 							Buckets: []QuotaBucket{
-								{BucketID: "gemini-weekly", RemainingFraction: 0.03, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+								{BucketID: "gemini-weekly", RemainingFraction: 0.01, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
 							},
 						}},
 					},
@@ -561,7 +561,7 @@ func TestScoreServerForBucket(t *testing.T) {
 						DisplayName: "Models",
 						Buckets: []QuotaBucket{
 							{BucketID: "gemini-weekly", RemainingFraction: 0.90, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
-							{BucketID: "3p-weekly", RemainingFraction: 0.03, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+							{BucketID: "3p-weekly", RemainingFraction: 0.01, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
 						},
 					}},
 				},
@@ -570,7 +570,7 @@ func TestScoreServerForBucket(t *testing.T) {
 
 		cand := ScoreServerForBucket(srvWithCritical, "gemini", WeightMedium, now)
 		if cand.Eligible || cand.Score != -1000 {
-			t.Fatalf("expected ineligible candidate because server has bucket with <= 5%% quota, got %+v", cand)
+			t.Fatalf("expected ineligible candidate because server has bucket with <= 1%% quota, got %+v", cand)
 		}
 	})
 }
@@ -680,18 +680,28 @@ func TestPreflightProfilesForModelFromCandidates(t *testing.T) {
 		RecordProfileCooldown(p3, 0)
 	})
 
-	t.Run("default safety threshold (0.20) rejects low quota", func(t *testing.T) {
+	t.Run("default safety threshold via SafetyThresholdForModel rejects low quota", func(t *testing.T) {
 		candidates := []RouteCandidate{
-			{Profile: p1, RemainingFraction: 0.15, Eligible: true, Score: 150},
+			{Profile: p1, RemainingFraction: 0.10, Eligible: true, Score: 100},
 			{Profile: p2, RemainingFraction: 0.40, Eligible: true, Score: 400},
 		}
 
+		// gemini-2.5-pro is TierReasoning -> default safety threshold is 0.15
 		selected, err := PreflightProfilesForModelFromCandidates(candidates, 2, "gemini-2.5-pro", 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(selected) != 1 || selected[0].Profile != p2 {
-			t.Fatalf("expected only %s above default 0.20 threshold, got %+v", p2, selected)
+			t.Fatalf("expected only %s above 0.15 reasoning threshold, got %+v", p2, selected)
+		}
+
+		// gemini-3.8-flash is TierStandard -> default safety threshold is 0.01 (DefaultSafetyQuotaThreshold)
+		selectedStandard, err := PreflightProfilesForModelFromCandidates(candidates, 2, "gemini-3.8-flash", 0)
+		if err != nil {
+			t.Fatalf("unexpected error for standard tier: %v", err)
+		}
+		if len(selectedStandard) != 2 {
+			t.Fatalf("expected both profiles to pass 0.01 standard threshold, got %+v", selectedStandard)
 		}
 	})
 
@@ -841,5 +851,36 @@ func TestPreflightProfilesForModel(t *testing.T) {
 	_, err = PreflightProfilesForModel(1, "gemini-2.5-pro", WeightMedium, 0.20)
 	if err == nil {
 		t.Fatal("expected error when all eligible servers are on cooldown or below threshold, got nil")
+	}
+}
+
+func TestSafetyThresholdForModel(t *testing.T) {
+	if CriticalQuotaThreshold != 0.01 {
+		t.Fatalf("expected CriticalQuotaThreshold = 0.01, got %v", CriticalQuotaThreshold)
+	}
+	if DefaultSafetyQuotaThreshold != 0.01 {
+		t.Fatalf("expected DefaultSafetyQuotaThreshold = 0.01, got %v", DefaultSafetyQuotaThreshold)
+	}
+
+	tests := []struct {
+		model    string
+		weight   RouteWeight
+		expected float64
+	}{
+		{"gemini-3.8-flash-lite", WeightLight, 0.01},
+		{"gemini-3.8-flash", WeightMedium, 0.01},
+		{"", WeightMedium, 0.01},
+		{"gemini-2.5-pro", WeightMedium, 0.15},
+		{"claude-3-7-sonnet", WeightLight, 0.15},
+		{"claude-4-6-opus", WeightMedium, 0.15},
+		{"gemini-3.8-flash", WeightHeavy, 0.15},
+		{"gemini-3.8-flash-lite", WeightHeavy, 0.15},
+	}
+
+	for _, tt := range tests {
+		got := SafetyThresholdForModel(tt.model, tt.weight)
+		if got != tt.expected {
+			t.Errorf("SafetyThresholdForModel(%q, %q) = %v, want %v", tt.model, tt.weight, got, tt.expected)
+		}
 	}
 }

@@ -395,10 +395,20 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 			// Retry with selected model excluding the failed profile
 			failedProfile := res.Profile
 			var eligibleProfiles []string
-			if candidates, qErr := quota.SelectEligibleProfilesForModel(100, retryModel, quota.WeightHeavy); qErr == nil {
-				for _, p := range candidates {
-					if p != failedProfile {
-						eligibleProfiles = append(eligibleProfiles, p)
+			threshold := quota.SafetyThresholdForModel(retryModel, quota.WeightMedium)
+			if candidates, qErr := quota.PreflightProfilesForModel(100, retryModel, quota.WeightMedium, threshold, failedProfile); qErr == nil {
+				for _, c := range candidates {
+					if c.Profile != failedProfile {
+						eligibleProfiles = append(eligibleProfiles, c.Profile)
+					}
+				}
+			}
+			if len(eligibleProfiles) == 0 && threshold > quota.DefaultSafetyQuotaThreshold {
+				if fallbackCandidates, fbErr := quota.PreflightProfilesForModel(100, retryModel, quota.WeightMedium, quota.DefaultSafetyQuotaThreshold, failedProfile); fbErr == nil {
+					for _, c := range fallbackCandidates {
+						if c.Profile != failedProfile {
+							eligibleProfiles = append(eligibleProfiles, c.Profile)
+						}
 					}
 				}
 			}

@@ -16,12 +16,29 @@ const (
 	WeightMedium RouteWeight = "medium"
 	WeightHeavy  RouteWeight = "heavy"
 
-	// CriticalQuotaThreshold defines the depleted quota floor fraction (5%).
-	CriticalQuotaThreshold = MinRemainingFraction
+	// CriticalQuotaThreshold defines the depleted quota floor fraction (1%).
+	CriticalQuotaThreshold = 0.01
 
-	// DefaultSafetyQuotaThreshold defines the safety quota floor fraction (20%) when minFraction <= 0.
-	DefaultSafetyQuotaThreshold = 0.20
+	// DefaultSafetyQuotaThreshold defines the safety quota floor fraction (1%) when minFraction <= 0.
+	DefaultSafetyQuotaThreshold = 0.01
 )
+
+// SafetyThresholdForModel returns the safety quota floor fraction for a given model and weight.
+// It returns 0.15 for TierReasoning, TierArchitecture, or WeightHeavy, and 0.01 (DefaultSafetyQuotaThreshold) otherwise.
+func SafetyThresholdForModel(model string, weight RouteWeight) float64 {
+	if NormalizeWeight(weight) == WeightHeavy {
+		return 0.15
+	}
+	if strings.TrimSpace(model) == "" {
+		return DefaultSafetyQuotaThreshold
+	}
+	switch TierForModel(model) {
+	case TierReasoning, TierArchitecture:
+		return 0.15
+	default:
+		return DefaultSafetyQuotaThreshold
+	}
+}
 
 // NormalizeWeight normalizes and validates an empty or custom weight to RouteWeight.
 func NormalizeWeight(w RouteWeight) RouteWeight {
@@ -263,17 +280,17 @@ func evaluateServer(srv ActiveServer, weight RouteWeight, model string, now time
 			cand.RemainingFraction = effective5h.RemainingFraction
 			cand.ResetTime = effective5h.ResetTime
 			cand.WindowType = Window5h
-			if effective5h.RemainingFraction <= MinRemainingFraction {
-				if effectiveWeekly != nil && effectiveWeekly.RemainingFraction > MinRemainingFraction {
+			if effective5h.RemainingFraction <= CriticalQuotaThreshold {
+				if effectiveWeekly != nil && effectiveWeekly.RemainingFraction > CriticalQuotaThreshold {
 					cand.RemainingFraction = effectiveWeekly.RemainingFraction
 					cand.ResetTime = effectiveWeekly.ResetTime
 					cand.WindowType = WindowWeekly
 					cand.Eligible = true
 					cand.Score = effectiveWeekly.RemainingFraction * 1000.0
-					cand.Reason = fmt.Sprintf("5h window depleted (<=5%%); fallback to weekly quota (%.0f%% remaining)", cand.RemainingFraction*100)
+					cand.Reason = fmt.Sprintf("5h window depleted (<=1%%); fallback to weekly quota (%.0f%% remaining)", cand.RemainingFraction*100)
 				} else {
 					cand.Score = -1000
-					cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=5%%)", effective5h.RemainingFraction*100)
+					cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=1%%)", effective5h.RemainingFraction*100)
 				}
 			} else if effective5h.RemainingFraction >= 0.50 {
 				cand.Eligible = true
@@ -288,9 +305,9 @@ func evaluateServer(srv ActiveServer, weight RouteWeight, model string, now time
 			cand.RemainingFraction = effectiveWeekly.RemainingFraction
 			cand.ResetTime = effectiveWeekly.ResetTime
 			cand.WindowType = WindowWeekly
-			if effectiveWeekly.RemainingFraction <= MinRemainingFraction {
+			if effectiveWeekly.RemainingFraction <= CriticalQuotaThreshold {
 				cand.Score = -1000
-				cand.Reason = fmt.Sprintf("critical weekly quota (%.0f%% remaining, <=5%%)", effectiveWeekly.RemainingFraction*100)
+				cand.Reason = fmt.Sprintf("critical weekly quota (%.0f%% remaining, <=1%%)", effectiveWeekly.RemainingFraction*100)
 			} else {
 				cand.Eligible = true
 				cand.Score = effectiveWeekly.RemainingFraction * 1000.0
@@ -340,9 +357,9 @@ func evaluateServer(srv ActiveServer, weight RouteWeight, model string, now time
 			cand.WindowType = WindowWeekly
 		}
 
-		if tightestFraction <= MinRemainingFraction {
+		if tightestFraction <= CriticalQuotaThreshold {
 			cand.Score = -1000
-			cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=5%%)", tightestFraction*100)
+			cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=1%%)", tightestFraction*100)
 		} else if tightestFraction < 0.20 {
 			cand.Eligible = true
 			cand.Score = tightestFraction * 1000.0
@@ -488,7 +505,7 @@ func ScoreServerForBucket(srv ActiveServer, bucketGroup string, weight RouteWeig
 				cand.Score = -1000
 				cand.RemainingFraction = b.RemainingFraction
 				cand.ResetTime = b.ResetTime
-				cand.Reason = fmt.Sprintf("critical quota on bucket %s (%.0f%% remaining, <=5%%)", b.BucketID, b.RemainingFraction*100)
+				cand.Reason = fmt.Sprintf("critical quota on bucket %s (%.0f%% remaining, <=1%%)", b.BucketID, b.RemainingFraction*100)
 				return cand
 			}
 		}
@@ -577,17 +594,17 @@ func ScoreServerForBucket(srv ActiveServer, bucketGroup string, weight RouteWeig
 			cand.RemainingFraction = target5h.RemainingFraction
 			cand.ResetTime = target5h.ResetTime
 			cand.WindowType = Window5h
-			if target5h.RemainingFraction <= MinRemainingFraction {
-				if targetWeekly != nil && targetWeekly.RemainingFraction > MinRemainingFraction {
+			if target5h.RemainingFraction <= CriticalQuotaThreshold {
+				if targetWeekly != nil && targetWeekly.RemainingFraction > CriticalQuotaThreshold {
 					cand.RemainingFraction = targetWeekly.RemainingFraction
 					cand.ResetTime = targetWeekly.ResetTime
 					cand.WindowType = WindowWeekly
 					cand.Eligible = true
 					cand.Score = targetWeekly.RemainingFraction * 1000.0
-					cand.Reason = fmt.Sprintf("5h window depleted (<=5%%); fallback to weekly quota (%.0f%% remaining)", cand.RemainingFraction*100)
+					cand.Reason = fmt.Sprintf("5h window depleted (<=1%%); fallback to weekly quota (%.0f%% remaining)", cand.RemainingFraction*100)
 				} else {
 					cand.Score = -1000
-					cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=5%%)", target5h.RemainingFraction*100)
+					cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=1%%)", target5h.RemainingFraction*100)
 				}
 			} else if target5h.RemainingFraction >= 0.50 {
 				cand.Eligible = true
@@ -602,9 +619,9 @@ func ScoreServerForBucket(srv ActiveServer, bucketGroup string, weight RouteWeig
 			cand.RemainingFraction = targetWeekly.RemainingFraction
 			cand.ResetTime = targetWeekly.ResetTime
 			cand.WindowType = WindowWeekly
-			if targetWeekly.RemainingFraction <= MinRemainingFraction {
+			if targetWeekly.RemainingFraction <= CriticalQuotaThreshold {
 				cand.Score = -1000
-				cand.Reason = fmt.Sprintf("critical weekly quota (%.0f%% remaining, <=5%%)", targetWeekly.RemainingFraction*100)
+				cand.Reason = fmt.Sprintf("critical weekly quota (%.0f%% remaining, <=1%%)", targetWeekly.RemainingFraction*100)
 			} else {
 				cand.Eligible = true
 				cand.Score = targetWeekly.RemainingFraction * 1000.0
@@ -660,9 +677,9 @@ func ScoreServerForBucket(srv ActiveServer, bucketGroup string, weight RouteWeig
 			cand.WindowType = WindowWeekly
 		}
 
-		if tightest.RemainingFraction <= MinRemainingFraction {
+		if tightest.RemainingFraction <= CriticalQuotaThreshold {
 			cand.Score = -1000
-			cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=5%%)", tightest.RemainingFraction*100)
+			cand.Reason = fmt.Sprintf("critical quota (%.0f%% remaining, <=1%%)", tightest.RemainingFraction*100)
 		} else if tightest.RemainingFraction < 0.20 {
 			cand.Eligible = true
 			cand.Score = tightest.RemainingFraction * 1000.0
@@ -807,11 +824,15 @@ func PreflightProfilesForModel(count int, model string, weight RouteWeight, minF
 }
 
 // PreflightProfilesForModelFromCandidates filters candidates rejecting profiles with RemainingFraction below minFraction
-// (defaulting to DefaultSafetyQuotaThreshold when minFraction <= 0) or currently under active cooldown.
+// (defaulting to SafetyThresholdForModel(model, WeightMedium) or DefaultSafetyQuotaThreshold when minFraction <= 0) or currently under active cooldown.
 // It partitions non-excluded profiles first, followed by excluded profiles as fallback, returning up to count candidates.
 func PreflightProfilesForModelFromCandidates(candidates []RouteCandidate, count int, model string, minFraction float64, excludeProfiles ...string) ([]RouteCandidate, error) {
 	if minFraction <= 0 {
-		minFraction = DefaultSafetyQuotaThreshold
+		if strings.TrimSpace(model) == "" {
+			minFraction = DefaultSafetyQuotaThreshold
+		} else {
+			minFraction = SafetyThresholdForModel(model, WeightMedium)
+		}
 	}
 
 	excludedSet := make(map[string]bool, len(excludeProfiles))
