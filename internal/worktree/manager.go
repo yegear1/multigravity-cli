@@ -152,7 +152,7 @@ func CreateWorktree(opts CreateOptions) (*Worktree, error) {
 		return nil, fmt.Errorf("failed to add git worktree: %w", err)
 	}
 
-	headCommit, _ := GetHeadCommit(absTargetDir)
+	headCommit, _ := GitRevParseHead(absTargetDir)
 
 	// Copy requested files
 	for _, file := range opts.CopyFiles {
@@ -185,6 +185,9 @@ func CreateWorktree(opts CreateOptions) (*Worktree, error) {
 		TaskID:     opts.TaskID,
 		Status:     "active",
 		Metadata:   opts.Metadata,
+	}
+	if headCommit != "" {
+		wt.BaseCommit = headCommit
 	}
 
 	manifest.Worktrees[opts.ID] = wt
@@ -433,7 +436,7 @@ func GetWorktreeDiff(repoPath, id string, opts DiffOptions) (string, error) {
 		base = wt.BaseCommit
 	}
 
-	return GitDiff(wt.Path, base, opts.StatOnly, opts.Cached)
+	return GitDiff(wt.Path, base, opts.StatOnly, opts.Cached, opts.Paths...)
 }
 
 func copyFile(src, dst string) error {

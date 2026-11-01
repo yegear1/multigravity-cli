@@ -51,9 +51,10 @@ type RemoveOptions struct {
 
 // DiffOptions defines options for inspecting diffs between worktree and base.
 type DiffOptions struct {
-	Base     string `json:"base,omitempty"`
-	StatOnly bool   `json:"stat_only"`
-	Cached   bool   `json:"cached"`
+	Base     string   `json:"base,omitempty"`
+	StatOnly bool     `json:"stat_only"`
+	Cached   bool     `json:"cached"`
+	Paths    []string `json:"paths,omitempty"`
 }
 
 // WorktreeManifest models the persistent metadata store in .git/multigravity-worktrees.json.

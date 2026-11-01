@@ -71,6 +71,11 @@ func GetHeadCommit(dir string) (string, error) {
 	return runGit(dir, "rev-parse", "HEAD")
 }
 
+// GitRevParseHead resolves the commit hash at HEAD for the given directory.
+func GitRevParseHead(dir string) (string, error) {
+	return runGit(dir, "rev-parse", "HEAD")
+}
+
 // GetCurrentBranch returns the active branch name or "HEAD" if detached.
 func GetCurrentBranch(dir string) (string, error) {
 	branch, err := runGit(dir, "rev-parse", "--abbrev-ref", "HEAD")
@@ -290,7 +295,7 @@ func diffNoIndex(dir, path string, statOnly bool) (string, error) {
 // GitDiff executes git diff in the worktree directory.
 // When cached is false, untracked files are also included in the unified diff
 // by diffing each untracked file against os.DevNull.
-func GitDiff(worktreeDir, base string, statOnly, cached bool) (string, error) {
+func GitDiff(worktreeDir, base string, statOnly, cached bool, paths ...string) (string, error) {
 	args := []string{"diff"}
 	if statOnly {
 		args = append(args, "--stat")
@@ -301,6 +306,10 @@ func GitDiff(worktreeDir, base string, statOnly, cached bool) (string, error) {
 	if base != "" {
 		args = append(args, base)
 	}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
 	baseDiff, err := runGit(worktreeDir, args...)
 	if err != nil {
 		return "", err
@@ -310,7 +319,12 @@ func GitDiff(worktreeDir, base string, statOnly, cached bool) (string, error) {
 	}
 
 	// List untracked files respecting .gitignore
-	out, err := runGit(worktreeDir, "ls-files", "--others", "--exclude-standard")
+	lsArgs := []string{"ls-files", "--others", "--exclude-standard"}
+	if len(paths) > 0 {
+		lsArgs = append(lsArgs, "--")
+		lsArgs = append(lsArgs, paths...)
+	}
+	out, err := runGit(worktreeDir, lsArgs...)
 	if err != nil {
 		return baseDiff, nil
 	}

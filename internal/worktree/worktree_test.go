@@ -283,3 +283,155 @@ func TestGitDiffUntrackedAndIgnored(t *testing.T) {
 		t.Errorf("cachedDiff should NOT contain untracked 'main.py', got:\n%s", cachedDiff)
 	}
 }
+
+func TestWorktreeAdvancingMainDoesNotPolluteDiff(t *testing.T) {
+	repoDir := initTestRepo(t)
+
+	// Create a worktree passing symbolic ref "main" as BaseCommit
+	wt, err := CreateWorktree(CreateOptions{
+		ID:         "wt-adv-main",
+		RepoPath:   repoDir,
+		BaseCommit: "main",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+
+	// BaseCommit should have been resolved to an immutable SHA, not "main"
+	if wt.BaseCommit == "main" || len(wt.BaseCommit) < 40 {
+		t.Errorf("expected BaseCommit to be resolved immutable SHA, got %q", wt.BaseCommit)
+	}
+
+	// Make a modification in the worktree
+	readmeInWt := filepath.Join(wt.Path, "README.md")
+	if err := os.WriteFile(readmeInWt, []byte("# Worktree Changes\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Advance main in the primary repository
+	mainFile := filepath.Join(repoDir, "main_advance.txt")
+	if err := os.WriteFile(mainFile, []byte("main advanced content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	runGitCmd := func(dir string, args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s failed: %v: %s", strings.Join(args, " "), err, string(out))
+		}
+	}
+
+	runGitCmd(repoDir, "add", "main_advance.txt")
+	runGitCmd(repoDir, "commit", "-m", "advance main branch")
+
+	// Get worktree diff; it should NOT include main_advance.txt
+	diff, err := GetWorktreeDiff(repoDir, "wt-adv-main", DiffOptions{})
+	if err != nil {
+		t.Fatalf("GetWorktreeDiff failed: %v", err)
+	}
+
+	if !strings.Contains(diff, "Worktree Changes") {
+		t.Errorf("expected diff to contain worktree modifications, got:\n%s", diff)
+	}
+	if strings.Contains(diff, "main_advance.txt") || strings.Contains(diff, "main advanced content") {
+		t.Errorf("diff should NOT be polluted by advances to main branch, got:\n%s", diff)
+	}
+}
+
+func TestWorktreeDiffOptionsPathsFiltering(t *testing.T) {
+	repoDir := initTestRepo(t)
+
+	// Add an extra tracked file in main repo before creating worktree
+	extraFile := filepath.Join(repoDir, "tracked_extra.txt")
+	if err := os.WriteFile(extraFile, []byte("tracked extra original\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("git", "add", "tracked_extra.txt")
+	cmd.Dir = repoDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add failed: %v: %s", err, string(out))
+	}
+	cmd = exec.Command("git", "commit", "-m", "add tracked_extra")
+	cmd.Dir = repoDir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test",
+		"GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Test",
+		"GIT_COMMITTER_EMAIL=test@example.com",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit failed: %v: %s", err, string(out))
+	}
+
+	wt, err := CreateWorktree(CreateOptions{
+		ID:       "wt-paths-filter",
+		RepoPath: repoDir,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+
+	// Modify tracked README.md
+	if err := os.WriteFile(filepath.Join(wt.Path, "README.md"), []byte("# Modified README\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Modify tracked tracked_extra.txt
+	if err := os.WriteFile(filepath.Join(wt.Path, "tracked_extra.txt"), []byte("tracked extra modified\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create untracked file 1
+	if err := os.WriteFile(filepath.Join(wt.Path, "untracked1.txt"), []byte("untracked 1 content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create untracked file 2
+	if err := os.WriteFile(filepath.Join(wt.Path, "untracked2.txt"), []byte("untracked 2 content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Filter by README.md and untracked1.txt
+	diff, err := GetWorktreeDiff(repoDir, "wt-paths-filter", DiffOptions{
+		Paths: []string{"README.md", "untracked1.txt"},
+	})
+	if err != nil {
+		t.Fatalf("GetWorktreeDiff with paths failed: %v", err)
+	}
+
+	if !strings.Contains(diff, "Modified README") {
+		t.Errorf("expected diff to contain 'Modified README', got:\n%s", diff)
+	}
+	if !strings.Contains(diff, "untracked 1 content") {
+		t.Errorf("expected diff to contain 'untracked 1 content', got:\n%s", diff)
+	}
+	if strings.Contains(diff, "tracked extra modified") {
+		t.Errorf("diff should NOT contain unrelated tracked file 'tracked_extra.txt', got:\n%s", diff)
+	}
+	if strings.Contains(diff, "untracked 2 content") {
+		t.Errorf("diff should NOT contain unrelated untracked file 'untracked2.txt', got:\n%s", diff)
+	}
+
+	// Filter only untracked1.txt
+	untrackedOnlyDiff, err := GetWorktreeDiff(repoDir, "wt-paths-filter", DiffOptions{
+		Paths: []string{"untracked1.txt"},
+	})
+	if err != nil {
+		t.Fatalf("GetWorktreeDiff untracked only failed: %v", err)
+	}
+	if !strings.Contains(untrackedOnlyDiff, "untracked 1 content") {
+		t.Errorf("expected diff to contain 'untracked 1 content', got:\n%s", untrackedOnlyDiff)
+	}
+	if strings.Contains(untrackedOnlyDiff, "Modified README") || strings.Contains(untrackedOnlyDiff, "tracked extra modified") || strings.Contains(untrackedOnlyDiff, "untracked 2 content") {
+		t.Errorf("diff should ONLY contain untracked1.txt, got:\n%s", untrackedOnlyDiff)
+	}
+}
