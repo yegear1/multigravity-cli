@@ -7,7 +7,14 @@
 
 ## Active Task
 
-*(All tasks in Epic 05 [`05.1`–`05.27`] completed. Queue idle — awaiting next task or human instruction.)*
+### [06.3] Verify-on-Timeout recovery in Go plan executor
+- Status: READY FOR PLANNING
+- Priority: P1
+- Model: `gemini-3.8-flash-medium`
+- Read: `internal/dispatch/plan.go:500-600`
+- Paths: `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
+- Verify: `go test -v ./internal/dispatch -run TestExecutePlanVerifyOnTimeout`
+- Description: In `ExecutePlan`, on context deadline expiration or subtask timeout, before cancelling the task, run the verification command inside the worktree if a non-empty diff exists on allowed paths; if verification exits 0, recover the subtask as completed (`RecoveredFromTimeout = true`) and apply its diff.
 
 ---
 
@@ -15,6 +22,8 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [06.1] | Default compact JSON output and persist run artifacts (`.multigravity/runs/<plan_id>.json`, `--full` flag for verbose JSON) | [`da17053`](https://github.com/yegear1/multigravity-cli/commit/da17053) | 2026-11-01 |
+| [06.2] | Auto-symlink ignored build dependencies in ephemeral worktrees (`node_modules`, `target`, `.venv`, `.cargo`) | [`eee44eb`](https://github.com/yegear1/multigravity-cli/commit/eee44eb) | 2026-11-01 |
 | [05.27] | Synchronize `skills/multigravity-orchestrator/SKILL.md` and `task-queue` with installed-runner auto-discovery and `quota-history.jsonl` persistent 429 cooldowns | [`9d9855b`](https://github.com/yegear1/multigravity-cli/commit/9d9855b) | 2026-11-01 |
 | [05.26] | Persist and reload profile 429 cooldowns via `<profileDir>/.multigravity/quota-history.jsonl` (`Sample.CooldownUntil`, `SourceCooldown = "cooldown"`) and parse `"Resets in ..."` durations (`ParseQuotaResetDuration`) | [`cb2f996`](https://github.com/yegear1/multigravity-cli/commit/cb2f996) | 2026-11-01 |
 | [05.25] | Skip uninstalled agent runners in `ResolveAgentCommandWithCwd` / `ExecutePlan` via `DiscoverInstalledAgent` (`claude`, `agy`, `codex`, `opencode`, `aider`) | [`0d0985a`](https://github.com/yegear1/multigravity-cli/commit/0d0985a) | 2026-11-01 |
@@ -104,6 +113,31 @@
 - [x] **[05.25]** `[APPROVED]` `[PARALLEL: W14]` Skip uninstalled agent runners in `ResolveAgentCommandWithCwd` / `ExecutePlan` by probing installed binaries (`claude`, `agy`, `codex`, `opencode`, `aider`) on enriched `PATH`, and pass `--dangerously-skip-permissions --disable-slash-commands` when `agy` runs autonomously (`0d0985a`)
 - [x] **[05.26]** `[APPROVED]` `[PARALLEL: W14]` Persist and reload profile 429 cooldowns via `<profileDir>/.multigravity/quota-history.jsonl` (`Sample.CooldownUntil`, `SourceCooldown = "cooldown"`), add `ParseQuotaResetDuration` (`"Resets in ..."`), and record cooldowns on `rate_limited` subtasks in `ExecutePlan` and `ExecuteTaskWave` (`cb2f996`)
 - [x] **[05.27]** `[APPROVED]` `[PARALLEL: W14]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with installed-runner auto-discovery and `quota-history.jsonl` persistent 429 cooldowns (`9d9855b`)
+
+> **Epic 06 — Orchestration Resiliency, Token Economy & Fast-Track Recovery.** Derived from `triage-mail` parallel dispatch wave retrospectives. Grouped into disjoint-file waves (`W1`–`W4`).
+
+- [x] **[06.1]** `[APPROVED]` `[PARALLEL: W1]` Default compact JSON output and persist run artifacts (`.multigravity/runs/<plan_id>.json`, `--full` flag for verbose JSON) (`da17053`)
+- [x] **[06.2]** `[APPROVED]` `[PARALLEL: W1]` Auto-symlink ignored build dependencies in ephemeral worktrees (`node_modules`, `target`, `.venv`, `.cargo`) (`eee44eb`)
+- [ ] **[06.3]** `[APPROVED]` `[PARALLEL: W2]` Verify-on-Timeout recovery in Go plan executor (run `Verify:` on deadline if diff exists; recover as `completed` on exit 0)
+  - `Model:` `gemini-3.8-flash-medium`
+  - `Read:` `internal/dispatch/plan.go:500-600`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run TestExecutePlanVerifyOnTimeout`
+- [ ] **[06.4]** `[APPROVED]` `[PARALLEL: W2]` Default model fallback before wave linting (prevent un-modelled tasks from falsely failing `TierMicro` path/package rules)
+  - `Model:` `gemini-3.8-flash-medium`
+  - `Read:` `internal/dispatch/wave.go:230-265`
+  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run TestLintTaskWaveDefaultModel`
+- [ ] **[06.5]** `[APPROVED]` `[SEQ: W3]` Profile-aware concurrency throttling (clamp workers to `min(req.Workers, activeEligibleProfiles)` to prevent single-profile starvation)
+  - `Model:` `gemini-3.8-flash-medium`
+  - `Read:` `internal/dispatch/plan.go:490-545`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run TestProfileAwareConcurrency`
+- [ ] **[06.6]** `[APPROVED]` `[SEQ: W4]` Line and size bounds on `InlineRead` injection (cap non-ranged `Read:` entries to 150 lines and 5 KB)
+  - `Model:` `gemini-3.8-flash-medium`
+  - `Read:` `internal/dispatch/plan.go:200-280`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch -run TestSynthesizeSubtaskPromptWithRepoSizeBounds`
 
 ---
 
