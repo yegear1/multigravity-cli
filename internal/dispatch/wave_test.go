@@ -1,9 +1,17 @@
 package dispatch
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/ye-dev/multigravity-cli/internal/agent"
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
 
 func TestParseTaskWave(t *testing.T) {
@@ -106,5 +114,101 @@ func TestParseTaskWave(t *testing.T) {
 	_, err = ParseTaskWave(overlapFile, "W_ERR")
 	if err == nil {
 		t.Fatalf("expected error due to overlapping parallel paths, got nil")
+	}
+}
+
+func TestExecuteTaskWaveCascadeRetry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping shell script mock test on windows")
+	}
+
+	repoDir := setupTestGitRepo(t)
+	profNames := []string{"dev1", "dev2"}
+	if candidates, err := quota.SelectEligibleProfilesForModel(100, "gemini-4-argon-medium", quota.WeightHeavy); err == nil {
+		profNames = append(profNames, candidates...)
+	}
+	setupTestProfiles(t, profNames...)
+
+	binDir := t.TempDir()
+	fakeClaude := filepath.Join(binDir, "claude")
+	script := `#!/bin/sh
+case "$2" in
+  *"[PREVIOUS ATTEMPT FAILED ON MODEL gemini-4-argon-medium]"*)
+    echo "fixed" > feature.txt
+    git add feature.txt
+    ;;
+  *)
+    echo "broken" > feature.txt
+    git add feature.txt
+    ;;
+esac
+`
+	if err := os.WriteFile(fakeClaude, []byte(script), 0755); err != nil {
+		t.Fatalf("failed to write fake claude script: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	agentDir := filepath.Join(repoDir, ".agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatalf("failed to create .agent dir: %v", err)
+	}
+	taskFilePath := filepath.Join(agentDir, "TASK.md")
+	taskContent := `# Tasks
+
+## Backlog
+
+- [ ] **[05.99]** Implement feature Z [APPROVED] [SEQ: W1]
+  - ` + "`Paths:` `feature.txt`" + `
+  - ` + "`Verify:` `sh -c 'grep -q \"fixed\" feature.txt || (echo \"verification failed: missing fixed token\"; exit 1)'`" + `
+  - ` + "`Model:` `gemini-4-argon-medium`" + `
+`
+	if err := os.WriteFile(taskFilePath, []byte(taskContent), 0644); err != nil {
+		t.Fatalf("failed to write TASK.md: %v", err)
+	}
+
+	addCmd := exec.Command("git", "add", ".agent/TASK.md")
+	addCmd.Dir = repoDir
+	if out, err := addCmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add failed: %v (%s)", err, string(out))
+	}
+	commitCmd := exec.Command("git", "commit", "-m", "docs: add TASK.md")
+	commitCmd.Dir = repoDir
+	if out, err := commitCmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit failed: %v (%s)", err, string(out))
+	}
+
+	taskMgr := NewTaskManager(agent.NewManager())
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	res, err := taskMgr.ExecuteTaskWave(ctx, WaveOptions{
+		RepoRoot: repoDir,
+		TaskFile: taskFilePath,
+		WaveTag:  "W1",
+		Timeout:  15 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteTaskWave failed: %v", err)
+	}
+
+	if res.WaveStatus != "completed" {
+		t.Fatalf("expected wave status 'completed', got %q (tasks: %+v)", res.WaveStatus, res.Tasks)
+	}
+	if len(res.Tasks) != 1 {
+		t.Fatalf("expected 1 task result, got %d", len(res.Tasks))
+	}
+
+	stRes := res.Tasks[0]
+	if stRes.Status != StatusCompleted {
+		t.Errorf("expected task status 'completed', got %q (error: %s)", stRes.Status, stRes.Error)
+	}
+	if stRes.Model != "gemini-4-argon-high" {
+		t.Errorf("expected escalated model 'gemini-4-argon-high', got %q", stRes.Model)
+	}
+	if !strings.Contains(stRes.Prompt, "[PREVIOUS ATTEMPT FAILED ON MODEL gemini-4-argon-medium]") {
+		t.Errorf("expected retry prompt to contain failure model header, got:\n%s", stRes.Prompt)
+	}
+	if !strings.Contains(stRes.Prompt, "verification failed: missing fixed token") {
+		t.Errorf("expected retry prompt to contain diagnostic verification output, got:\n%s", stRes.Prompt)
 	}
 }

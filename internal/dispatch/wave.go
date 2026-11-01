@@ -313,10 +313,17 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 				continue
 			}
 
-			// Retry with Model: "gemini-4-argon-medium" excluding the failed profile
+			retryModel := "gemini-4-argon-medium"
+			if res.Model != "" && res.Model != "gemini-3.8-flash-low" {
+				if nextM, ok := quota.EscalateModel(res.Model); ok && nextM != "" {
+					retryModel = nextM
+				}
+			}
+
+			// Retry with escalated model excluding the failed profile
 			failedProfile := res.Profile
 			var eligibleProfiles []string
-			if candidates, qErr := quota.SelectEligibleProfilesForModel(100, "gemini-4-argon-medium", quota.WeightHeavy); qErr == nil {
+			if candidates, qErr := quota.SelectEligibleProfilesForModel(100, retryModel, quota.WeightHeavy); qErr == nil {
 				for _, p := range candidates {
 					if p != failedProfile {
 						eligibleProfiles = append(eligibleProfiles, p)
@@ -329,14 +336,16 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 				retryProfile = eligibleProfiles[0]
 			}
 
+			retryPrompt := SynthesizeCascadeRetryPrompt(t.Title, res.Model, res.VerificationOutput, res.LogTail)
+
 			retrySubtask := SubtaskSpec{
 				ID:            t.ID,
 				Profile:       retryProfile,
-				Prompt:        t.Title,
+				Prompt:        retryPrompt,
 				Verify:        t.Verify,
 				Read:          t.Read,
 				Paths:         t.Paths,
-				Model:         "gemini-4-argon-medium",
+				Model:         retryModel,
 				CommitMessage: fmt.Sprintf("feat(%s): %s", t.ID, t.Title),
 			}
 
