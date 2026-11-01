@@ -304,13 +304,49 @@ func ResolveAgentCommand(agentType, command string, args []string, prompt string
 	return ResolveAgentCommandWithCwd(agentType, command, args, prompt, "")
 }
 
+// DiscoverInstalledAgent probes candidate agent binaries on the current PATH (and enriched user PATH),
+// skipping any runner whose executable is not installed. Falls back to "claude" if none are found.
+func DiscoverInstalledAgent() string {
+	candidates := []string{"claude", "agy", "codex", "opencode", "aider"}
+	for _, bin := range candidates {
+		if _, err := exec.LookPath(bin); err == nil {
+			return bin
+		}
+	}
+	hostHome, _ := os.UserHomeDir()
+	if idx := strings.Index(hostHome, "/AntigravityProfiles/"); idx != -1 {
+		hostHome = hostHome[:idx]
+	}
+	enriched := profile.BuildEnrichedPATH(hostHome)
+	for _, dir := range filepath.SplitList(enriched) {
+		if dir == "" {
+			continue
+		}
+		for _, bin := range candidates {
+			full := filepath.Join(dir, bin)
+			if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(full), ".exe") {
+				full += ".exe"
+			}
+			if info, err := os.Stat(full); err == nil && !info.IsDir() {
+				return bin
+			}
+		}
+	}
+	return "claude"
+}
+
 // ResolveAgentCommandWithCwd infers the executable command and arguments given an agent type, prompt, and working directory.
 func ResolveAgentCommandWithCwd(agentType, command string, args []string, prompt, cwd string) (string, []string) {
 	cmdStr := strings.TrimSpace(command)
 	resArgs := args
+	resolvedType := strings.ToLower(strings.TrimSpace(agentType))
+
+	if cmdStr == "" && resolvedType == "" {
+		resolvedType = DiscoverInstalledAgent()
+	}
 
 	if cmdStr == "" {
-		switch strings.ToLower(agentType) {
+		switch resolvedType {
 		case "claude":
 			cmdStr = "claude"
 			if prompt != "" && len(resArgs) == 0 {
@@ -343,7 +379,7 @@ func ResolveAgentCommandWithCwd(agentType, command string, args []string, prompt
 	} else {
 		base := strings.ToLower(filepath.Base(cmdStr))
 		base = strings.TrimSuffix(base, ".exe")
-		if base == "codex" || strings.ToLower(agentType) == "codex" {
+		if base == "codex" || resolvedType == "codex" {
 			resArgs = buildCodexArgs(resArgs, prompt, cwd)
 		} else if prompt != "" && len(resArgs) == 0 {
 			switch base {
@@ -361,7 +397,7 @@ func ResolveAgentCommandWithCwd(agentType, command string, args []string, prompt
 
 	base := strings.ToLower(filepath.Base(cmdStr))
 	base = strings.TrimSuffix(base, ".exe")
-	if strings.ToLower(agentType) == "agy" || agentType == AgentAgy || base == "agy" {
+	if resolvedType == "agy" || agentType == AgentAgy || base == "agy" {
 		resArgs = normalizeAgyArgs(resArgs)
 	}
 

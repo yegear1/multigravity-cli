@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -166,6 +167,25 @@ func TestResolveAgentCommand(t *testing.T) {
 	cmd, args = ResolveAgentCommand("agy", "", []string{"--model", "gemini-2.5-pro", "--effort", "high"}, "")
 	if cmd != "agy" || len(args) != 4 || args[0] != "--model" || args[1] != "gemini-2.5-pro" || args[2] != "--effort" || args[3] != "high" {
 		t.Errorf("unexpected unmodified agy args: %s %v", cmd, args)
+	}
+
+	// Auto-discovery skips uninstalled runners and selects the first installed binary in PATH
+	tmpBin := t.TempDir()
+	fakeAgy := filepath.Join(tmpBin, "agy")
+	if runtime.GOOS == "windows" {
+		fakeAgy += ".exe"
+	}
+	if err := os.WriteFile(fakeAgy, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("failed to write fake agy: %v", err)
+	}
+	t.Setenv("PATH", tmpBin)
+	t.Setenv("HOME", tmpBin)
+	cmd, args = ResolveAgentCommand("", "", nil, "implement feature")
+	if cmd != "agy" {
+		t.Errorf("expected DiscoverInstalledAgent to skip uninstalled claude and pick installed 'agy', got %q", cmd)
+	}
+	if len(args) < 2 || args[0] != "-p" || args[1] != "implement feature" {
+		t.Errorf("unexpected agy auto-discovered args: %v", args)
 	}
 }
 
