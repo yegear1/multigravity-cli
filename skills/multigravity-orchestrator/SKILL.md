@@ -81,6 +81,16 @@ Decompose engineering objectives into a Directed Acyclic Graph (DAG) with explic
 
 Evaluate profile quota telemetry before assigning each task node.
 
+### 4-Tier Inference Capacity Matrix & Task Complexity Classification
+Tasks are classified by static complexity analysis (`multigravity route --task ... --paths ... --read ...`) into one of four capability tiers:
+
+| Tier | Models | Typical Scope |
+| :--- | :--- | :--- |
+| **Tier 0 / micro** | `gemini-3.8-flash-low` | Closed-scope micro-contracts with line-ranged slices, single-file edits. |
+| **Tier 1 / standard** | `gemini-3.8-flash-medium` / `high` | Localized multi-file changes, standard feature logic, unit tests. |
+| **Tier 2 / reasoning** | `gemini-4-argon-medium` / `high` | Algorithmic logic, multi-package refactoring, debugging, characterization tests. |
+| **Tier 3 / architecture** | `claude-3-opus` / `gemini-2.5-pro` | High-level system architecture, cross-repo contracts, schema migrations. |
+
 ### Model-Aware Quota Bucket Routing & Auto Allocation
 Multigravity categorizes profile telemetry into model-specific quota buckets (`gemini`, `argon`, `3p`) to route requests to eligible accounts via `SelectEligibleProfilesForModel`:
 - **`gemini` bucket:** Evaluates standard Gemini quota windows (e.g. `gemini-3.8-flash-low`, `gemini-2.5-pro`).
@@ -127,7 +137,8 @@ multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] --json
    - Subtasks execute atomically using `--apply-atomic` and `--omit-diff` flags in `multigravity dispatch plan`.
    - Worktree diffs are validated and applied cleanly to the target branch.
 4. **Resilient Retry Mechanism:**
-   - If a subtask fails on its default model, it automatically retries once using `gemini-4-argon-medium`, explicitly excluding the failed profile from candidate selection.
+   - If a subtask fails, it triggers progressive model escalation (`EscalateModel`) across capability tiers, explicitly excluding the failed profile from candidate selection.
+   - Automatically injects `[PREVIOUS ATTEMPT FAILED ON MODEL ...]` diagnostic output into the retry prompt via `SynthesizeCascadeRetryPrompt` during wave retries to guide corrective action.
 5. **Automated State Tracking & Git Hygiene:**
    - Upon successful verification of subtasks, `multigravity dispatch wave` automatically updates the status in `.agent/TASK.md` to completed and creates atomic Conventional Commits.
 
