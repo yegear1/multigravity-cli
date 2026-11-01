@@ -42,10 +42,17 @@ var (
 	dpFilterStat  string
 	dpFilterType  string
 	dpFilterWT    string
-	dpPlanWorkers int
-	dpPlanTimeout string
-	dpPlanRepo    string
-	dpRunProfile  string
+	dpPlanWorkers     int
+	dpPlanTimeout     string
+	dpPlanRepo        string
+	dpPlanApplyAtomic bool
+	dpPlanOmitDiff    bool
+	dpWaveTag         string
+	dpWaveFile        string
+	dpWaveRepo        string
+	dpWaveTimeout     string
+	dpWaveNoRetry     bool
+	dpRunProfile      string
 	dpRunRepo     string
 	dpSandbox     bool
 	dpDryRun      bool
@@ -207,6 +214,23 @@ git worktrees, returning a unified summary of execution status and diffs. Use '-
 	planSubCmd.Flags().IntVar(&dpPlanWorkers, "workers", 0, "Override worker pool concurrency limit")
 	planSubCmd.Flags().StringVar(&dpPlanTimeout, "timeout", "", "Execution timeout duration (e.g. 5m, 300s)")
 	planSubCmd.Flags().StringVar(&dpPlanRepo, "repo", "", "Target git repository directory")
+	planSubCmd.Flags().BoolVar(&dpPlanApplyAtomic, "apply-atomic", false, "Atomically apply diffs to base repo after completion")
+	planSubCmd.Flags().BoolVar(&dpPlanOmitDiff, "omit-diff", false, "Omit diff bodies in output for token efficiency")
+
+	// Wave Subcommand
+	waveSubCmd := &cobra.Command{
+		Use:   "wave",
+		Short: "Dispatch a wave of approved tasks from backlog across ephemeral worktrees",
+		Long: `Read task specifications from .agent/TASK.md for a given wave tag (e.g. W1)
+and execute them in parallel or sequence with automatic profile and quota routing.`,
+		Args: cobra.NoArgs,
+		RunE: runDispatchWave,
+	}
+	waveSubCmd.Flags().StringVar(&dpWaveTag, "wave", "", "Wave tag to execute (defaults to first uncompleted approved wave)")
+	waveSubCmd.Flags().StringVar(&dpWaveFile, "file", ".agent/TASK.md", "Path to task markdown file")
+	waveSubCmd.Flags().StringVar(&dpWaveRepo, "repo", "", "Target git repository directory")
+	waveSubCmd.Flags().StringVar(&dpWaveTimeout, "timeout", "4m", "Execution timeout duration (e.g. 4m, 300s)")
+	waveSubCmd.Flags().BoolVar(&dpWaveNoRetry, "no-retry", false, "Disable automatic retry of failed subtasks")
 
 	// Apply Subcommand
 	applySubCmd := &cobra.Command{
@@ -223,7 +247,7 @@ to the base repository working tree, and prune the ephemeral worktree upon succe
 	applySubCmd.Flags().BoolVar(&dpNoPrune, "no-prune", false, "Preserve ephemeral worktree and branch after application")
 	applySubCmd.Flags().BoolVar(&dpThreeWay, "3way", false, "Attempt 3-way merge if patch does not apply cleanly")
 
-	dispatchCmd.AddCommand(runSubCmd, listSubCmd, statusSubCmd, logsSubCmd, diffSubCmd, dashboardSubCmd, cancelSubCmd, deleteSubCmd, pruneSubCmd, planSubCmd, applySubCmd)
+	dispatchCmd.AddCommand(runSubCmd, listSubCmd, statusSubCmd, logsSubCmd, diffSubCmd, dashboardSubCmd, cancelSubCmd, deleteSubCmd, pruneSubCmd, planSubCmd, waveSubCmd, applySubCmd)
 	return dispatchCmd
 }
 
@@ -946,6 +970,8 @@ func runDispatchPlan(cmd *cobra.Command, args []string) error {
 		dpPlanWorkers = 0
 		dpPlanTimeout = ""
 		dpPlanRepo = ""
+		dpPlanApplyAtomic = false
+		dpPlanOmitDiff = false
 		dpJSON = false
 	}()
 
@@ -975,6 +1001,12 @@ func runDispatchPlan(cmd *cobra.Command, args []string) error {
 	}
 	if dpPlanRepo != "" {
 		req.RepoPath = dpPlanRepo
+	}
+	if dpPlanApplyAtomic {
+		req.ApplyAtomic = true
+	}
+	if dpPlanOmitDiff {
+		req.OmitDiff = true
 	}
 
 	out := cmd.OutOrStdout()
@@ -1039,6 +1071,99 @@ func runDispatchPlan(cmd *cobra.Command, args []string) error {
 
 	if result.Status != "completed" {
 		return fmt.Errorf("plan finished with status: %s", result.Status)
+	}
+	return nil
+}
+
+func runDispatchWave(cmd *cobra.Command, args []string) error {
+	defer func() {
+		dpWaveTag = ""
+		dpWaveFile = ""
+		dpWaveRepo = ""
+		dpWaveTimeout = ""
+		dpWaveNoRetry = false
+		dpJSON = false
+	}()
+
+	var timeoutDur time.Duration
+	if dpWaveTimeout != "" {
+		d, err := time.ParseDuration(dpWaveTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid timeout duration %q: %w", dpWaveTimeout, err)
+		}
+		timeoutDur = d
+	}
+
+	opts := dispatch.WaveOptions{
+		RepoRoot: dpWaveRepo,
+		TaskFile: dpWaveFile,
+		WaveTag:  dpWaveTag,
+		Timeout:  timeoutDur,
+		NoRetry:  dpWaveNoRetry,
+	}
+
+	out := cmd.OutOrStdout()
+	if !dpJSON {
+		tagDesc := opts.WaveTag
+		if tagDesc == "" {
+			tagDesc = "auto (first uncompleted approved)"
+		}
+		fmt.Fprintf(out, "%s Dispatching task wave [%s]...\n", dpCyan("▶"), dpBold(tagDesc))
+	}
+
+	mgr := dispatch.GetDefaultTaskManager()
+	result, err := mgr.ExecuteTaskWave(cmd.Context(), opts)
+	if err != nil {
+		if result != nil && dpJSON {
+			enc := json.NewEncoder(out)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(result)
+		}
+		return err
+	}
+
+	if dpJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+
+	statusStr := dpGreen(result.WaveStatus)
+	if result.WaveStatus == "failed" {
+		statusStr = dpRed(result.WaveStatus)
+	} else if result.WaveStatus == "partial" {
+		statusStr = dpYellow(result.WaveStatus)
+	}
+
+	fmt.Fprintf(out, "\n%s Wave %s [%s]\n", dpBold("Wave Execution:"), dpBold(result.WaveTag), statusStr)
+
+	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(w, "\nTASK\tPROFILE\tSTATUS\tEXIT\tCOMMIT\tMODEL")
+	fmt.Fprintln(w, "----\t-------\t------\t----\t------\t-----")
+	for _, st := range result.Tasks {
+		stStatus := dpGreen(string(st.Status))
+		if st.Status == dispatch.StatusFailed {
+			stStatus = dpRed(string(st.Status))
+		}
+		commitStr := st.Commit
+		if commitStr == "" {
+			commitStr = "-"
+		}
+		modelStr := st.Model
+		if modelStr == "" {
+			modelStr = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\n",
+			st.ID, st.Profile, stStatus, st.ExitCode, commitStr, modelStr)
+	}
+	_ = w.Flush()
+
+	if result.TaskFileCommit != "" {
+		fmt.Fprintf(out, "\n%s Task file updated and committed: %s\n", dpGreen("✓"), dpBold(result.TaskFileCommit))
+	}
+
+	if result.WaveStatus != "completed" {
+		return fmt.Errorf("wave finished with status: %s", result.WaveStatus)
 	}
 	return nil
 }
