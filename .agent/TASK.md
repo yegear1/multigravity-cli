@@ -14,7 +14,7 @@
 - **Action Type:**
   - [ ] Read-only / Documentation
   - [x] Source code changes
-- **Status:** APPROVED
+- **Status:** RUNNING
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
@@ -29,6 +29,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.9] | Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` | [`1714133`](https://github.com/yegear1/multigravity-cli/commit/1714133) | 2026-11-01 |
 | [05.7] | Add `SelectEligibleProfiles` and `SelectEligibleProfilesFromCandidates` with secondary-account priority (`excludeProfiles`) in `internal/quota` | [`a842530`](https://github.com/yegear1/multigravity-cli/commit/a842530) | 2026-11-01 |
 | [05.6] | Resolve symbolic `BaseCommit` refs to immutable SHA in `CreateWorktree` and add `Paths` filtering to `DiffOptions` / `GitDiff` | [`080fba6`](https://github.com/yegear1/multigravity-cli/commit/080fba6) | 2026-11-01 |
 | [05.5] | Synchronize `multigravity-orchestrator` skill with `Read:/Paths:/Verify:` micro-contracts, tiered model IDs, and bounded diagnostic tail handling | [`d7c7ee8`](https://github.com/yegear1/multigravity-cli/commit/d7c7ee8) | 2026-11-01 |
@@ -69,10 +70,7 @@
   - `Read:` `internal/quota/routing.go:1-260, internal/quota/routing_test.go:1-220`
   - `Paths:` `internal/quota/routing.go, internal/quota/routing_test.go`
   - `Verify:` `go test -v ./internal/quota -run "TestSelectEligibleProfiles|TestBucketGroupForModel|TestScoreServerForBucket"`
-- [ ] **[05.9]** `[APPROVED]` `[PARALLEL: W2]` Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` *(Points 2.C & 2.D)*
-  - `Read:` `internal/dispatch/manager.go:35-70, internal/dispatch/manager.go:210-280`
-  - `Paths:` `internal/dispatch/manager.go, internal/dispatch/dispatch_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "TestResolveAgentCommand|TestVerifyNoTestsToRun"`
+- [x] **[05.9]** `[APPROVED]` `[PARALLEL: W2]` Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` *(Points 2.C & 2.D)* (`1714133`)
 - [ ] **[05.10]** `[APPROVED]` `[SEQ: W3]` Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default with single-grep escape hatch, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` execution in `internal/dispatch/plan.go` *(Points 2.B, 2.C, 2.D, 2.E)*
   - `Read:` `internal/dispatch/plan.go:20-360, internal/dispatch/plan_test.go:1-200`
   - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
