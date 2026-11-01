@@ -115,6 +115,10 @@ type PlanResult struct {
 	UnifiedSummary  UnifiedDiffSummary `json:"unified_summary"`
 }
 
+func hasLineRangeSlice(entries []string) bool {
+	return quota.HasLineRangedRead(entries)
+}
+
 // SynthesizeSubtaskPrompt formats a subtask prompt and resolves the model to use.
 func SynthesizeSubtaskPrompt(st SubtaskSpec, defaultModel string) (string, string) {
 	return SynthesizeSubtaskPromptWithRepo(st, defaultModel, "", false)
@@ -126,8 +130,14 @@ func SynthesizeSubtaskPromptWithRepo(st SubtaskSpec, defaultModel, repoRoot stri
 	if resolvedModel == "" {
 		if defaultModel != "" {
 			resolvedModel = defaultModel
-		} else if len(st.Read) > 0 || len(st.Paths) > 0 {
+		} else if len(st.Paths) == 1 && len(st.Read) > 0 && hasLineRangeSlice(st.Read) {
 			resolvedModel = "gemini-3.8-flash-low"
+		} else {
+			resolvedModel = quota.ClassifyTaskComplexity(quota.TaskComplexityInput{
+				Prompt: st.Prompt,
+				Paths:  st.Paths,
+				Read:   st.Read,
+			}).RecommendedModel
 		}
 	}
 
@@ -468,6 +478,21 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					Model:      resolvedModel,
 				}
 
+				dArgs := append([]string(nil), st.Args...)
+				cmd := strings.TrimSpace(st.Command)
+				if (cmd == "" || cmd == "agy") && resolvedModel != "" {
+					hasModel := false
+					for _, arg := range dArgs {
+						if arg == "--model" || strings.HasPrefix(arg, "--model=") {
+							hasModel = true
+							break
+						}
+					}
+					if !hasModel {
+						dArgs = append(dArgs, "--model", resolvedModel)
+					}
+				}
+
 				dOpts := DispatchOptions{
 					ID:          taskID,
 					Profile:     effectiveProfile,
@@ -475,7 +500,7 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					Prompt:      resolvedPrompt,
 					AgentType:   st.AgentType,
 					Command:     st.Command,
-					Args:        st.Args,
+					Args:        dArgs,
 					NewWorktree: true,
 					Branch:      branch,
 					BaseCommit:  baseCommit,
