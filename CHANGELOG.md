@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.3] - 2026-11-01
+
+### Added
+- **Ephemeral Worktree Dependency Symlinking:** Automatically symlinks ignored build directories (`node_modules`, `target`, `.venv`, `.cargo`) from repository root into ephemeral Git worktrees, allowing fast-track zero-install verification in subtasks.
+- **Run Artifact Persistence & Compact JSON:** Saves detailed execution run artifacts to `.multigravity/runs/<plan_id>.json` and defaults CLI plan output to compact machine-readable summaries, with `--full` flag for exhaustive diff/log payloads.
+- **Verify-on-Timeout Recovery:** Automatically triggers and checks the subtask verification command (`Verify:`) on execution timeout when local changes exist, safely recovering tasks as `completed` if tests pass (exit 0).
+
+### Fixed
+- **Inline Read Injection Bounds:** Enforced protective line and size bounds on non-ranged `Read:` entries (capped at 150 lines and 5 KB) during prompt synthesis to prevent LLM context exhaustion.
+- **Profile-Aware Concurrency Throttling:** Clamped active workers to `min(req.Workers, activeEligibleProfiles)` in plan dispatching to prevent worker contention and quota starvation on single-profile environments.
+- **Wave Linting Model Fallback:** Injected default model fallback prior to wave linting, preventing un-modelled tasks from falsely failing `TierMicro` path and package limits.
+
 ## [2.2.2] - 2026-11-01
 
 ### Added
