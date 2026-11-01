@@ -7,10 +7,10 @@
 
 ## Active Task
 
-### 📌 Task [05.8]: Model-Aware Quota Bucket Routing & Failed-Profile Retry Exclusion (`internal/quota`)
+### 📌 Task [05.10]: Line-Ranged `Read:` Pre-Injection, Anti-Guessing Micro-Contracts, `empty_diff` `LogTail` Audit & Atomic Wave Commits (`internal/dispatch/plan.go`)
 
-- **Description:** Map target model families (`gemini` vs `argon` vs `3p`) to their corresponding Cloud Code quota buckets in `internal/quota/routing.go`, prevent `default_untouched = 1.0` false-positives when Cloud Code omits an entire model family group (`gemini-weekly` / `gemini-argon-wtu-weekly`), and support excluding previously failed profiles on task retry (`SelectEligibleProfilesForModel`).
-- **Systems Involved:** `internal/quota`
+- **Description:** Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default with single-grep escape hatch, `empty_diff` `LogTail` audit, model-aware auto-profile routing (`quota.SelectEligibleProfilesForModel`), and `--apply-atomic` / `--omit-diff` execution in `internal/dispatch/plan.go`.
+- **Systems Involved:** `internal/dispatch`
 - **Action Type:**
   - [ ] Read-only / Documentation
   - [x] Source code changes
@@ -18,10 +18,11 @@
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] Add `BucketGroupForModel(model string) string` in `internal/quota/routing.go` mapping `gemini-4-argon-*` $\rightarrow$ `"argon"`, `claude-*` / `gpt-*` $\rightarrow$ `"3p"`, and `gemini-*` (or empty) $\rightarrow$ `"gemini"`.
-- [ ] Add `ScoreServerForBucket(srv ServerStatus, bucketGroup string, weight RouteWeight, now time.Time) RouteCandidate` so missing Gemini/Argon buckets are not assumed `1.0` when only unrelated `3p` buckets exist in the server response.
-- [ ] Add `SelectEligibleProfilesForModel(count int, model string, weight RouteWeight, excludeProfiles ...string) ([]string, error)` and unit tests in `internal/quota/routing_test.go`.
-- [ ] Verify with `go test -v ./internal/quota -run "TestSelectEligibleProfiles|TestBucketGroupForModel|TestScoreServerForBucket"`.
+- [ ] Extend `SubtaskSpec` (`Read`, `Paths`, `CommitMessage`, `Model`), `PlanRequest` (`DefaultModel`, `ApplyAtomic`, `OmitDiff`, `InlineRead`), and `SubtaskResult` (`Commit`, `RecoveredFromTimeout`, `Model`) in `internal/dispatch/plan.go`.
+- [ ] Implement `SynthesizeSubtaskPromptWithRepo` supporting `file:start-end` line-ranged `Read:` pre-injection (up to 15 KB total), single-grep escape hatch, and `gemini-3.8-flash-low` default for micro-contracts.
+- [ ] Populate `LogTail` on `empty_diff` (`res.Status != StatusCompleted || strings.TrimSpace(res.Diff) == ""`) and mark `empty_diff` subtasks with non-empty `Paths` as `StatusAuditFailed`.
+- [ ] Support `st.Profile == ""` or `"auto"` via `quota.SelectEligibleProfilesForModel` and implement `ApplyAtomic` / `OmitDiff` in `ExecutePlan`.
+- [ ] Verify with `go test -v ./internal/dispatch -run "Test.*Plan|TestSynthesizeSubtaskPrompt"`.
 
 ---
 
@@ -29,6 +30,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.8] | Add model-aware quota bucket routing (`BucketGroupForModel`, `ScoreServerForBucket`, `SelectEligibleProfilesForModel`) and prevent missing-group false-positive `1.0` scores in `internal/quota` | [`4bc9bb9`](https://github.com/yegear1/multigravity-cli/commit/4bc9bb9) | 2026-11-01 |
 | [05.9] | Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` | [`1714133`](https://github.com/yegear1/multigravity-cli/commit/1714133) | 2026-11-01 |
 | [05.7] | Add `SelectEligibleProfiles` and `SelectEligibleProfilesFromCandidates` with secondary-account priority (`excludeProfiles`) in `internal/quota` | [`a842530`](https://github.com/yegear1/multigravity-cli/commit/a842530) | 2026-11-01 |
 | [05.6] | Resolve symbolic `BaseCommit` refs to immutable SHA in `CreateWorktree` and add `Paths` filtering to `DiffOptions` / `GitDiff` | [`080fba6`](https://github.com/yegear1/multigravity-cli/commit/080fba6) | 2026-11-01 |
@@ -66,10 +68,7 @@
 
 - [x] **[05.6]** `[APPROVED]` `[PARALLEL: W1]` Resolve symbolic `BaseCommit` refs to immutable SHA in `CreateWorktree` and add `Paths` filtering to `DiffOptions` / `GitDiff` (`080fba6`)
 - [x] **[05.7]** `[APPROVED]` `[PARALLEL: W1]` Add `SelectEligibleProfiles` and `SelectEligibleProfilesFromCandidates` with secondary-account priority (`excludeProfiles`) in `internal/quota` (`a842530`)
-- [ ] **[05.8]** `[APPROVED]` `[PARALLEL: W2]` Add model-aware quota bucket routing (`BucketGroupForModel`, `ScoreServerForBucket`, `SelectEligibleProfilesForModel`) and prevent missing-group false-positive `1.0` scores in `internal/quota` *(Point 2.E)*
-  - `Read:` `internal/quota/routing.go:1-260, internal/quota/routing_test.go:1-220`
-  - `Paths:` `internal/quota/routing.go, internal/quota/routing_test.go`
-  - `Verify:` `go test -v ./internal/quota -run "TestSelectEligibleProfiles|TestBucketGroupForModel|TestScoreServerForBucket"`
+- [x] **[05.8]** `[APPROVED]` `[PARALLEL: W2]` Add model-aware quota bucket routing (`BucketGroupForModel`, `ScoreServerForBucket`, `SelectEligibleProfilesForModel`) and prevent missing-group false-positive `1.0` scores in `internal/quota` *(Point 2.E)* (`4bc9bb9`)
 - [x] **[05.9]** `[APPROVED]` `[PARALLEL: W2]` Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` *(Points 2.C & 2.D)* (`1714133`)
 - [ ] **[05.10]** `[APPROVED]` `[SEQ: W3]` Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default with single-grep escape hatch, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` execution in `internal/dispatch/plan.go` *(Points 2.B, 2.C, 2.D, 2.E)*
   - `Read:` `internal/dispatch/plan.go:20-360, internal/dispatch/plan_test.go:1-200`
