@@ -7,10 +7,10 @@
 
 ## Active Task
 
-### 📌 Task [05.19]: Clean governance tags from `WaveTaskSpec.Title` in `ParseTaskWave`
+### 📌 Task [05.18]: Add `LintTaskWave` and `--lint` flag to `multigravity dispatch wave`
 
-- **Description:** Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` so commit messages (`feat(id): <clean title>`) and worker prompts do not leak markdown metadata tags. Include `Verify: <st.Verify>` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files within residual `maxBudget`, and record estimated `TokensUsed int` in `SubtaskResult` (`[05.21]`).
-- **Systems Involved:** `internal/dispatch/wave.go`, `internal/dispatch/wave_test.go`, `internal/dispatch/plan.go`, `internal/dispatch/plan_test.go`
+- **Description:** Add `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` and `--lint` flag to `multigravity dispatch wave` in `internal/cmd/dispatch.go`: report violations when a `TierMicro` (`gemini-3.8-flash-low`) task has `> 2` `Paths:` files or spans multiple Go packages, or when any task has `> 4` `Read:` entries or missing `Verify:`; exit non-zero when violations are found.
+- **Systems Involved:** `internal/dispatch/wave.go`, `internal/dispatch/wave_test.go`, `internal/cmd/dispatch.go`
 - **Action Type:**
   - [ ] Read-only / Documentation
   - [x] Source code changes
@@ -18,8 +18,8 @@
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] `ParseTaskWave` in `internal/dispatch/wave.go` strips `[APPROVED]`, `[PARALLEL: Wx]`, and `[SEQ: Wx]` tags from `WaveTaskSpec.Title`.
-- [ ] `SynthesizeSubtaskPromptWithRepo` includes `Verify: <st.Verify>`, pre-injects sibling `*_test.go` trailing lines within the 15 KB budget, and `SubtaskResult` records `TokensUsed int`.
+- [ ] `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` reports micro-contract violations.
+- [ ] `multigravity dispatch wave --lint` in `internal/cmd/dispatch.go` runs `LintTaskWave` and exits non-zero when violations are found.
 
 ---
 
@@ -27,6 +27,8 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.19] | Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` | [`3efaa40`](https://github.com/yegear1/multigravity-cli/commit/3efaa40) | 2026-11-01 |
+| [05.21] | Include `Verify:` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files within residual `maxBudget`, and record `TokensUsed` in `SubtaskResult` | [`1524e9d`](https://github.com/yegear1/multigravity-cli/commit/1524e9d) | 2026-11-01 |
 | [05.20] | Wire `ClassifyTaskComplexity` into `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` and pass `--model <resolvedModel>` into `dOpts.Args` | [`9e27365`](https://github.com/yegear1/multigravity-cli/commit/9e27365) | 2026-11-01 |
 | [05.17] | Gate model escalation in `ExecuteTaskWave` on `res.FailureReason` (`rate_limited`, `verify_failed`, `empty_diff`/`timeout`) | [`3492921`](https://github.com/yegear1/multigravity-cli/commit/3492921) | 2026-11-01 |
 | [05.16] | Add structured `FailureReason string` (`ClassifySubtaskFailure`) in `SubtaskResult` inspecting status, exit code, verification output, and `log_tail` | [`266bec2`](https://github.com/yegear1/multigravity-cli/commit/266bec2) | 2026-11-01 |
@@ -98,16 +100,8 @@
 - [x] **[05.16]** `[APPROVED]` `[PARALLEL: W9]` Add structured `FailureReason string` (`timeout | rate_limited | empty_diff | verify_failed | agent_error`) in `SubtaskResult` (`ClassifySubtaskFailure`) inspecting status, exit code, verification output, and `log_tail` (429/rate-limit/quota indicators) so empty or terse logs never hide the root cause (`266bec2`)
 - [x] **[05.17]** `[APPROVED]` `[PARALLEL: W10]` Gate model escalation in `ExecuteTaskWave` on `res.FailureReason`: on `rate_limited`, record profile cooldown and retry with the **same** model on an alternate profile; on `verify_failed` (with non-empty verification output), escalate via `quota.EscalateModel`; on `empty_diff` or `timeout` with empty diagnostics, skip retry and preserve failure reason (`3492921`)
 - [x] **[05.20]** `[APPROVED]` `[PARALLEL: W10]` Wire `ClassifyTaskComplexity` into `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` when `st.Model == ""` and `defaultModel == ""` (preserving `gemini-3.8-flash-low` for single-path or line-ranged micro-contracts) AND pass `--model <resolvedModel>` into `dOpts.Args` when `st.Command == ""` and `--model` is not already present in `st.Args` (`9e27365`)
-- [ ] **[05.19]** `[APPROVED]` `[PARALLEL: W11]` Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` so commit messages (`feat(id): <clean title>`) and worker prompts do not leak markdown metadata tags.
-  - `Read:` `internal/dispatch/wave.go:53-165, internal/dispatch/wave.go:270-296, internal/dispatch/wave_test.go:17-118`
-  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Wave"`
-  - `Model:` `gemini-3.8-flash-low`
-- [ ] **[05.21]** `[APPROVED]` `[PARALLEL: W11]` Include `Verify: <st.Verify>` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files for `st.Paths` using only residual space within the 15 KB `maxBudget` after all explicit `st.Read` slices are loaded, and record estimated prompt/completion `TokensUsed int` in `SubtaskResult`.
-  - `Read:` `internal/dispatch/plan.go:64-90, internal/dispatch/plan.go:122-231, internal/dispatch/plan_test.go:393-449`
-  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "Test.*Plan|TestSynthesizeSubtaskPrompt"`
-  - `Model:` `gemini-3.8-flash-medium`
+- [x] **[05.19]** `[APPROVED]` `[PARALLEL: W11]` Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` so commit messages (`feat(id): <clean title>`) and worker prompts do not leak markdown metadata tags (`3efaa40`)
+- [x] **[05.21]** `[APPROVED]` `[PARALLEL: W11]` Include `Verify: <st.Verify>` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files for `st.Paths` using only residual space within the 15 KB `maxBudget` after all explicit `st.Read` slices are loaded, and record estimated prompt/completion `TokensUsed int` in `SubtaskResult` (`1524e9d`)
 - [ ] **[05.18]** `[APPROVED]` `[SEQ: W12]` Add `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` and `--lint` flag to `multigravity dispatch wave` in `internal/cmd/dispatch.go`: report violations when a `TierMicro` (`gemini-3.8-flash-low`) task has `> 2` `Paths:` files or spans multiple Go packages, or when any task has `> 4` `Read:` entries or missing `Verify:`; exit non-zero when violations are found.
   - `Read:` `internal/dispatch/wave.go:17-95, internal/cmd/dispatch.go:220-235, internal/cmd/dispatch.go:1078-1130`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go, internal/cmd/dispatch.go`
