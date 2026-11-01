@@ -87,6 +87,7 @@ type SubtaskResult struct {
 	RecoveredFromTimeout bool            `json:"recovered_from_timeout,omitempty"`
 	Model                string          `json:"model,omitempty"`
 	FailureReason        string          `json:"failure_reason,omitempty"`
+	TokensUsed           int             `json:"tokens_used,omitempty"`
 }
 
 // UnifiedDiffSummary aggregates diff statistics, affected files, and scope collision analysis.
@@ -164,7 +165,11 @@ func SynthesizeSubtaskPromptWithRepo(st SubtaskSpec, defaultModel, repoRoot stri
 		}
 	}
 
-	if inlineRead && repoRoot != "" && len(st.Read) > 0 {
+	if st.Verify != "" {
+		sb.WriteString("\nVerify: " + st.Verify + "\n")
+	}
+
+	if inlineRead && repoRoot != "" {
 		var embeddedSection strings.Builder
 		totalBytes := 0
 		const maxBudget = 15360
@@ -228,6 +233,77 @@ func SynthesizeSubtaskPromptWithRepo(st SubtaskSpec, defaultModel, repoRoot stri
 			} else {
 				embeddedSection.WriteString(snippet)
 				totalBytes += len(snippet)
+			}
+		}
+
+		if totalBytes < maxBudget {
+			readFiles := make(map[string]bool)
+			for _, entry := range st.Read {
+				filePath := entry
+				if idx := strings.LastIndex(entry, ":"); idx != -1 {
+					filePath = entry[:idx]
+				}
+				readFiles[filepath.Clean(filePath)] = true
+				readFiles[filePath] = true
+				readFiles[filepath.ToSlash(filepath.Clean(filePath))] = true
+			}
+
+			for _, p := range st.Paths {
+				if totalBytes >= maxBudget {
+					break
+				}
+				cleanP := filepath.Clean(p)
+				if !strings.HasSuffix(cleanP, ".go") || strings.HasSuffix(cleanP, "_test.go") {
+					continue
+				}
+				testPath := strings.TrimSuffix(p, ".go") + "_test.go"
+				cleanTestPath := filepath.Clean(testPath)
+				slashTestPath := filepath.ToSlash(cleanTestPath)
+				if readFiles[cleanTestPath] || readFiles[testPath] || readFiles[slashTestPath] {
+					continue
+				}
+				readFiles[cleanTestPath] = true
+				readFiles[testPath] = true
+				readFiles[slashTestPath] = true
+
+				fullPath := filepath.Join(repoRoot, testPath)
+				fi, err := os.Stat(fullPath)
+				if err != nil || fi.IsDir() {
+					continue
+				}
+
+				f, err := os.Open(fullPath)
+				if err != nil {
+					continue
+				}
+
+				scanner := bufio.NewScanner(f)
+				var lines []string
+				for scanner.Scan() {
+					lines = append(lines, scanner.Text())
+				}
+				f.Close()
+
+				if len(lines) == 0 {
+					continue
+				}
+				if len(lines) > 60 {
+					lines = lines[len(lines)-60:]
+				}
+
+				content := strings.Join(lines, "\n")
+				snippet := fmt.Sprintf("\n--- %s ---\n%s\n", testPath, content)
+				if totalBytes+len(snippet) > maxBudget {
+					remaining := maxBudget - totalBytes
+					if remaining > 0 {
+						embeddedSection.WriteString(snippet[:remaining])
+						totalBytes += remaining
+					}
+					break
+				} else {
+					embeddedSection.WriteString(snippet)
+					totalBytes += len(snippet)
+				}
 			}
 		}
 
@@ -518,6 +594,7 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					res.Status = StatusFailed
 					res.Error = err.Error()
 					res.FailureReason = ClassifySubtaskFailure(res)
+					res.TokensUsed = quota.EstimateTokens(res.Prompt)
 					subtaskResults[idx] = res
 					continue
 				}
@@ -637,6 +714,8 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 				if res.Status != StatusCompleted || res.ExitCode != 0 {
 					res.FailureReason = ClassifySubtaskFailure(res)
 				}
+
+				res.TokensUsed = quota.EstimateTokens(res.Prompt + res.LogTail + res.Diff)
 
 				if req.OmitDiff {
 					res.Diff = ""

@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -444,6 +445,137 @@ func TestSynthesizeSubtaskPrompt(t *testing.T) {
 	_, model3 := SynthesizeSubtaskPrompt(st3, "custom-model")
 	if model3 != "subtask-model" {
 		t.Errorf("expected model 'subtask-model', got %q", model3)
+	}
+
+	// Test Verify injection
+	stVerify := SubtaskSpec{
+		Prompt: "implement verify feature",
+		Verify: "go test -v ./...",
+	}
+	promptVerify, _ := SynthesizeSubtaskPrompt(stVerify, "custom-model")
+	if !strings.Contains(promptVerify, "Verify: go test -v ./...") {
+		t.Errorf("expected prompt to contain 'Verify: go test -v ./...', got:\n%s", promptVerify)
+	}
+
+	stNoVerify := SubtaskSpec{
+		Prompt: "no verify subtask",
+	}
+	promptNoVerify, _ := SynthesizeSubtaskPrompt(stNoVerify, "custom-model")
+	if strings.Contains(promptNoVerify, "Verify:") {
+		t.Errorf("expected prompt not to contain 'Verify:', got:\n%s", promptNoVerify)
+	}
+}
+
+func TestSynthesizeSubtaskPromptSiblingTestInjection(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create pkg/alpha.go and pkg/alpha_test.go with 70 lines
+	pkgDir := filepath.Join(tmpDir, "pkg")
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "alpha.go"), []byte("package pkg\nfunc Alpha() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var testLines []string
+	for i := 1; i <= 70; i++ {
+		testLines = append(testLines, fmt.Sprintf("// test line %02d", i))
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "alpha_test.go"), []byte(strings.Join(testLines, "\n")), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Case A: Sibling test automatically pre-injected when not in st.Read
+	stA := SubtaskSpec{
+		Prompt: "update alpha",
+		Paths:  []string{"pkg/alpha.go"},
+	}
+	promptA, _ := SynthesizeSubtaskPromptWithRepo(stA, "", tmpDir, true)
+	if !strings.Contains(promptA, "[PRE-LOADED READ CONTEXT]") {
+		t.Fatalf("expected pre-loaded read context for sibling test, got:\n%s", promptA)
+	}
+	if !strings.Contains(promptA, "--- pkg/alpha_test.go ---") {
+		t.Fatalf("expected sibling header '--- pkg/alpha_test.go ---', got:\n%s", promptA)
+	}
+	// Last 60 lines: line 11 to 70 should be present, line 01 to 10 should not be present
+	if !strings.Contains(promptA, "// test line 70") || !strings.Contains(promptA, "// test line 11") {
+		t.Errorf("expected trailing 60 lines (including line 11 and 70), got:\n%s", promptA)
+	}
+	if strings.Contains(promptA, "// test line 01") || strings.Contains(promptA, "// test line 10") {
+		t.Errorf("expected lines 01-10 to be truncated to last 60 lines, got:\n%s", promptA)
+	}
+
+	// Case B: When sibling test is already in st.Read, do NOT duplicate it
+	stB := SubtaskSpec{
+		Prompt: "update alpha with explicit read",
+		Read:   []string{"pkg/alpha_test.go"},
+		Paths:  []string{"pkg/alpha.go"},
+	}
+	promptB, _ := SynthesizeSubtaskPromptWithRepo(stB, "", tmpDir, true)
+	if c := strings.Count(promptB, "--- pkg/alpha_test.go ---"); c != 1 {
+		t.Errorf("expected exactly 1 occurrence of sibling test when in st.Read, got %d", c)
+	}
+
+	// Case C: Budget limit (15 KB maxBudget)
+	largeData := strings.Repeat("x", 15330)
+	if err := os.WriteFile(filepath.Join(tmpDir, "large.txt"), []byte(largeData), 0644); err != nil {
+		t.Fatal(err)
+	}
+	stC := SubtaskSpec{
+		Prompt: "budget test",
+		Read:   []string{"large.txt"},
+		Paths:  []string{"pkg/alpha.go"},
+	}
+	promptC, _ := SynthesizeSubtaskPromptWithRepo(stC, "", tmpDir, true)
+	idxContext := strings.Index(promptC, "[PRE-LOADED READ CONTEXT]")
+	if idxContext == -1 {
+		t.Fatalf("expected pre-loaded context in budget test")
+	}
+	injectedLen := len(promptC[idxContext+len("[PRE-LOADED READ CONTEXT]"):])
+	if injectedLen > 15360 {
+		t.Errorf("expected injected context to be within 15360 bytes, got %d", injectedLen)
+	}
+}
+
+func TestExecutePlanTokensUsed(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev1")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	req := PlanRequest{
+		PlanID:   "plan-test-tokens-used",
+		RepoPath: repoDir,
+		Workers:  1,
+		Subtasks: []SubtaskSpec{
+			{
+				ID:      "subtask-token-test",
+				Profile: "dev1",
+				Prompt:  "Please write greeting to file",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'hello world token' > token.txt"},
+				Paths:   []string{"token.txt"},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	result, err := taskMgr.ExecutePlan(ctx, req)
+	if err != nil {
+		t.Fatalf("ExecutePlan failed: %v", err)
+	}
+
+	if len(result.Subtasks) != 1 {
+		t.Fatalf("expected 1 subtask, got %d", len(result.Subtasks))
+	}
+
+	stRes := result.Subtasks[0]
+	if stRes.TokensUsed <= 0 {
+		t.Errorf("expected TokensUsed > 0, got %d", stRes.TokensUsed)
 	}
 }
 
