@@ -25,7 +25,8 @@ Canonical specification for managing Google Antigravity IDE isolated profiles, t
   - NEVER remove or bypass `$HOME` redirection without preserving essential symlinks (`.gitconfig`, `.ssh`, `.config/gh`).
   - NEVER use profile names that violate the naming schema `^[a-zA-Z0-9][a-zA-Z0-9-]*$`.
   - NEVER commit plain-text tokens or credentials into exported AI conversation archives (`ai export` automatically sanitizes auth tokens).
-  - NEVER run `ai prime` or `prime --force` blindly if weekly quota is depleted (< 5%) or if active human interaction has advanced the reset timer.
+  - NEVER run `ai prime` or `prime --force` blindly if weekly quota is depleted ($\le 0.01$ / 1% floor) or if active human interaction has advanced the reset timer.
+  - NEVER dispatch tasks to any profile whose measured remaining quota fraction is $\le 0.01$ (1% absolute floor), or $< 0.15$ (15%) for complex tasks (Tier 2/3), or currently under provider rate-limit cooldown.
 
 ## 2. When to Use (Triggers)
 
@@ -77,13 +78,19 @@ The agent MUST NOT activate this skill when:
    ```bash
    multigravity quota
    ```
-2. Check if a priming prompt is pending for weekly or 5-hour cycles:
+   - **Quota Floor:** Profiles with $\text{remaining\_fraction} \le 0.01$ (1% absolute floor) are considered depleted and blocked from execution.
+   - **Complex-Task Preflight:** Complex tasks (Tier 2/3 reasoning or architecture) require $\text{remaining\_fraction} \ge 0.15$ (15%) preflight capacity.
+2. Classify task complexity and determine tier requirements via static routing:
+   ```bash
+   multigravity route --task "<desc>" --paths "<path1,path2>" --read "<file1,file2>" --json
+   ```
+3. Check if a priming prompt is pending for weekly or 5-hour cycles:
    ```bash
    multigravity prime --status
    multigravity prime <profile> --check --5h
    multigravity prime <profile> --check --warm-5h
    ```
-3. If priming is required and quota has reset, execute prime with jitter protection:
+4. If priming is required and quota has reset, execute prime with jitter protection:
    ```bash
    multigravity prime <profile> --include-5h
    # Or proactively trigger a 5-hour rolling renewal window early:
@@ -192,6 +199,12 @@ The agent MUST NOT activate this skill when:
    # AI conversations inventory
    multigravity ai list <profile> --json
 
+   # Static complexity classifier and model/profile routing recommendation
+   multigravity route --task "<desc>" --paths "<path1,path2>" --read "<file1,file2>" --json
+
+   # Single-command wave runner with preflight linting
+   multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] [--lint] --json
+
    # Component sharing status
    multigravity mcp status <profile> --json
 
@@ -253,7 +266,7 @@ The agent MUST NOT activate this skill when:
    | `GET` | `/api/v1/dispatch/dashboard` | Aggregated execution metrics and status dashboard in JSON |
    | `GET` | `/ui/tasks` | Embedded HTML5 web dashboard for task execution monitoring (Tauri/Wails/Browser) |
    | `GET` | `/ui/tasks/{id}/diff` | Embedded interactive side-by-side/unified diff visualizer (Tauri/Wails/Browser) |
-   | `POST` | `/api/v1/dispatch/plans` | Dispatch $N$ subtasks concurrently across worktrees and aggregate diffs |
+   | `POST` | `/api/v1/dispatch/plans` | Dispatch $N$ subtasks concurrently across worktrees and aggregate diffs (returns `tokens_used`, `failure_reason`, `verification_output`, `log_tail`) |
    | `GET` | `/api/v1/dispatch/plans` | List executed subtask aggregation plans (`?repo=`) |
    | `GET` | `/api/v1/dispatch/plans/{id}` | Retrieve plan execution results, subtask status, and unified diff summary |
    | `POST` | `/api/v1/dispatch/tasks/prune` | Prune finished tasks older than max_age (`?max_age=24h`) |

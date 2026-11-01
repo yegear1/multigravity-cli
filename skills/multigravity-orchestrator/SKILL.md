@@ -20,7 +20,7 @@ Canonical playbook for autonomous AI agents (Antigravity IDE, Cursor, Claude Cod
   - Active profile storage directories outside ephemeral worktrees (`$MULTIGRAVITY_HOME/<profile>/`).
   - Main repository branch when uncommitted changes exist (dirty working tree).
 - **FORBIDDEN ACTIONS:**
-  - MUST NOT dispatch tasks to any profile whose measured remaining quota fraction is $\le 0.05$ (5%) or currently under provider rate-limit cooldown.
+  - MUST NOT dispatch tasks to any profile whose measured remaining quota fraction is $\le 0.01$ (1% absolute floor), or $< 0.15$ (15%) for complex tasks (Tier 2/3), or currently under provider rate-limit cooldown.
   - MUST NOT perform parallel tasks modifying the same file paths across concurrent worktrees (overlapping blast radius).
   - MUST NOT merge worktree branches into the base branch without running and passing automated test suites (`go test`, unit tests, linters) inside the worktree first.
   - MUST NOT execute destructive actions (`git merge --strategy=ours`, `git push --force`, `rm -rf`) during merge conflict resolution.
@@ -47,7 +47,7 @@ The agent MUST NOT activate this skill when:
 - **Prerequisites:**
   - The target git repository must have a clean working directory before provisioning worktrees (`git -C "$REPO" status --porcelain` is empty). The agent workspace may be a different repository.
   - Multigravity daemon is accessible via CLI, or HTTP API (`127.0.0.1:8989`), or MCP stdio/HTTP.
-  - At least one healthy, authenticated profile with $\text{remaining\_fraction} > 0.05$.
+  - At least one healthy, authenticated profile with $\text{remaining\_fraction} > 0.01$ (and $> 0.15$ for complex tasks).
 
 ## 4. Multi-Agent DAG Topology & Mental Model
 
@@ -84,6 +84,11 @@ Evaluate profile quota telemetry before assigning each task node.
 ### 4-Tier Inference Capacity Matrix & Task Complexity Classification
 Tasks are classified by static complexity analysis (`multigravity route --task ... --paths ... --read ...`) into one of four capability tiers:
 
+```bash
+multigravity route --task "<description>" --paths "<path1,path2>" --read "<file1,file2>"
+```
+Static routing inspects task description, affected paths, and read dependencies to determine recommended model tier and preflight quota requirements.
+
 | Tier | Models | Typical Scope |
 | :--- | :--- | :--- |
 | **Tier 0 / micro** | `gemini-3.8-flash-low` | Closed-scope micro-contracts with line-ranged slices, single-file edits. |
@@ -114,7 +119,8 @@ multigravity alerts --json
 ### Allocation Rules
 | Quota Indicator | Condition | Routing Decision |
 | :--- | :--- | :--- |
-| **Critical Quota** | `remaining_fraction <= 0.05` | **BLOCKED.** Do not assign any worker. Wait for reset or prime. |
+| **Critical Quota Floor** | `remaining_fraction <= 0.01` | **BLOCKED.** Profile depleted below 1% floor. Wait for reset or prime. |
+| **Complex-Task Preflight** | `remaining_fraction < 0.15` (Tier 2/3) | **INSUFFICIENT.** Quota below 15% preflight threshold for complex tasks. Route to higher-quota profile or demote. |
 | **Active Cooldown** | `cooldown_until > now` | **BLOCKED.** Profile hit HTTP 429/403. Route to alternate profile. |
 | **5h Window Available** | `windowType == "5h"` and `remaining_fraction >= 0.50` | **ASSIGN.** High-priority for bursty, token-dense generation tasks. |
 | **Weekly Window Only** | `windowType == "weekly"` and `remaining_fraction >= 0.30` | **ASSIGN.** Medium/large architectural tasks. Conserve if < 30%. |
@@ -125,26 +131,30 @@ multigravity alerts --json
 For rapid, automated execution of staged subtasks defined in `.agent/TASK.md`, use the single-command wave runner:
 
 ```bash
-multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] --json
+multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] [--lint] --json
 ```
 
 ### Execution Lifecycle & Semantics
-1. **Wave Parsing:** Scans `.agent/TASK.md` (or specified `--file`) for tasks tagged with `[APPROVED]` belonging to the target wave (defaulting to the next incomplete wave or specified `--wave Wx`).
-2. **Line-Ranged Pre-Injection (`inline_read: true`):**
-   - Pre-injects line-ranged reference slices (`Read: path/to/file.go:start-end`) directly into the prompt payload (up to 15 KB).
-   - This eliminates blind exploration and saves agent context and thinking tokens.
-3. **Atomic Execution:**
+1. **Wave Linting & Preflight (`--lint`):**
+   - Validates wave definitions before execution: statically verifies DAG dependencies, ensures mutually disjoint mutable paths, validates micro-contract syntax (`Read: / Paths: / Verify:`), verifies model IDs, and checks candidate profiles against the 1% quota floor (and 15% threshold for complex tasks) before provisioning worktrees.
+2. **Wave Parsing:** Scans `.agent/TASK.md` (or specified `--file`) for tasks tagged with `[APPROVED]` belonging to the target wave (defaulting to the next incomplete wave or specified `--wave Wx`).
+3. **Line-Ranged & Sibling Test Pre-Injection (`inline_read: true`):**
+   - Pre-injects line-ranged reference slices (`Read: path/to/file.go:start-end`) AND sibling `*_test.go` trailing lines directly into the prompt payload within the 15 KB budget.
+   - Sibling test trailing lines provide subagents with immediate test assertions, fixtures, and contract expectations without requiring discovery turns or repo exploration.
+4. **Atomic Execution:**
    - Subtasks execute atomically using `--apply-atomic` and `--omit-diff` flags in `multigravity dispatch plan`.
    - Worktree diffs are validated and applied cleanly to the target branch.
-4. **Resilient Retry Mechanism:**
-   - If a subtask fails, it triggers progressive model escalation (`EscalateModel`) across capability tiers, explicitly excluding the failed profile from candidate selection.
-   - Automatically injects `[PREVIOUS ATTEMPT FAILED ON MODEL ...]` diagnostic output into the retry prompt via `SynthesizeCascadeRetryPrompt` during wave retries to guide corrective action.
-5. **Automated State Tracking & Git Hygiene:**
+5. **`failure_reason`-Gated Retry & Model Escalation:**
+   - Retry behavior is strictly gated by the categorized `failure_reason`:
+     - `rate_limited`: Re-dispatches the subtask on an alternate healthy profile using the same model tier (no model escalation; preserves reasoning capacity).
+     - `verify_failed`: Triggers progressive model escalation (`EscalateModel`) to a higher capability tier, excludes the failed profile from candidate selection, and injects previous verification failure diagnostics into the retry prompt via `SynthesizeCascadeRetryPrompt`.
+     - `empty_diff` or `timeout`: Re-routes or escalates models depending on stall conditions; halts if execution cannot make forward progress.
+6. **Automated State Tracking & Git Hygiene:**
    - Upon successful verification of subtasks, `multigravity dispatch wave` automatically updates the status in `.agent/TASK.md` to completed and creates atomic Conventional Commits.
 
 ### Line-Ranged Micro-Contracts & Guardrails
 - **Default Model:** `gemini-3.8-flash-low` is the default model for closed-scope micro-contracts with line-ranged slices.
-- **Slice Limit:** Pre-injected reference slices (`inline_read: true`) MUST NOT exceed 15 KB to prevent prompt bloat.
+- **Slice Limit:** Pre-injected reference slices (`inline_read: true`), including sibling `*_test.go` trailing lines, MUST NOT exceed 15 KB total to prevent prompt bloat.
 - **Escape Hatch Guardrail:** A subagent is permitted a single grep / targeted read only as an explicit escape hatch when line ranges shift due to concurrent edits. Repo-wide searches remain strictly forbidden.
 
 ## 7. Operational Execution Protocol
@@ -164,12 +174,18 @@ A git diff that will be merged uses `dispatch` in every phase below. Any other o
    - Node ID, Target Profile, Dependent Node IDs (`depends_on`), Disjoint Scope Paths, Prompt Specification.
 
 ### Phase 2: Quota Pre-Flight & Profile Allocation
-1. Fetch live quotas across all registered profiles:
+1. Classify task complexity and required model tier using static routing:
+   ```bash
+   multigravity route --task "Implement auth schema" --paths "internal/auth/schema.go" --read "internal/auth/schema.go,internal/auth/schema_test.go"
+   ```
+2. Fetch live quotas across all registered profiles:
    ```bash
    multigravity quota --json
    ```
-2. Filter profiles with valid authentication (`multigravity login status <profile> --json`) and healthy quota (`remaining_fraction > 0.05`).
-3. Map DAG nodes to candidate profiles ensuring balanced utilization.
+3. Filter profiles with valid authentication (`multigravity login status <profile> --json`) and healthy quota:
+   - Absolute minimum quota floor: `remaining_fraction > 0.01` (1%).
+   - Complex-task preflight threshold: `remaining_fraction >= 0.15` (15%) for Tier 2/3 tasks.
+4. Map DAG nodes to candidate profiles ensuring balanced utilization.
 
 ### Phase 3: Ephemeral Worktree Provisioning & Worker Dispatch
 1. Resolve the target repository and require a clean worktree there. Do not change the agent workspace to do this:
@@ -259,7 +275,9 @@ A git diff that will be merged uses `dispatch` in every phase below. Any other o
    multigravity dispatch status <task-id> --json
    ```
 2. **Zero-Bloat Failure Diagnosis (`SubtaskResult`):**
-   When executing plans via `multigravity dispatch plan --json`, `SubtaskResult` surfaces bounded diagnostic fields:
+   When executing plans via `multigravity dispatch plan --json`, `SubtaskResult` surfaces bounded diagnostic and telemetry fields:
+   - `failure_reason`: Categorized failure cause (`rate_limited`, `verify_failed`, `empty_diff`, `timeout`).
+   - `tokens_used`: Count of tokens consumed during subtask execution.
    - `verification_exit_code`: Numeric exit code of the post-execution verification command.
    - `verification_output`: Trailing output from the verification run (bounded to $\le 1000$ bytes).
    - `log_tail`: Trailing execution log (last $\le 1000$ bytes when `status != "completed"`).
@@ -270,12 +288,12 @@ A git diff that will be merged uses `dispatch` in every phase below. Any other o
    ```
 4. **Plan Timeout & Process Termination:**
    `ExecutePlan` automatically cancels and terminates active child subtasks and their underlying OS processes if the plan timeout is reached. This prevents orphaned `agy` or `language_server` processes from continuing to run in deleted worktrees or corrupting the main working tree.
-5. **Circuit Breaker:**
+5. **Circuit Breaker & `failure_reason`-Gated Retry:**
    - If a task exits with `status: "failed"`:
-     1. Read execution error from `SubtaskResult` (`verification_output` or `log_tail`, or `multigravity dispatch logs <task-id> --tail 100`).
-     2. If caused by quota/rate-limit, requeue node with an alternate healthy profile.
-     3. If caused by implementation or test failure, inspect diff (`multigravity dispatch diff <task-id> --structured`), fix prompt instructions, and retry in a fresh task.
-     4. If 2 consecutive failures occur on the same node, HALT DAG execution and escalate to user.
+     1. Read `failure_reason` and bounded diagnostics from `SubtaskResult`.
+     2. If `failure_reason == "rate_limited"`: Requeue node with an alternate healthy profile using the same model tier (no model escalation).
+     3. If `failure_reason == "verify_failed"`: Trigger model escalation (`EscalateModel`), exclude the failed profile, and inject verification failure diagnostics into the retry prompt via `SynthesizeCascadeRetryPrompt`.
+     4. If `failure_reason == "empty_diff"` or `"timeout"`: Rotate profile or escalate model tier; if 2 consecutive failures occur on the same node, HALT DAG execution and escalate to user.
 
 ### Phase 5: In-Worktree Pre-Merge Verification
 NEVER merge blindly. For each completed task node:
@@ -357,14 +375,39 @@ Model: gemini-3.8-flash-medium
 
 ### Profile Allocation
 ```bash
-# BAD: Dispatching task to profile without checking quota
-multigravity dispatch run client-a --prompt "Generate 50 API endpoints"
-# Result: Profile has 2% quota, hits rate-limit 429, fails mid-task leaving dirty worktree.
+# BAD: Dispatching complex task to profile with insufficient quota
+multigravity dispatch run client-a --prompt "Architect cross-package migration"
+# Result: Profile has 8% quota (< 15% preflight threshold for Tier 2/3), hits quota exhaustion mid-task.
 
-# GOOD: Inspecting quota first and selecting healthy profile
+# GOOD: Inspecting quota first, respecting 1% floor and 15% complex-task preflight
+multigravity route --task "Architect cross-package migration" --paths "internal/auth" --read "internal/auth/schema.go"
 multigravity quota --json
-# Profile 'worker-2' has 85% remaining in 5h window.
-multigravity dispatch run worker-2 --new-worktree --prompt "Generate 50 API endpoints" --detach
+# Select profile with >= 15% remaining for complex reasoning tasks (Tier 2/3), or >= 1% for micro tasks.
+multigravity dispatch run worker-2 --new-worktree --prompt "Architect cross-package migration" --detach
+```
+
+### Wave Preflight & Linting
+```bash
+# BAD: Launching a multi-task wave without preflight validation
+multigravity dispatch wave --wave W1
+# Result: Mid-wave abort due to overlapping file paths or syntax error in subtask verify command.
+
+# GOOD: Preflighting wave definitions with static linter
+multigravity dispatch wave --wave W1 --lint --json
+# Result: Validates disjoint scopes, prompt contracts, and quota before worktree creation.
+```
+
+### Failure Handling & Retry Escalation
+```text
+BAD:
+Blindly escalating models when failure was caused by rate-limiting (HTTP 429).
+Result: Wastes higher-tier reasoning quota (Tier 2/3) while the underlying account remains throttled.
+
+GOOD:
+Inspecting failure_reason in SubtaskResult before deciding escalation strategy:
+- If failure_reason == "rate_limited": Rotate to an alternate healthy profile, retaining the same model tier.
+- If failure_reason == "verify_failed": Escalate model tier via EscalateModel with diagnostic retry prompt.
+- If failure_reason == "empty_diff" or "timeout": Rotate profile or escalate tier based on stall conditions.
 ```
 
 ### Workspace and local repositories
@@ -406,15 +449,19 @@ git merge --no-ff task/feature-x -m "feat: merge verified task/feature-x"
 
 - [ ] Target repository root resolved with `git -C <target> rev-parse --show-toplevel`, and that worktree is clean (`git -C "$REPO" status --porcelain` is empty).
 - [ ] Plan dispatched with `--repo "$REPO"` from the current workspace. `move_agent_to_root` was not used when `origin` is absent.
+- [ ] Task complexity evaluated via `multigravity route --task ... --paths ... --read ...` to determine model tier and preflight threshold.
+- [ ] Target profiles verified to be authenticated (`multigravity login status`) and healthy (`remaining_fraction > 0.01` floor, and $> 0.15$ for complex tasks).
 - [ ] DAG nodes have mutually disjoint file sets for all concurrent stages.
 - [ ] Subtask prompts follow the `Read: / Paths: / Verify:` micro-contract and prohibit baseline test runs before editing.
+- [ ] Pre-injected reference slices include sibling `*_test.go` trailing lines within the 15 KB budget.
 - [ ] Tiered `agy` model IDs (`gemini-3.8-flash-low` or `gemini-3.8-flash-medium`) used without conflicting `--effort` flags.
 - [ ] Ephemeral worktrees leverage automatic `.venv` (`PYTHONPATH` with worktree `src/` precedence) and `node_modules` inheritance.
-- [ ] Target profiles verified to be authenticated (`multigravity login status`) and healthy (`remaining_fraction > 0.05`).
+- [ ] Wave execution validated via `multigravity dispatch wave --lint` prior to running subtasks.
 - [ ] Ephemeral worktrees reside under `.multigravity/worktrees/` and are tracked in `.git/info/exclude`.
 - [ ] Task execution monitored until `completed` status before scheduling dependents.
 - [ ] In-worktree validation tests executed and passed (code 0) prior to merging.
-- [ ] Subtask failures diagnosed using bounded `SubtaskResult` diagnostic fields (`log_tail`, `verification_output` $\le 1000$ bytes).
+- [ ] Subtask failures handled by `failure_reason`: rotate profile for `rate_limited`, escalate model tier for `verify_failed`.
+- [ ] `tokens_used` recorded and diagnostic fields (`log_tail`, `verification_output` $\le 1000$ bytes) analyzed from `SubtaskResult`.
 - [ ] No orphaned child subtask processes surviving plan timeouts (`ExecutePlan` lifecycle termination).
 - [ ] Merge conducted topologically with explicit commit messages.
 - [ ] Post-merge regression test suite executed cleanly on the base branch.
