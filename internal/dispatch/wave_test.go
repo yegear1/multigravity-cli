@@ -212,3 +212,112 @@ esac
 		t.Errorf("expected retry prompt to contain diagnostic verification output, got:\n%s", stRes.Prompt)
 	}
 }
+
+func TestMarkTasksCompletedAndPromote(t *testing.T) {
+	tempDir := t.TempDir()
+	taskFilePath := filepath.Join(tempDir, "TASK.md")
+
+	today := time.Now().Format("2006-01-02")
+
+	initialContent := `# Task Queue
+
+## Active Task
+
+### [05.10] Wave 1 Execution
+Status: RUNNING
+
+### Acceptance Criteria
+- [ ] First criterion passes
+- [ ] Second criterion passes
+
+## Backlog
+
+- [ ] **[05.10]** Feature A [APPROVED] [PARALLEL: W1]
+  - ` + "`Paths:` `internal/dispatch/a.go`" + `
+- [ ] **[05.11]** Feature B [APPROVED] [PARALLEL: W1]
+  - ` + "`Paths:` `internal/dispatch/b.go`" + `
+- [ ] **[05.12]** Feature C [APPROVED] [SEQ: W2]
+  - ` + "`Paths:` `internal/dispatch/c.go`" + `
+
+## Completed Tasks Log
+
+| ID | Task | Commit | Date |
+| :--- | :--- | :--- | :--- |
+| [05.09] | Prior Task | ` + "`0000000`" + ` | 2026-10-31 |
+`
+
+	if err := os.WriteFile(taskFilePath, []byte(initialContent), 0644); err != nil {
+		t.Fatalf("failed to write TASK.md: %v", err)
+	}
+
+	// Step 1: Complete wave W1 (05.10 and 05.11) -> promotes 05.12
+	commitMapW1 := map[string]string{
+		"05.10": "abc1234",
+		"05.11": "def5678",
+	}
+	if err := markTasksCompletedInFile(taskFilePath, commitMapW1); err != nil {
+		t.Fatalf("markTasksCompletedInFile W1 failed: %v", err)
+	}
+
+	updatedBytes, err := os.ReadFile(taskFilePath)
+	if err != nil {
+		t.Fatalf("failed to read updated TASK.md: %v", err)
+	}
+	updated := string(updatedBytes)
+
+	// Verify backlog checkoff
+	if !strings.Contains(updated, "- [x] **[05.10]** Feature A [APPROVED] [PARALLEL: W1] (abc1234)") {
+		t.Errorf("expected 05.10 checked off with commit, got:\n%s", updated)
+	}
+	if !strings.Contains(updated, "- [x] **[05.11]** Feature B [APPROVED] [PARALLEL: W1] (def5678)") {
+		t.Errorf("expected 05.11 checked off with commit, got:\n%s", updated)
+	}
+
+	// Verify Acceptance Criteria checkboxes marked [x]
+	if !strings.Contains(updated, "- [x] First criterion passes") || !strings.Contains(updated, "- [x] Second criterion passes") {
+		t.Errorf("expected Acceptance Criteria checkboxes to be marked [x], got:\n%s", updated)
+	}
+
+	// Verify Completed Tasks Log table insertion (prepended before [05.09])
+	expectedRow10 := "| [05.10] | Feature A | `abc1234` | " + today + " |"
+	expectedRow11 := "| [05.11] | Feature B | `def5678` | " + today + " |"
+	idx10 := strings.Index(updated, expectedRow10)
+	idx11 := strings.Index(updated, expectedRow11)
+	idx09 := strings.Index(updated, "| [05.09] |")
+	if idx10 == -1 || idx11 == -1 {
+		t.Errorf("expected completed rows in log table, got:\n%s", updated)
+	}
+	if idx09 != -1 && (idx10 > idx09 || idx11 > idx09) {
+		t.Errorf("expected new log rows to be prepended before [05.09], got:\n%s", updated)
+	}
+
+	// Verify Active Task promoted to next uncompleted [APPROVED] task [05.12]
+	if !strings.Contains(updated, "### [05.12] Feature C") {
+		t.Errorf("expected Active Task promoted to [05.12] Feature C, got:\n%s", updated)
+	}
+
+	// Step 2: Complete remaining task 05.12 -> fallback to Queue Empty — Awaiting Next Ideation
+	commitMapW2 := map[string]string{
+		"05.12": "999aaaa",
+	}
+	if err := markTasksCompletedInFile(taskFilePath, commitMapW2); err != nil {
+		t.Fatalf("markTasksCompletedInFile W2 failed: %v", err)
+	}
+
+	finalBytes, err := os.ReadFile(taskFilePath)
+	if err != nil {
+		t.Fatalf("failed to read final TASK.md: %v", err)
+	}
+	finalContent := string(finalBytes)
+
+	if !strings.Contains(finalContent, "Queue Empty — Awaiting Next Ideation") {
+		t.Errorf("expected Active Task fallback to 'Queue Empty — Awaiting Next Ideation', got:\n%s", finalContent)
+	}
+	if !strings.Contains(finalContent, "Status: READY FOR PLANNING") {
+		t.Errorf("expected Status: READY FOR PLANNING when queue is empty, got:\n%s", finalContent)
+	}
+	expectedRow12 := "| [05.12] | Feature C | `999aaaa` | " + today + " |"
+	if !strings.Contains(finalContent, expectedRow12) {
+		t.Errorf("expected [05.12] row in Completed Tasks Log, got:\n%s", finalContent)
+	}
+}

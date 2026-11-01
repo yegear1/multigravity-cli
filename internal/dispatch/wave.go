@@ -53,7 +53,14 @@ type WaveExecutionResult struct {
 var (
 	taskItemRegex = regexp.MustCompile(`^-\s*\[([ xX])\]\s*\*\*\[([^\]]+)\]\*\*\s*(.*)$`)
 	waveTagRegex  = regexp.MustCompile(`\[(PARALLEL|SEQ):\s*([^\]]+)\]`)
+	checkboxRegex = regexp.MustCompile(`^(\s*-\s*\[)[ ](\].*)$`)
 )
+
+func stripTaskTags(s string) string {
+	s = waveTagRegex.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "[APPROVED]", "")
+	return strings.TrimSpace(strings.Join(strings.Fields(s), " "))
+}
 
 func cleanBackticksAndSpaces(s string) string {
 	s = strings.TrimSpace(s)
@@ -447,21 +454,187 @@ func markTasksCompletedInFile(filePath string, commitMap map[string]string) erro
 	lines := strings.Split(string(content), "\n")
 	modified := false
 
+	type completedEntry struct {
+		id     string
+		title  string
+		commit string
+	}
+	var newlyCompleted []completedEntry
+
+	type nextTaskInfo struct {
+		id    string
+		title string
+	}
+	var nextApproved *nextTaskInfo
+
+	inBacklog := false
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") {
+			inBacklog = (trimmed == "## Backlog")
+		}
+
 		if taskItemRegex.MatchString(trimmed) {
 			matches := taskItemRegex.FindStringSubmatch(trimmed)
+			checked := strings.ToLower(matches[1]) == "x"
 			taskID := matches[2]
+			rest := matches[3]
+
 			if commit, ok := commitMap[taskID]; ok {
-				// Replace - [ ] with - [x] and append commit short sha if available
-				// Example: - [ ] **[05.10]** Title -> - [x] **[05.10]** Title (sha)
 				indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-				rest := matches[3]
 				commitSuffix := ""
 				if commit != "" && !strings.Contains(rest, "("+commit+")") {
 					commitSuffix = fmt.Sprintf(" (%s)", commit)
 				}
 				lines[i] = fmt.Sprintf("%s- [x] **[%s]** %s%s", indent, taskID, rest, commitSuffix)
+				modified = true
+				if !checked {
+					newlyCompleted = append(newlyCompleted, completedEntry{
+						id:     taskID,
+						title:  stripTaskTags(rest),
+						commit: commit,
+					})
+				}
+			} else if !checked && inBacklog && nextApproved == nil && strings.Contains(rest, "[APPROVED]") {
+				nextApproved = &nextTaskInfo{
+					id:    taskID,
+					title: stripTaskTags(rest),
+				}
+			}
+		}
+	}
+
+	if len(newlyCompleted) == 0 && !modified {
+		return nil
+	}
+
+	// (1) Prepend completed wave tasks to '## Completed Tasks Log' table
+	if len(newlyCompleted) > 0 {
+		today := time.Now().Format("2006-01-02")
+		var newRows []string
+		for _, c := range newlyCompleted {
+			shaCol := "`-`"
+			if c.commit != "" {
+				shaCol = fmt.Sprintf("`%s`", c.commit)
+			}
+			newRows = append(newRows, fmt.Sprintf("| [%s] | %s | %s | %s |", c.id, c.title, shaCol, today))
+		}
+
+		inLogSection := false
+		inserted := false
+		for i := 0; i < len(lines); i++ {
+			trimmed := strings.TrimSpace(lines[i])
+			if strings.HasPrefix(trimmed, "## ") {
+				if trimmed == "## Completed Tasks Log" {
+					inLogSection = true
+					continue
+				} else if inLogSection {
+					break
+				}
+			}
+			if inLogSection && strings.HasPrefix(trimmed, "|") && strings.Contains(trimmed, "---") {
+				updated := make([]string, 0, len(lines)+len(newRows))
+				updated = append(updated, lines[:i+1]...)
+				updated = append(updated, newRows...)
+				updated = append(updated, lines[i+1:]...)
+				lines = updated
+				inserted = true
+				modified = true
+				break
+			}
+		}
+		_ = inserted
+	}
+
+	// (2) Mark '### Acceptance Criteria' or '## Acceptance Criteria' checkboxes under '## Active Task' as '- [x]'
+	// and (3) Promote '## Active Task' header/description to the next uncompleted '[APPROVED]' task in '## Backlog'
+	// (or 'Queue Empty — Awaiting Next Ideation' with 'Status: READY FOR PLANNING' when none remain).
+	activeStart := -1
+	activeEnd := len(lines)
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "## Active Task" {
+			activeStart = i
+			continue
+		}
+		if activeStart != -1 && i > activeStart && strings.HasPrefix(trimmed, "## ") && trimmed != "## Acceptance Criteria" {
+			activeEnd = i
+			break
+		}
+	}
+
+	if activeStart != -1 {
+		inAC := false
+		for i := activeStart + 1; i < activeEnd; i++ {
+			trimmed := strings.TrimSpace(lines[i])
+			if trimmed == "### Acceptance Criteria" || trimmed == "## Acceptance Criteria" {
+				inAC = true
+				continue
+			}
+			if inAC {
+				if strings.HasPrefix(trimmed, "## ") || strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(trimmed, "---") {
+					inAC = false
+					continue
+				}
+				if m := checkboxRegex.FindStringSubmatch(lines[i]); m != nil {
+					lines[i] = m[1] + "x" + m[2]
+					modified = true
+				}
+			}
+		}
+
+		// Promote Active Task header/description & Status
+		statusUpdated := false
+		titleUpdated := false
+		for i := activeStart + 1; i < activeEnd; i++ {
+			trimmed := strings.TrimSpace(lines[i])
+			if trimmed == "### Acceptance Criteria" || trimmed == "## Acceptance Criteria" || strings.HasPrefix(trimmed, "---") {
+				break
+			}
+			lower := strings.ToLower(trimmed)
+			if !statusUpdated && (strings.HasPrefix(lower, "**status:**") || strings.HasPrefix(lower, "status:") || strings.HasPrefix(lower, "- **status:**") || strings.HasPrefix(lower, "- status:")) {
+				if nextApproved != nil {
+					lines[i] = replaceStatusLine(lines[i], "APPROVED")
+				} else {
+					lines[i] = replaceStatusLine(lines[i], "READY FOR PLANNING")
+				}
+				statusUpdated = true
+				modified = true
+				continue
+			}
+			if !titleUpdated && (strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(lower, "**task:**") || strings.HasPrefix(lower, "task:") || strings.HasPrefix(trimmed, "**[")) {
+				if nextApproved != nil {
+					lines[i] = formatPromotedTaskLine(lines[i], nextApproved.id, nextApproved.title)
+				} else {
+					lines[i] = formatQueueEmptyLine(lines[i])
+				}
+				titleUpdated = true
+				modified = true
+			}
+		}
+
+		if !titleUpdated || !statusUpdated {
+			var insertLines []string
+			if !titleUpdated {
+				if nextApproved != nil {
+					insertLines = append(insertLines, fmt.Sprintf("### [%s] %s", nextApproved.id, nextApproved.title))
+				} else {
+					insertLines = append(insertLines, "### Queue Empty — Awaiting Next Ideation")
+				}
+			}
+			if !statusUpdated {
+				if nextApproved != nil {
+					insertLines = append(insertLines, "Status: APPROVED")
+				} else {
+					insertLines = append(insertLines, "Status: READY FOR PLANNING")
+				}
+			}
+			if len(insertLines) > 0 {
+				updated := make([]string, 0, len(lines)+len(insertLines))
+				updated = append(updated, lines[:activeStart+1]...)
+				updated = append(updated, insertLines...)
+				updated = append(updated, lines[activeStart+1:]...)
+				lines = updated
 				modified = true
 			}
 		}
@@ -471,4 +644,52 @@ func markTasksCompletedInFile(filePath string, commitMap map[string]string) erro
 		return os.WriteFile(filePath, []byte(strings.Join(lines, "\n")), 0644)
 	}
 	return nil
+}
+
+func replaceStatusLine(line, newStatus string) string {
+	trimmed := strings.TrimSpace(line)
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(lower, "- **status:**"):
+		return fmt.Sprintf("%s- **Status:** `%s`", indent, newStatus)
+	case strings.HasPrefix(lower, "**status:**"):
+		return fmt.Sprintf("%s**Status:** %s", indent, newStatus)
+	case strings.HasPrefix(lower, "- status:"):
+		return fmt.Sprintf("%s- Status: %s", indent, newStatus)
+	default:
+		return fmt.Sprintf("%sStatus: %s", indent, newStatus)
+	}
+}
+
+func formatPromotedTaskLine(line, id, title string) string {
+	trimmed := strings.TrimSpace(line)
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(trimmed, "### "):
+		return fmt.Sprintf("%s### [%s] %s", indent, id, title)
+	case strings.HasPrefix(lower, "**task:**"):
+		return fmt.Sprintf("%s**Task:** [%s] %s", indent, id, title)
+	case strings.HasPrefix(lower, "task:"):
+		return fmt.Sprintf("%sTask: [%s] %s", indent, id, title)
+	default:
+		return fmt.Sprintf("%s**[%s]** %s", indent, id, title)
+	}
+}
+
+func formatQueueEmptyLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(trimmed, "### "):
+		return fmt.Sprintf("%s### Queue Empty — Awaiting Next Ideation", indent)
+	case strings.HasPrefix(lower, "**task:**"):
+		return fmt.Sprintf("%s**Task:** Queue Empty — Awaiting Next Ideation", indent)
+	case strings.HasPrefix(lower, "task:"):
+		return fmt.Sprintf("%sTask: Queue Empty — Awaiting Next Ideation", indent)
+	default:
+		return fmt.Sprintf("%sQueue Empty — Awaiting Next Ideation", indent)
+	}
 }
