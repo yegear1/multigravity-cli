@@ -51,23 +51,26 @@ type PlanRequest struct {
 
 // SubtaskResult encapsulates execution details and git diff produced by a single subtask.
 type SubtaskResult struct {
-	ID              string          `json:"id"`
-	TaskID          string          `json:"task_id"`
-	Profile         string          `json:"profile"`
-	Prompt          string          `json:"prompt,omitempty"`
-	AgentType       string          `json:"agent_type,omitempty"`
-	Status          TaskStatus      `json:"status"`
-	WorktreeID      string          `json:"worktree_id,omitempty"`
-	WorktreePath    string          `json:"worktree_path,omitempty"`
-	Branch          string          `json:"branch,omitempty"`
-	BaseCommit      string          `json:"base_commit,omitempty"`
-	HeadCommit      string          `json:"head_commit,omitempty"`
-	ExitCode        int             `json:"exit_code"`
-	DurationSeconds float64         `json:"duration_seconds"`
-	Error           string          `json:"error,omitempty"`
-	Diff            string          `json:"diff,omitempty"`
-	StructuredDiff  *StructuredDiff `json:"structured_diff,omitempty"`
-	FilesChanged    []string        `json:"files_changed,omitempty"`
+	ID                   string          `json:"id"`
+	TaskID               string          `json:"task_id"`
+	Profile              string          `json:"profile"`
+	Prompt               string          `json:"prompt,omitempty"`
+	AgentType            string          `json:"agent_type,omitempty"`
+	Status               TaskStatus      `json:"status"`
+	WorktreeID           string          `json:"worktree_id,omitempty"`
+	WorktreePath         string          `json:"worktree_path,omitempty"`
+	Branch               string          `json:"branch,omitempty"`
+	BaseCommit           string          `json:"base_commit,omitempty"`
+	HeadCommit           string          `json:"head_commit,omitempty"`
+	ExitCode             int             `json:"exit_code"`
+	VerificationExitCode int             `json:"verification_exit_code,omitempty"`
+	VerificationOutput   string          `json:"verification_output,omitempty"`
+	LogTail              string          `json:"log_tail,omitempty"`
+	DurationSeconds      float64         `json:"duration_seconds"`
+	Error                string          `json:"error,omitempty"`
+	Diff                 string          `json:"diff,omitempty"`
+	StructuredDiff       *StructuredDiff `json:"structured_diff,omitempty"`
+	FilesChanged         []string        `json:"files_changed,omitempty"`
 }
 
 // UnifiedDiffSummary aggregates diff statistics, affected files, and scope collision analysis.
@@ -101,6 +104,14 @@ func GeneratePlanID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("plan-%d-%s", time.Now().Unix(), hex.EncodeToString(b))
+}
+
+// tailString trims and returns the last maxBytes bytes of s.
+func tailString(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	return s[len(s)-maxBytes:]
 }
 
 func getPlansDir(repoRoot string) string {
@@ -251,16 +262,13 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 
 				// Wait for task completion
 				completedTask, waitErr := m.WaitForTask(planCtx, repoRoot, taskID)
-				if waitErr != nil {
-					res.Status = StatusFailed
-					res.Error = waitErr.Error()
-					if completedTask != nil {
-						res.ExitCode = completedTask.ExitCode
-						res.DurationSeconds = completedTask.DurationSeconds
-						res.HeadCommit = completedTask.HeadCommit
-					}
-					subtaskResults[idx] = res
-					continue
+				if completedTask == nil {
+					completedTask, _ = m.GetTask(repoRoot, taskID)
+				}
+
+				if planCtx.Err() != nil || (completedTask != nil && completedTask.Status == StatusRunning) {
+					_ = m.CancelTask(repoRoot, taskID, true)
+					completedTask, _ = m.GetTask(repoRoot, taskID)
 				}
 
 				if completedTask != nil {
@@ -271,9 +279,36 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					if completedTask.Error != "" {
 						res.Error = completedTask.Error
 					}
+					res.VerificationExitCode = completedTask.VerificationExitCode
+					res.VerificationOutput = tailString(completedTask.VerificationOutput, 1000)
+					if res.WorktreePath == "" && completedTask.WorktreePath != "" {
+						res.WorktreePath = completedTask.WorktreePath
+						res.WorktreeID = completedTask.WorktreeID
+					}
 				}
 
-				// Capture diffs
+				if res.Status == "" || res.Status == StatusRunning {
+					if waitErr != nil {
+						res.Status = StatusFailed
+						res.Error = waitErr.Error()
+					} else if planCtx.Err() != nil {
+						res.Status = StatusCancelled
+					}
+				} else if waitErr != nil && res.Error == "" {
+					res.Error = waitErr.Error()
+				}
+
+				if res.Status != StatusCompleted {
+					if logs, err := m.GetTaskLogs(repoRoot, taskID, 1000); err == nil && len(logs) > 0 {
+						res.LogTail = string(logs)
+					} else if completedTask != nil && completedTask.LogPath != "" {
+						if data, err := os.ReadFile(completedTask.LogPath); err == nil && len(data) > 0 {
+							res.LogTail = tailString(string(data), 1000)
+						}
+					}
+				}
+
+				// Capture diffs even if cancelled/timed out so partial diffs are preserved when non-empty
 				if res.WorktreePath != "" {
 					rawDiff, diffErr := m.GetTaskDiff(repoRoot, taskID, false)
 					if diffErr == nil {
@@ -285,7 +320,7 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 							files = append(files, f.NewPath)
 						}
 						res.FilesChanged = files
-					} else {
+					} else if res.Error == "" {
 						res.Error = fmt.Sprintf("diff error: %v", diffErr)
 					}
 				}

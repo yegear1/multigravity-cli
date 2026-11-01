@@ -240,3 +240,121 @@ func TestExecutePlanPartialFailure(t *testing.T) {
 		t.Errorf("expected 1 succeeded and 1 failed, got %d and %d", result.Succeeded, result.Failed)
 	}
 }
+
+func TestTailString(t *testing.T) {
+	if tailString("", 100) != "" {
+		t.Errorf("expected empty string")
+	}
+	if tailString("hello world", 0) != "hello world" {
+		t.Errorf("expected unchanged string for 0 maxBytes")
+	}
+	if tailString("hello world", -5) != "hello world" {
+		t.Errorf("expected unchanged string for negative maxBytes")
+	}
+	if tailString("hello world", 50) != "hello world" {
+		t.Errorf("expected unchanged string when len < maxBytes")
+	}
+	if tailString("0123456789", 4) != "6789" {
+		t.Errorf("expected last 4 bytes '6789', got %q", tailString("0123456789", 4))
+	}
+}
+
+func TestExecutePlanTimeoutSubtaskCancellation(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev1")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	req := PlanRequest{
+		PlanID:   "plan-test-timeout",
+		RepoPath: repoDir,
+		Workers:  1,
+		Timeout:  "500ms",
+		Subtasks: []SubtaskSpec{
+			{
+				ID:      "subtask-slow",
+				Profile: "dev1",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'partial work' > partial.txt && sleep 10"},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := taskMgr.ExecutePlan(ctx, req)
+	if err != nil {
+		t.Fatalf("ExecutePlan failed: %v", err)
+	}
+
+	if result.Status != "timeout" {
+		t.Errorf("expected plan status 'timeout', got %q", result.Status)
+	}
+	if len(result.Subtasks) != 1 {
+		t.Fatalf("expected 1 subtask result, got %d", len(result.Subtasks))
+	}
+
+	stRes := result.Subtasks[0]
+	if stRes.Status != StatusCancelled {
+		t.Errorf("expected subtask status 'cancelled', got %q", stRes.Status)
+	}
+
+	// Verify partial diff is preserved even when timed out
+	if !strings.Contains(stRes.Diff, "partial.txt") {
+		t.Errorf("expected partial diff to contain 'partial.txt', got:\n%s", stRes.Diff)
+	}
+}
+
+func TestExecutePlanVerificationOutputAndLogTail(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev1")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	req := PlanRequest{
+		PlanID:   "plan-test-verify-logtail",
+		RepoPath: repoDir,
+		Workers:  1,
+		Subtasks: []SubtaskSpec{
+			{
+				ID:      "subtask-audit-fail",
+				Profile: "dev1",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'initial agent log output' && echo 'working' > done.txt"},
+				Verify:  "sh -c 'echo [failed-verification-reason] && exit 1'",
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	result, err := taskMgr.ExecutePlan(ctx, req)
+	if err != nil {
+		t.Fatalf("ExecutePlan failed: %v", err)
+	}
+
+	if len(result.Subtasks) != 1 {
+		t.Fatalf("expected 1 subtask, got %d", len(result.Subtasks))
+	}
+
+	stRes := result.Subtasks[0]
+	if stRes.Status != StatusAuditFailed {
+		t.Errorf("expected subtask status 'audit_failed', got %q", stRes.Status)
+	}
+	if stRes.VerificationExitCode != 1 {
+		t.Errorf("expected VerificationExitCode 1, got %d", stRes.VerificationExitCode)
+	}
+	if !strings.Contains(stRes.VerificationOutput, "[failed-verification-reason]") {
+		t.Errorf("expected VerificationOutput to contain '[failed-verification-reason]', got %q", stRes.VerificationOutput)
+	}
+	if !strings.Contains(stRes.LogTail, "initial agent log output") {
+		t.Errorf("expected LogTail to contain 'initial agent log output', got %q", stRes.LogTail)
+	}
+	if !strings.Contains(stRes.Diff, "done.txt") {
+		t.Errorf("expected Diff to contain 'done.txt', got %q", stRes.Diff)
+	}
+}

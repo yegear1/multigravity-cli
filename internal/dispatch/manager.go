@@ -1070,11 +1070,20 @@ func (m *TaskManager) CancelTask(repoPath, id string, force bool) error {
 		return fmt.Errorf("task %q is not running (status: %s)", id, task.Status)
 	}
 
+	var termErr error
 	if task.SessionID != "" {
 		if force {
-			_ = m.agentMgr.KillSession(task.SessionID)
+			termErr = m.agentMgr.KillSession(task.SessionID)
 		} else {
-			_ = m.agentMgr.StopSession(task.SessionID)
+			termErr = m.agentMgr.StopSession(task.SessionID)
+		}
+	} else {
+		termErr = errors.New("no active session")
+	}
+
+	if termErr != nil && task.PID > 0 {
+		if proc, err := os.FindProcess(task.PID); err == nil {
+			_ = proc.Kill()
 		}
 	}
 
