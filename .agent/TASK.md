@@ -7,20 +7,18 @@
 
 ## Active Task
 
-### 📌 Task [05.12]: Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, Line-Ranged `Read:` Pre-Injection, and `gemini-3.8-flash-low` Defaults
+### 📌 Task [05.13]: *(Queue Empty — Awaiting Next Ideation)*
 
-- **Description:** Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave --json`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` micro-contract defaults, single-grep escape hatch, and model-aware quota routing (`gemini`/`argon`/`3p`).
-- **Systems Involved:** `skills/multigravity-orchestrator`
+- **Description:** All tasks in Wave `W1`–`W5` (`[05.6]`–`[05.12]`) have been executed, verified, and committed.
+- **Systems Involved:** —
 - **Action Type:**
   - [x] Read-only / Documentation
   - [ ] Source code changes
-- **Status:** RUNNING
+- **Status:** READY FOR PLANNING
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] Document `multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] --json` single-command wave execution in `skills/multigravity-orchestrator/SKILL.md`.
-- [ ] Document line-ranged `Read: file:start-end` pre-injection (`inline_read`), `gemini-3.8-flash-low` default for closed-scope micro-contracts, single-grep escape hatch, `--apply-atomic` / `--omit-diff` flags, and model-aware bucket routing (`gemini`/`argon`/`3p`).
-- [ ] Verify with `git diff --check skills/multigravity-orchestrator/SKILL.md && grep -q "dispatch wave" skills/multigravity-orchestrator/SKILL.md`.
+- [ ] Define and approve next task in `.agent/TASK.md`.
 
 ---
 
@@ -28,6 +26,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.12] | Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` defaults, and model-aware quota routing | [`2b8e717`](https://github.com/yegear1/multigravity-cli/commit/2b8e717) | 2026-11-01 |
 | [05.11] | Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion and automatic `TASK.md` completion logging | [`74d1e09`](https://github.com/yegear1/multigravity-cli/commit/74d1e09) | 2026-11-01 |
 | [05.10] | Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` in `internal/dispatch/plan.go` | [`2f53f12`](https://github.com/yegear1/multigravity-cli/commit/2f53f12) | 2026-11-01 |
 | [05.8] | Add model-aware quota bucket routing (`BucketGroupForModel`, `ScoreServerForBucket`, `SelectEligibleProfilesForModel`) and prevent missing-group false-positive `1.0` scores in `internal/quota` | [`4bc9bb9`](https://github.com/yegear1/multigravity-cli/commit/4bc9bb9) | 2026-11-01 |
@@ -72,10 +71,7 @@
 - [x] **[05.9]** `[APPROVED]` `[PARALLEL: W2]` Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` *(Points 2.C & 2.D)* (`1714133`)
 - [x] **[05.10]** `[APPROVED]` `[SEQ: W3]` Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default with single-grep escape hatch, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` execution in `internal/dispatch/plan.go` *(Points 2.B, 2.C, 2.D, 2.E)* (`2f53f12`)
 - [x] **[05.11]** `[APPROVED]` `[SEQ: W4]` Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion and automatic `TASK.md` completion logging *(Point 2.A)* (`74d1e09`)
-- [ ] **[05.12]** `[APPROVED]` `[SEQ: W5]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` defaults, and model-aware quota routing *(Points 2.A–2.E)*
-  - `Read:` `skills/multigravity-orchestrator/SKILL.md:1-140`
-  - `Paths:` `skills/multigravity-orchestrator/SKILL.md`
-  - `Verify:` `git diff --check skills/multigravity-orchestrator/SKILL.md`
+- [x] **[05.12]** `[APPROVED]` `[SEQ: W5]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` defaults, and model-aware quota routing *(Points 2.A–2.E)* (`2b8e717`)
 
 ---
 
