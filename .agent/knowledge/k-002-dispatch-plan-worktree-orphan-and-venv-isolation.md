@@ -42,6 +42,14 @@ During multi-account parallel wave execution (`multigravity dispatch plan` via `
    - `SubtaskResult` in `internal/dispatch/plan.go` did not surface `VerificationOutput`, `VerificationExitCode`, or a bounded `LogTail` from `Task`, forcing the orchestrator agent to burn primary-account tokens inspecting `.gemini/antigravity-cli/brain/` transcripts to distinguish timeouts from test failures.
 5. **Duplicate Internal Retry Conflict when `verify` + Explicit `args` are Combined:**
    - Passing `"verify"` inside `subtasks` while also passing explicit `agy` `"args": ["-p", "<prompt>", ...]` causes `watchSession` to synthesize retry feedback into `opts.Prompt`, which is ignored when custom `args` are supplied.
+6. **20k Thinking-Token Loop When Anti-Search Guard Prohibits Targeted Symbol Lookup (`step_index: 25`):**
+   - When a micro-contract prompt strictly forbids all `grep`/`find` calls (*"do NOT run repo-wide grep/find"*) and references a symbol not defined in the `Read:` excerpt, `gemini-3.8-flash-medium` can spend `20,039` thinking tokens (`2m18s` in one turn) trying to deduce the symbol signature from memory instead of running one targeted package-scoped `grep`.
+   - Furthermore, passing whole 1,000+ line files in `Read:` without line ranges (`file.go:start-end`) forces the worker to spend 3–5 turns calling `read_file` in 800-line chunks (`> 70k` `cache_read_tokens`).
+7. **False-Positive `verify_exit_code: 0` on `empty_diff` & Missing `log_tail`:**
+   - Running `go test ./pkg -run "TestExisting|TestNew"` exits `0` on an unedited worktree if `TestExisting` already passes, or if no tests match (`testing: warning: no tests to run` also exits `0` in Go).
+   - Because `verify` exits `0`, `ExecutePlan` marks the subtask `StatusCompleted`. Since `plan.go` only populated `LogTail` when `res.Status != StatusCompleted`, `empty_diff` tasks returned `"log_tail": ""` with zero diagnostic visibility.
+8. **Model-Unaware Quota Bucket Scoring & Same-Profile Retry Loop:**
+   - Scoring only the `gemini` bucket when escalating a retry to `gemini-4-argon-medium` (`argon` bucket) or `claude-sonnet-5-5-medium` (`3p` bucket) — combined with `default_untouched = 1.0` when Cloud Code omits Gemini groups on an account that only returned `3p-weekly` — falsely assigns `score: 1.0` to an ineligible profile and re-dispatches the retry to the exact same profile that just failed.
 
 ```text
 {"step_index":11,"output_tokens":19993,"thinking":"..."}
@@ -65,7 +73,17 @@ During multi-account parallel wave execution (`multigravity dispatch plan` via `
    - For pre-specified micro-contract tasks (`Read:` / `Paths:` / `Verify:`), pass `--model gemini-3.8-flash-low` or `--model gemini-3.8-flash-medium` to `agy` and instruct the worker not to run baseline test suites prior to editing.
    - **Important `agy` CLI Constraint:** Because `agy` model IDs already encode the effort suffix (`-low`, `-medium`, `-high`), NEVER pass a conflicting `--effort` flag alongside a tiered `--model` ID (`error: invalid model selection (--model "gemini-3.8-flash-medium" --effort "low"): --model gemini-3.8-flash-medium conflicts with --effort=low`).
 5. **Diff Worktrees Strictly Against Worktree `HEAD` in Multi-Task Wave Loops:**
-   - When committing multiple parallel tasks sequentially onto `main`, `main` advances after the first task commits. Diffing subsequent worktrees against `main` (`multigravity dispatch diff`) produces reverse patches of earlier wave commits. Always stage intent-to-add (`git add -N -- <matched_files>`) and run `git diff HEAD -- <matched_files>` inside each worktree.
+   - When committing multiple parallel tasks sequentially onto `main`, `main` advances after the first task commits. Diffing subsequent worktrees against `main` (`multigravity dispatch diff`) produces reverse patches of earlier wave commits. Always stage intent-to-add (`git add -N -- <matched_files>`) and run `git diff HEAD -- <matched_files>` inside each worktree (or resolve `wt.BaseCommit` to its immutable commit SHA at `CreateWorktree` time).
+6. **Line-Ranged `Read:` Pre-Injection (`file.go:start-end`), `gemini-3.8-flash-low` Default & Single-Grep Escape Hatch:**
+   - Support `file.go:start-end` in `Read:` and pre-inject bounded code slices (`<= 15 KB` total) directly into the synthesized micro-contract prompt so workers skip 3–5 initial `read_file` turns.
+   - Default closed-scope micro-contracts to `gemini-3.8-flash-low` and include the guardrail: *"Read ONLY the specified files first. If a referenced type or constant is missing, you may run at most ONE targeted `grep` in that package instead of guessing."*
+7. **Reject Go `testing: warning: no tests to run` & Always Populate `LogTail` on `empty_diff`:**
+   - In `defaultExecuteVerifyCommand`, treat `testing: warning: no tests to run` in stdout/stderr as verification failure (`exitCode = 1`).
+   - In `ExecutePlan`, populate `res.LogTail` whenever `res.Status != StatusCompleted || strings.TrimSpace(res.Diff) == ""` so `empty_diff` outcomes always surface the last 1,000 bytes of worker output.
+8. **Model-Aware Quota Bucket Routing & Failed-Profile Retry Exclusion:**
+   - Map model prefix/family (`gemini-3.8-*` $\rightarrow$ `gemini`, `gemini-4-argon-*` $\rightarrow$ `argon`, `claude-*`/`gpt-*` $\rightarrow$ `3p`) when scoring profile eligibility, require explicit bucket presence when sibling groups are omitted, and append any profile that failed/timed out on Attempt 1 to `excludeProfiles` on Retry 2.
+9. **Native `.agent/TASK.md` Wave Parser (`multigravity dispatch wave`):**
+   - Parse `[APPROVED]` wave tasks (`Read:`, `Paths:`, `Verify:`) directly from `.agent/TASK.md`, execute via `ExecutePlan` with atomic commits, and auto-update `.agent/TASK.md` to eliminate 400–800 tokens of manual JSON heredoc construction per wave in the orchestrator.
 
 **Root Cause:** `ExecutePlan` relied on in-process waiter detachment on timeout without terminating child OS processes, and ephemeral git worktrees lacked `PYTHONPATH` precedence over the parent repository's `.venv` editable install.
 

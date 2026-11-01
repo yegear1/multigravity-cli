@@ -147,11 +147,49 @@ type: architectural-decision-log
   1. Add `SelectEligibleProfiles(count int, weight RouteWeight, excludeProfiles ...string) ([]string, error)` (and testable `SelectEligibleProfilesFromCandidates(candidates []RouteCandidate, count int, excludeProfiles ...string) []string`) in `internal/quota/routing.go`.
   2. Partition eligible candidates (`Eligible == true`, i.e., `RemainingFraction > 0.05`) into non-excluded (secondary) profiles first, sorted by `RecommendRoute` score, followed by excluded profiles as a fallback only when fewer than `count` secondary profiles are eligible.
 
-### [Spec 05.8] Native Micro-Contracts, `agy` Model/Effort Normalization, Auto-Profile Routing & Atomic Wave Commits (`internal/dispatch` & `internal/cmd`)
-- **Objective:** Eliminate external bash/python wrapper overhead (`run-wave.sh`) and reduce worker/orchestrator token consumption by building micro-contract prompt synthesis, `agy` flag normalization,Verify-on-Timeout recovery, path-scoped atomic commits, and zero-diff-bloat JSON output directly into `multigravity dispatch plan`.
+### [Spec 05.8] Model-Aware Quota Bucket Routing & Retry Profile Exclusion (`internal/quota`) — [Point 2.E]
+- **Objective:** Prevent dispatching `gemini-4-argon-*` (`argon` bucket) or `claude-*`/`gpt-*` (`3p` bucket) tasks to profiles that only have quota in a different bucket, prevent `default_untouched = 1.0` false-positives when Cloud Code omits an entire model family group, and guarantee profile rotation on task retry.
 - **Mechanics:**
-  1. **`agy` `--model` / `--effort` Flag Normalization (`internal/dispatch/manager.go`):** In `ResolveAgentCommandWithCwd`, when the runner is `agy` and `args` contain both `--model <m>` (with `-low`, `-medium`, or `-high` suffix) and `--effort <e>`, normalize the model suffix to `<e>` and strip the redundant `--effort <e>` flag so `agy` never aborts with `conflicts with --effort=...`.
-  2. **Micro-Contract Fields & Fast-Edit Prompt Synthesis (`internal/dispatch/plan.go`):** Extend `SubtaskSpec` with `Read []string`, `Paths []string`, `CommitMessage string`, and `Model string`, and `PlanRequest` with `DefaultModel string`, `ApplyAtomic bool`, and `OmitDiff bool`. When `st.Read` or `st.Paths` are non-empty, default `NoGovernance: true` on `DispatchOptions` (avoiding duplicate `AGENTS.md`/`TASK.md` injection) and synthesize a compact micro-contract prompt (`READ ONLY`, `ALLOWED MUTABLE PATHS`, `Do NOT run baseline tests before editing`, `Exit immediately once validation passes without writing a prose summary`).
-  3. **Auto-Profile Routing:** In `ExecutePlan`, when `st.Profile == ""` or `"auto"`, automatically resolve eligible secondary profiles via `quota.SelectEligibleProfiles` (detecting current profile from `HOME` under `AntigravityProfiles/<name>`) and assign subtasks in round-robin.
-  4. **Verify-on-Timeout, `--apply-atomic` & `--omit-diff`:** When `req.ApplyAtomic` is true, if a subtask timed out or completed, run `st.Verify` in the worktree if needed, extract the diff against the worktree's `BaseCommit` (`HEAD` at creation) filtered by `st.Paths`, apply to `repoRoot`, stage `st.Paths`, create an atomic `git commit -m <CommitMessage>`, populate `Commit string` on `SubtaskResult`, and remove the ephemeral worktree and branch. When `req.OmitDiff` is true, omit raw unified diffs from `SubtaskResult.Diff` and `UnifiedSummary.CombinedDiff`.
-  5. **CLI Flags (`internal/cmd/dispatch.go`):** Add `--apply-atomic` and `--omit-diff` flags to `multigravity dispatch plan`.
+  1. Add `BucketGroupForModel(model string) string` in `internal/quota/routing.go` mapping `gemini-4-argon-*` $\rightarrow$ `"argon"`, `claude-*` / `gpt-*` $\rightarrow$ `"3p"`, and `gemini-*` (or empty) $\rightarrow$ `"gemini"`.
+  2. Add `ScoreServerForBucket(srv ServerStatus, bucketGroup string, weight RouteWeight, now time.Time) RouteCandidate`:
+     - Extract weekly (`gemini-weekly`, `gemini-argon-wtu-weekly`, `3p-weekly`) and 5h (`gemini-5h`, `3p-5h`) fractions for the target `bucketGroup`.
+     - If `srv.QuotaKnown` is true and `buckets` is non-empty, do NOT assume `1.0` for a missing target weekly bucket when only unrelated bucket families (`3p-weekly` vs `gemini-weekly`) are present and the target family group is completely absent.
+  3. Add `SelectEligibleProfilesForModel(count int, model string, weight RouteWeight, excludeProfiles ...string) ([]string, error)` so `ExecutePlan` and retry loops can pass both the target `model` and any previously failed profile names in `excludeProfiles`.
+
+### [Spec 05.9] `agy` `--model`/`--effort` Normalization & `no tests to run` Verify Guard (`internal/dispatch/manager.go`) — [Points 2.C & 2.D]
+- **Objective:** Prevent `agy` CLI invocation failures when `--model <m>-medium` and `--effort low` are combined, and prevent `go test -run <Pattern>` false-positive `exit code 0` when zero tests match.
+- **Mechanics:**
+  1. In `ResolveAgentCommandWithCwd` (`internal/dispatch/manager.go`), add `normalizeAgyArgs(args []string) []string`: when runner is `agy` and `args` contain both `--model <m>` (or `--model=<m>`) ending in `-low`, `-medium`, or `-high` AND `--effort <e>` (or `--effort=<e>` where `<e>` is `low`, `medium`, or `high`), rewrite `<m>`'s suffix to `-<e>` and strip the redundant `--effort` flag.
+  2. In `defaultExecuteVerifyCommand` (`internal/dispatch/manager.go`), inspect combined command output: if `exitCode == 0` and output contains `testing: warning: no tests to run`, override `exitCode = 1` and return an error (`verification matched zero tests ("testing: warning: no tests to run")`) so unimplemented test functions never pass verification.
+
+### [Spec 05.10] Line-Ranged `Read:` Pre-Injection (`file:start-end`), Anti-Guessing Micro-Contracts, `empty_diff` `LogTail` Audit & Atomic Wave Commits (`internal/dispatch/plan.go`) — [Points 2.B, 2.C, 2.D, 2.E]
+- **Objective:** Cut worker subagent token burn by 30–50% via pre-injected line-ranged `Read:` slices and `gemini-3.8-flash-low` defaults, prevent 20k thinking-token loops with a single-grep escape hatch, surface `LogTail` on `empty_diff`, and support `--apply-atomic` / `--omit-diff` directly in `ExecutePlan`.
+- **Mechanics:**
+  1. **Schema Extensions (`internal/dispatch/plan.go`):**
+     - `SubtaskSpec`: add `Read []string json:"read,omitempty"`, `Paths []string json:"paths,omitempty"`, `CommitMessage string json:"commit_message,omitempty"`, `Model string json:"model,omitempty"`.
+     - `PlanRequest`: add `DefaultModel string json:"default_model,omitempty"`, `ApplyAtomic bool json:"apply_atomic,omitempty"`, `OmitDiff bool json:"omit_diff,omitempty"`, `InlineRead bool json:"inline_read,omitempty"`.
+     - `SubtaskResult`: add `Commit string json:"commit,omitempty"`, `RecoveredFromTimeout bool json:"recovered_from_timeout,omitempty"`, `Model string json:"model,omitempty"`.
+  2. **Line-Ranged `Read:` Pre-Injection & Anti-Guessing Micro-Prompt (`SynthesizeSubtaskPromptWithRepo`):**
+     - Parse `Read:` entries supporting optional `:start-end` line ranges (e.g. `internal/dispatch/manager.go:210-280`).
+     - When `repoRoot != ""`, read the requested line slices (or files up to a 15 KB total inline budget) and embed them directly in `[PRE-LOADED READ CONTEXT]` inside the synthesized prompt so the worker skips initial `read_file` tool calls.
+     - Include the anti-guessing guardrail: *"Read ONLY the specified files first. If a referenced type or constant is missing, you may run at most ONE targeted `grep` in that package instead of guessing. Do NOT run baseline tests before editing. Exit immediately once validation passes without writing a prose summary."*
+     - Default `model` for micro-contract subtasks (`len(st.Read) > 0 || len(st.Paths) > 0`) to `gemini-3.8-flash-low` when `st.Model` and `req.DefaultModel` are empty.
+  3. **`empty_diff` Audit & `LogTail` Guarantee:**
+     - Always populate `res.LogTail` (last 1,000 bytes) whenever `res.Status != StatusCompleted || strings.TrimSpace(res.Diff) == ""`.
+     - When `len(st.Paths) > 0` and `strings.TrimSpace(res.Diff) == ""`, mark `res.Status = StatusAuditFailed` with `res.Error = "empty_diff: subtask exited without modifying any allowed paths"`.
+  4. **Model-Aware Auto-Profile Routing & Atomic Wave Execution (`--apply-atomic`, `--omit-diff`):**
+     - Allow `st.Profile == ""` or `"auto"` in `ValidatePlan` and resolve profiles via `quota.SelectEligibleProfilesForModel`.
+     - Pass `worktree.DiffOptions{Paths: st.Paths}` to `GetWorktreeDiff`, support Verify-on-Timeout recovery, apply verified patches to `repoRoot`, stage `st.Paths`, commit atomically (`res.Commit`), clean up worktrees, and clear `Diff`/`CombinedDiff` when `req.OmitDiff` is true.
+
+### [Spec 05.11] Native `.agent/TASK.md` Wave Parser & Single-Command Wave Executor (`multigravity dispatch wave`) — [Point 2.A]
+- **Objective:** Reduce orchestrator token overhead per wave from ~1,500 tokens (manual JSON heredoc + `TASK.md` edits + commit) to ~80 tokens via a native `multigravity dispatch wave` CLI command.
+- **Mechanics:**
+  1. Add `ParseTaskWave(taskFilePath, waveTag string) (*WaveSpec, error)` in `internal/dispatch/wave.go` to parse `.agent/TASK.md` backlog items (`- [ ] **[XX.Y]** [APPROVED] [PARALLEL: Wx | SEQ: Wx] <title>`) and their indented `- Read:`, `- Paths:`, `- Verify:`, and `- Model:` bullets. When `waveTag == ""`, automatically select the first uncompleted `[APPROVED]` wave in `.agent/TASK.md`.
+  2. Add `ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*WaveExecutionResult, error)` in `internal/dispatch/wave.go`:
+     - Builds a `PlanRequest` with `ApplyAtomic: true`, `OmitDiff: true`, `InlineRead: true`, and executes `ExecutePlan`.
+     - If any subtask fails verification on `gemini-3.8-flash-low`/`medium`, automatically retries once on `gemini-4-argon-medium` while excluding the failed profile (`excludeProfiles`).
+     - When all wave tasks succeed and commit, updates `.agent/TASK.md` (`[ ]` $\rightarrow$ `[x]` with commit SHA, prepends row(s) to `Completed Tasks Log`, promotes the next backlog task into `## Active Task`) and commits `.agent/TASK.md`.
+  3. In `internal/cmd/dispatch.go`, add `--apply-atomic` and `--omit-diff` flags to `multigravity dispatch plan` and register `multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] [--timeout 4m] [--no-retry] [--json]`.
+
+### [Spec 05.12] Synchronize `multigravity-orchestrator` Skill with `dispatch wave`, Line-Ranged `Read:`, and `gemini-3.8-flash-low` Defaults
+- **Objective:** Update `skills/multigravity-orchestrator/SKILL.md` to document single-command `multigravity dispatch wave --json`, line-ranged `Read: file.go:start-end` pre-injection, `gemini-3.8-flash-low` default for micro-contracts, and model-aware quota routing.
