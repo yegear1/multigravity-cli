@@ -7,7 +7,7 @@
 
 ## Active Task
 
-*(All tasks in Epic 05 [`05.1`–`05.24`] completed. Queue idle — awaiting next task or human instruction.)*
+*(All tasks in Epic 05 [`05.1`–`05.27`] completed. Queue idle — awaiting next task or human instruction.)*
 
 ---
 
@@ -15,6 +15,9 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.27] | Synchronize `skills/multigravity-orchestrator/SKILL.md` and `task-queue` with installed-runner auto-discovery and `quota-history.jsonl` persistent 429 cooldowns | [`9d9855b`](https://github.com/yegear1/multigravity-cli/commit/9d9855b) | 2026-11-01 |
+| [05.26] | Persist and reload profile 429 cooldowns via `<profileDir>/.multigravity/quota-history.jsonl` (`Sample.CooldownUntil`, `SourceCooldown = "cooldown"`) and parse `"Resets in ..."` durations (`ParseQuotaResetDuration`) | [`cb2f996`](https://github.com/yegear1/multigravity-cli/commit/cb2f996) | 2026-11-01 |
+| [05.25] | Skip uninstalled agent runners in `ResolveAgentCommandWithCwd` / `ExecutePlan` via `DiscoverInstalledAgent` (`claude`, `agy`, `codex`, `opencode`, `aider`) | [`0d0985a`](https://github.com/yegear1/multigravity-cli/commit/0d0985a) | 2026-11-01 |
 | [05.24] | Synchronize `README.md` and `README.pt-br.md` command tables and usage sections with `multigravity dispatch wave` (`--lint`), `dispatch apply`, `dispatch plan` (`--apply-atomic`, `--omit-diff`), `multigravity route` (`--task`, `--paths`, `--read`), and `quota` subcommands (`burn`, `throttle`, `calibration`) | [`dc116fd`](https://github.com/yegear1/multigravity-cli/commit/dc116fd) | 2026-11-01 |
 | [05.23] | Update `skills/multigravity-orchestrator/SKILL.md` and `skills/multigravity/SKILL.md` in Technical English with Epic 05 (`05.14`–`05.22`) contracts | [`472433c`](https://github.com/yegear1/multigravity-cli/commit/472433c) | 2026-11-01 |
 | [05.22] | Set `DefaultSafetyQuotaThreshold = 0.01` (1% stable quota floor), add `SafetyThresholdForModel`, and wire `PreflightProfilesForModel` into `ExecutePlan` and `ExecuteTaskWave` with fallback to `0.01` floor | [`a7c815e`](https://github.com/yegear1/multigravity-cli/commit/a7c815e) | 2026-11-01 |
@@ -98,6 +101,9 @@
 - [x] **[05.22]** `[APPROVED]` `[PARALLEL: W13]` Set `DefaultSafetyQuotaThreshold = 0.01` (1% stable quota floor), add `SafetyThresholdForModel(model string, weight RouteWeight) float64` (`0.15` for `TierReasoning`/`TierArchitecture` or `WeightHeavy`, `0.01` for `TierMicro`/`TierStandard`), and wire `PreflightProfilesForModel` into `ExecutePlan` and `ExecuteTaskWave` with fallback to `0.01` floor (`a7c815e`)
 - [x] **[05.23]** `[APPROVED]` `[PARALLEL: W13]` Update `skills/multigravity-orchestrator/SKILL.md` and `skills/multigravity/SKILL.md` in Technical English with Epic 05 (`05.14`–`05.22`) contracts (`dispatch wave --lint`, `failure_reason`-gated retry, 1% quota floor / 15% complex-task threshold, sibling `*_test.go` pre-injection, `tokens_used`, `multigravity route --task/--paths/--read`) (`472433c`)
 - [x] **[05.24]** `[APPROVED]` `[PARALLEL: W13]` Synchronize `README.md` and `README.pt-br.md` command tables and usage sections with `multigravity dispatch wave` (`--lint`), `dispatch apply`, `dispatch plan` (`--apply-atomic`, `--omit-diff`), `multigravity route` (`--task`, `--paths`, `--read`), and `quota` subcommands (`burn`, `throttle`, `calibration`) (`dc116fd`)
+- [x] **[05.25]** `[APPROVED]` `[PARALLEL: W14]` Skip uninstalled agent runners in `ResolveAgentCommandWithCwd` / `ExecutePlan` by probing installed binaries (`claude`, `agy`, `codex`, `opencode`, `aider`) on enriched `PATH`, and pass `--dangerously-skip-permissions --disable-slash-commands` when `agy` runs autonomously (`0d0985a`)
+- [x] **[05.26]** `[APPROVED]` `[PARALLEL: W14]` Persist and reload profile 429 cooldowns via `<profileDir>/.multigravity/quota-history.jsonl` (`Sample.CooldownUntil`, `SourceCooldown = "cooldown"`), add `ParseQuotaResetDuration` (`"Resets in ..."`), and record cooldowns on `rate_limited` subtasks in `ExecutePlan` and `ExecuteTaskWave` (`cb2f996`)
+- [x] **[05.27]** `[APPROVED]` `[PARALLEL: W14]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with installed-runner auto-discovery and `quota-history.jsonl` persistent 429 cooldowns (`9d9855b`)
 
 ---
 
