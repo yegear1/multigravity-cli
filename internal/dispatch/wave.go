@@ -260,7 +260,11 @@ func LintTaskWave(waveSpec *WaveSpec) []string {
 	violations := make([]string, 0)
 
 	for _, t := range waveSpec.Tasks {
-		isTierMicro := t.Model == "gemini-3.8-flash-low" || quota.TierForModel(t.Model) == quota.TierMicro
+		model := t.Model
+		if model == "" {
+			model = "gemini-3.8-flash-medium"
+		}
+		isTierMicro := model == "gemini-3.8-flash-low" || quota.TierForModel(model) == quota.TierMicro
 		if isTierMicro {
 			if len(t.Paths) > 2 {
 				violations = append(violations, fmt.Sprintf("task [%s]: TierMicro task has %d Paths files (maximum 2)", t.ID, len(t.Paths)))

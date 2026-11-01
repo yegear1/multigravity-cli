@@ -491,3 +491,42 @@ func TestLintTaskWave(t *testing.T) {
 		}
 	})
 }
+
+func TestLintTaskWaveDefaultModel(t *testing.T) {
+	// Un-modelled task (Model: "") should fallback to default model (standard tier)
+	// and NOT falsely trigger TierMicro path count or package span violations.
+	spec := &WaveSpec{
+		WaveTag: "W1",
+		Tasks: []WaveTaskSpec{
+			{
+				ID:     "05.26",
+				Model:  "", // Un-modelled
+				Paths:  []string{"pkg/a/f1.go", "pkg/a/f2.go", "pkg/b/f3.go"}, // 3 paths & 2 packages
+				Read:   []string{"r1.go", "r2.go"},
+				Verify: "go test ./...",
+			},
+		},
+	}
+	violations := LintTaskWave(spec)
+	if len(violations) != 0 {
+		t.Fatalf("expected 0 violations for un-modelled task falling back to default model, got %d: %v", len(violations), violations)
+	}
+
+	// Verify that if an un-modelled task has other violations (e.g. >4 reads or missing verify), they are still caught.
+	badSpec := &WaveSpec{
+		WaveTag: "W1",
+		Tasks: []WaveTaskSpec{
+			{
+				ID:     "05.27",
+				Model:  "",
+				Paths:  []string{"pkg/a/f1.go", "pkg/b/f2.go", "pkg/c/f3.go"},
+				Read:   []string{"r1", "r2", "r3", "r4", "r5"},
+				Verify: "",
+			},
+		},
+	}
+	badViolations := LintTaskWave(badSpec)
+	if len(badViolations) != 2 {
+		t.Fatalf("expected 2 violations (Read and Verify) for un-modelled task, got %d: %v", len(badViolations), badViolations)
+	}
+}
