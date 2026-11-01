@@ -51,13 +51,15 @@ type WaveExecutionResult struct {
 }
 
 var (
-	taskItemRegex = regexp.MustCompile(`^-\s*\[([ xX])\]\s*\*\*\[([^\]]+)\]\*\*\s*(.*)$`)
-	waveTagRegex  = regexp.MustCompile(`\[(PARALLEL|SEQ):\s*([^\]]+)\]`)
-	checkboxRegex = regexp.MustCompile(`^(\s*-\s*\[)[ ](\].*)$`)
+	taskItemRegex        = regexp.MustCompile(`^-\s*\[([ xX])\]\s*\*\*\[([^\]]+)\]\*\*\s*(.*)$`)
+	waveTagRegex         = regexp.MustCompile(`\[(PARALLEL|SEQ):\s*([^\]]+)\]`)
+	backtickWaveTagRegex = regexp.MustCompile("`?\\[(PARALLEL|SEQ):\\s*([^\\]]+)\\]`?")
+	checkboxRegex        = regexp.MustCompile(`^(\s*-\s*\[)[ ](\].*)$`)
 )
 
 func stripTaskTags(s string) string {
-	s = waveTagRegex.ReplaceAllString(s, "")
+	s = backtickWaveTagRegex.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "`[APPROVED]`", "")
 	s = strings.ReplaceAll(s, "[APPROVED]", "")
 	return strings.TrimSpace(strings.Join(strings.Fields(s), " "))
 }
@@ -136,7 +138,7 @@ func ParseTaskWave(taskFilePath, waveTag string) (*WaveSpec, error) {
 
 			currentTask = &WaveTaskSpec{
 				ID:       taskID,
-				Title:    rest,
+				Title:    stripTaskTags(rest),
 				WaveTag:  tag,
 				Parallel: parallel,
 			}

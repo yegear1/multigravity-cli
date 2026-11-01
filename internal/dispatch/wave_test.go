@@ -27,11 +27,11 @@ func TestParseTaskWave(t *testing.T) {
   - ` + "`Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`" + `
   - ` + "`Verify:` `go test ./internal/dispatch -run TestPlan`" + `
   - ` + "`Model:` `gemini-3.8-flash-low`" + `
-- [ ] **[05.11]** Feature B [APPROVED] [PARALLEL: W1]
+- [ ] **[05.11]** Feature   B ` + "`[APPROVED]` `[PARALLEL: W1]`" + `
   - ` + "`Read:` `internal/cmd/dispatch.go:930-1045`" + `
   - ` + "`Paths:` `internal/dispatch/wave.go, internal/cmd/dispatch.go`" + `
   - ` + "`Verify:` `go test ./internal/dispatch -run TestParseTaskWave`" + `
-- [ ] **[05.12]** Feature C [APPROVED] [SEQ: W2]
+- [ ] **[05.12]** Feature C ` + "`[APPROVED]` `[SEQ: W2]`" + `
   - ` + "`Read:` `README.md`" + `
   - ` + "`Paths:` `README.md`" + `
 - [x] **[05.09]** Completed Feature [APPROVED] [PARALLEL: W0]
@@ -59,6 +59,9 @@ func TestParseTaskWave(t *testing.T) {
 	if t1.ID != "05.10" {
 		t.Errorf("expected ID 05.10, got %s", t1.ID)
 	}
+	if t1.Title != "Feature A" {
+		t.Errorf("expected clean Title %q for 05.10, got %q", "Feature A", t1.Title)
+	}
 	if !t1.Parallel {
 		t.Errorf("expected parallel true for 05.10")
 	}
@@ -80,6 +83,9 @@ func TestParseTaskWave(t *testing.T) {
 	if t2.ID != "05.11" {
 		t.Errorf("expected ID 05.11, got %s", t2.ID)
 	}
+	if t2.Title != "Feature B" {
+		t.Errorf("expected clean Title %q for 05.11, got %q", "Feature B", t2.Title)
+	}
 	if len(t2.Paths) != 2 || t2.Paths[0] != "internal/dispatch/wave.go" || t2.Paths[1] != "internal/cmd/dispatch.go" {
 		t.Errorf("unexpected Paths for 05.11: %v", t2.Paths)
 	}
@@ -94,6 +100,9 @@ func TestParseTaskWave(t *testing.T) {
 	}
 	if len(specW2.Tasks) != 1 {
 		t.Fatalf("expected 1 task in W2, got %d", len(specW2.Tasks))
+	}
+	if specW2.Tasks[0].Title != "Feature C" {
+		t.Errorf("expected clean Title %q for 05.12, got %q", "Feature C", specW2.Tasks[0].Title)
 	}
 	if specW2.Tasks[0].Parallel {
 		t.Errorf("expected parallel false for W2 task")
@@ -132,8 +141,8 @@ func TestExecuteTaskWaveCascadeRetry(t *testing.T) {
 	binDir := t.TempDir()
 	fakeClaude := filepath.Join(binDir, "claude")
 	script := `#!/bin/sh
-case "$2" in
-  *"[PREVIOUS ATTEMPT FAILED ON MODEL gemini-4-argon-medium]"*)
+case "$1 $2 $3 $4" in
+  *"gemini-4-argon-high"*)
     echo "fixed" > feature.txt
     git add feature.txt
     ;;
