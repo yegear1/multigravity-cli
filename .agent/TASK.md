@@ -7,21 +7,20 @@
 
 ## Active Task
 
-### 📌 Task [05.11]: Native `.agent/TASK.md` Wave Parser & `multigravity dispatch wave` CLI Subcommand (`internal/dispatch`, `internal/cmd`)
+### 📌 Task [05.12]: Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, Line-Ranged `Read:` Pre-Injection, and `gemini-3.8-flash-low` Defaults
 
-- **Description:** Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion (`gemini-4-argon-medium` retry excluding failed profile) and automatic `.agent/TASK.md` completion logging.
-- **Systems Involved:** `internal/dispatch`, `internal/cmd`
+- **Description:** Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave --json`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` micro-contract defaults, single-grep escape hatch, and model-aware quota routing (`gemini`/`argon`/`3p`).
+- **Systems Involved:** `skills/multigravity-orchestrator`
 - **Action Type:**
-  - [ ] Read-only / Documentation
-  - [x] Source code changes
+  - [x] Read-only / Documentation
+  - [ ] Source code changes
 - **Status:** RUNNING
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] Add `ParseTaskWave(taskFilePath, waveTag string) (*WaveSpec, error)` in `internal/dispatch/wave.go` to parse `.agent/TASK.md` backlog items (`- [ ] **[XX.Y]** [APPROVED] [PARALLEL: Wx | SEQ: Wx] <title>`) and indented `- Read:`, `- Paths:`, `- Verify:`, `- Model:` bullets.
-- [ ] Add `ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*WaveExecutionResult, error)` in `internal/dispatch/wave.go` with automatic 1x retry on `gemini-4-argon-medium` excluding the failed profile and automatic `.agent/TASK.md` update & commit on wave completion.
-- [ ] Add `--apply-atomic` and `--omit-diff` flags to `multigravity dispatch plan` and register `multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] [--timeout 4m] [--no-retry] [--json]` in `internal/cmd/dispatch.go`.
-- [ ] Verify with `go test -v ./internal/dispatch -run "^TestParseTaskWave" && go test -v ./internal/dispatch ./internal/cmd -run "Test.*Wave|Test.*Plan"`.
+- [ ] Document `multigravity dispatch wave [--wave Wx] [--file .agent/TASK.md] --json` single-command wave execution in `skills/multigravity-orchestrator/SKILL.md`.
+- [ ] Document line-ranged `Read: file:start-end` pre-injection (`inline_read`), `gemini-3.8-flash-low` default for closed-scope micro-contracts, single-grep escape hatch, `--apply-atomic` / `--omit-diff` flags, and model-aware bucket routing (`gemini`/`argon`/`3p`).
+- [ ] Verify with `git diff --check skills/multigravity-orchestrator/SKILL.md && grep -q "dispatch wave" skills/multigravity-orchestrator/SKILL.md`.
 
 ---
 
@@ -29,6 +28,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.11] | Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion and automatic `TASK.md` completion logging | [`74d1e09`](https://github.com/yegear1/multigravity-cli/commit/74d1e09) | 2026-11-01 |
 | [05.10] | Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` in `internal/dispatch/plan.go` | [`2f53f12`](https://github.com/yegear1/multigravity-cli/commit/2f53f12) | 2026-11-01 |
 | [05.8] | Add model-aware quota bucket routing (`BucketGroupForModel`, `ScoreServerForBucket`, `SelectEligibleProfilesForModel`) and prevent missing-group false-positive `1.0` scores in `internal/quota` | [`4bc9bb9`](https://github.com/yegear1/multigravity-cli/commit/4bc9bb9) | 2026-11-01 |
 | [05.9] | Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` | [`1714133`](https://github.com/yegear1/multigravity-cli/commit/1714133) | 2026-11-01 |
@@ -71,10 +71,7 @@
 - [x] **[05.8]** `[APPROVED]` `[PARALLEL: W2]` Add model-aware quota bucket routing (`BucketGroupForModel`, `ScoreServerForBucket`, `SelectEligibleProfilesForModel`) and prevent missing-group false-positive `1.0` scores in `internal/quota` *(Point 2.E)* (`4bc9bb9`)
 - [x] **[05.9]** `[APPROVED]` `[PARALLEL: W2]` Normalize `agy` `--model`/`--effort` flag conflicts in `ResolveAgentCommandWithCwd` and reject Go `testing: warning: no tests to run` false-positive `exit code 0` in `defaultExecuteVerifyCommand` *(Points 2.C & 2.D)* (`1714133`)
 - [x] **[05.10]** `[APPROVED]` `[SEQ: W3]` Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default with single-grep escape hatch, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` execution in `internal/dispatch/plan.go` *(Points 2.B, 2.C, 2.D, 2.E)* (`2f53f12`)
-- [ ] **[05.11]** `[APPROVED]` `[SEQ: W4]` Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion and automatic `TASK.md` completion logging *(Point 2.A)*
-  - `Read:` `internal/cmd/dispatch.go:930-1045, internal/dispatch/plan.go:20-125`
-  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go, internal/cmd/dispatch.go`
-  - `Verify:` `go test -v ./internal/dispatch ./internal/cmd -run "TestParseTaskWave|Test.*Wave|Test.*Plan"`
+- [x] **[05.11]** `[APPROVED]` `[SEQ: W4]` Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion and automatic `TASK.md` completion logging *(Point 2.A)* (`74d1e09`)
 - [ ] **[05.12]** `[APPROVED]` `[SEQ: W5]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` defaults, and model-aware quota routing *(Points 2.A–2.E)*
   - `Read:` `skills/multigravity-orchestrator/SKILL.md:1-140`
   - `Paths:` `skills/multigravity-orchestrator/SKILL.md`
