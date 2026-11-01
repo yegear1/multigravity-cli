@@ -255,3 +255,185 @@ func TestModelAndEffortForWeight(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectEligibleProfilesFromCandidates(t *testing.T) {
+	t.Run("secondary-account priority", func(t *testing.T) {
+		candidates := []RouteCandidate{
+			{Profile: "primary-account", Eligible: true, Score: 950},
+			{Profile: "secondary-account", Eligible: true, Score: 850},
+			{Profile: "tertiary-account", Eligible: true, Score: 750},
+		}
+
+		// When primary-account is excluded, secondary-account and tertiary-account must be prioritized first
+		selected := SelectEligibleProfilesFromCandidates(candidates, 1, "primary-account")
+		if len(selected) != 1 || selected[0] != "secondary-account" {
+			t.Fatalf("expected [secondary-account], got %v", selected)
+		}
+
+		selectedTwo := SelectEligibleProfilesFromCandidates(candidates, 2, "primary-account")
+		if len(selectedTwo) != 2 || selectedTwo[0] != "secondary-account" || selectedTwo[1] != "tertiary-account" {
+			t.Fatalf("expected [secondary-account, tertiary-account], got %v", selectedTwo)
+		}
+	})
+
+	t.Run("fallback to excluded profile", func(t *testing.T) {
+		candidates := []RouteCandidate{
+			{Profile: "primary-account", Eligible: true, Score: 950},
+			{Profile: "secondary-account", Eligible: true, Score: 850},
+		}
+
+		// Requesting 2 profiles while primary-account is excluded:
+		// Only 1 non-excluded profile (secondary-account) exists, so primary-account is used as fallback
+		selected := SelectEligibleProfilesFromCandidates(candidates, 2, "primary-account")
+		if len(selected) != 2 {
+			t.Fatalf("expected 2 profiles, got %v", selected)
+		}
+		if selected[0] != "secondary-account" || selected[1] != "primary-account" {
+			t.Fatalf("expected [secondary-account, primary-account], got %v", selected)
+		}
+
+		// Requesting 1 profile when all eligible candidates are excluded
+		selectedFallback := SelectEligibleProfilesFromCandidates(candidates, 1, "primary-account", "secondary-account")
+		if len(selectedFallback) != 1 || selectedFallback[0] != "primary-account" {
+			t.Fatalf("expected [primary-account] as fallback, got %v", selectedFallback)
+		}
+	})
+
+	t.Run("<=5% floor enforcement", func(t *testing.T) {
+		candidates := []RouteCandidate{
+			{Profile: "depleted-floor", Eligible: false, RemainingFraction: 0.04, Score: -1000},
+			{Profile: "exact-floor", Eligible: false, RemainingFraction: 0.05, Score: -1000},
+			{Profile: "healthy-account", Eligible: true, RemainingFraction: 0.50, Score: 600},
+		}
+
+		// Even when requesting count=5, ineligible profiles (<=5% floor) must never be returned
+		selected := SelectEligibleProfilesFromCandidates(candidates, 5)
+		if len(selected) != 1 || selected[0] != "healthy-account" {
+			t.Fatalf("expected [healthy-account], got %v", selected)
+		}
+
+		// When all candidates are <= 5% (Eligible == false), result must be empty
+		allDepleted := []RouteCandidate{
+			{Profile: "depleted-1", Eligible: false, RemainingFraction: 0.02},
+			{Profile: "depleted-2", Eligible: false, RemainingFraction: 0.05},
+		}
+		selectedEmpty := SelectEligibleProfilesFromCandidates(allDepleted, 2)
+		if len(selectedEmpty) != 0 {
+			t.Fatalf("expected empty slice, got %v", selectedEmpty)
+		}
+
+		// End-to-end evaluation check with RecommendRoute confirming <=5% floor marks Eligible=false
+		now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+		depletedServer := ActiveServer{
+			Profile:    "critical-prof",
+			QuotaKnown: true,
+			Data: &QuotaSummaryResponse{
+				Response: QuotaResponse{
+					Groups: []QuotaGroup{{
+						DisplayName: "Gemini",
+						Buckets: []QuotaBucket{
+							{BucketID: "gemini-weekly", RemainingFraction: 0.05, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+						},
+					}},
+				},
+			},
+		}
+		healthyServer := ActiveServer{
+			Profile:    "healthy-prof",
+			QuotaKnown: true,
+			Data: &QuotaSummaryResponse{
+				Response: QuotaResponse{
+					Groups: []QuotaGroup{{
+						DisplayName: "Gemini",
+						Buckets: []QuotaBucket{
+							{BucketID: "gemini-weekly", RemainingFraction: 0.80, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+						},
+					}},
+				},
+			},
+		}
+		plan := RecommendRoute([]ActiveServer{depletedServer, healthyServer}, WeightMedium, now)
+		routeSelected := SelectEligibleProfilesFromCandidates(plan.Candidates, 5)
+		if len(routeSelected) != 1 || routeSelected[0] != "healthy-prof" {
+			t.Fatalf("expected only healthy-prof after RecommendRoute floor enforcement, got %v", routeSelected)
+		}
+	})
+
+	t.Run("count <= 0 returns all partitioned", func(t *testing.T) {
+		candidates := []RouteCandidate{
+			{Profile: "p1", Eligible: true},
+			{Profile: "p2", Eligible: true},
+			{Profile: "p3", Eligible: true},
+		}
+		selected := SelectEligibleProfilesFromCandidates(candidates, 0, "p1")
+		if len(selected) != 3 || selected[0] != "p2" || selected[1] != "p3" || selected[2] != "p1" {
+			t.Fatalf("expected [p2, p3, p1], got %v", selected)
+		}
+	})
+}
+
+func TestSelectEligibleProfiles(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+
+	cleanup := SetTestHooks(func(targetProf string) ([]ActiveServer, error) {
+		return []ActiveServer{
+			{
+				Profile:    "active-prof-1",
+				QuotaKnown: true,
+				Data: &QuotaSummaryResponse{
+					Response: QuotaResponse{
+						Groups: []QuotaGroup{{
+							DisplayName: "Gemini",
+							Buckets: []QuotaBucket{
+								{BucketID: "gemini-weekly", RemainingFraction: 0.70, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+							},
+						}},
+					},
+				},
+			},
+			{
+				Profile:    "active-prof-2",
+				QuotaKnown: true,
+				Data: &QuotaSummaryResponse{
+					Response: QuotaResponse{
+						Groups: []QuotaGroup{{
+							DisplayName: "Gemini",
+							Buckets: []QuotaBucket{
+								{BucketID: "gemini-weekly", RemainingFraction: 0.03, ResetTime: now.Add(24 * time.Hour).Format(time.RFC3339)},
+							},
+						}},
+					},
+				},
+			},
+		}, nil
+	})
+	defer cleanup()
+
+	selected, err := SelectEligibleProfiles(2, WeightMedium)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(selected) != 1 || selected[0] != "active-prof-1" {
+		t.Fatalf("expected [active-prof-1], got %v", selected)
+	}
+
+	selectedFallback, err := SelectEligibleProfiles(1, WeightMedium, "active-prof-1")
+	if err != nil {
+		t.Fatalf("unexpected error with fallback: %v", err)
+	}
+	if len(selectedFallback) != 1 || selectedFallback[0] != "active-prof-1" {
+		t.Fatalf("expected fallback to [active-prof-1], got %v", selectedFallback)
+	}
+}
+
+func TestSelectEligibleProfiles_NoEligibleReturnsError(t *testing.T) {
+	cleanup := SetTestHooks(func(targetProf string) ([]ActiveServer, error) {
+		return []ActiveServer{}, nil
+	})
+	defer cleanup()
+
+	_, err := SelectEligibleProfiles(1, WeightMedium)
+	if err == nil {
+		t.Fatal("expected error when no eligible profiles available, got nil")
+	}
+}

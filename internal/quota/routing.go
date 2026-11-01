@@ -357,3 +357,70 @@ func compareCandidates(a, b RouteCandidate) int {
 	// Final deterministic tie-breaker: profile name alphabetical ascending
 	return strings.Compare(a.Profile, b.Profile)
 }
+
+// SelectEligibleProfilesFromCandidates filters candidates where Eligible is true,
+// partitions non-excluded profiles first (preserving candidate order) followed by
+// excluded profiles as fallback when fewer than count non-excluded profiles are available,
+// and returns up to count profile names (or all if count <= 0).
+func SelectEligibleProfilesFromCandidates(candidates []RouteCandidate, count int, excludeProfiles ...string) []string {
+	excludedSet := make(map[string]bool, len(excludeProfiles))
+	for _, p := range excludeProfiles {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			excludedSet[p] = true
+		}
+	}
+
+	var nonExcluded []string
+	var excluded []string
+	seen := make(map[string]bool)
+
+	for _, c := range candidates {
+		if !c.Eligible {
+			continue
+		}
+		prof := strings.TrimSpace(c.Profile)
+		if prof == "" || seen[prof] {
+			continue
+		}
+		seen[prof] = true
+
+		if excludedSet[prof] {
+			excluded = append(excluded, prof)
+		} else {
+			nonExcluded = append(nonExcluded, prof)
+		}
+	}
+
+	combined := append(nonExcluded, excluded...)
+	if count > 0 && len(combined) > count {
+		return combined[:count]
+	}
+	if combined == nil {
+		return []string{}
+	}
+	return combined
+}
+
+// SelectEligibleProfiles discovers running language servers, computes route recommendations,
+// delegates to SelectEligibleProfilesFromCandidates, and returns up to count eligible profile names.
+// It returns an error if the resulting slice is empty or if discovery fails.
+func SelectEligibleProfiles(count int, weight RouteWeight, excludeProfiles ...string) ([]string, error) {
+	live, err := FindActiveServers("")
+	if err != nil {
+		return nil, fmt.Errorf("finding active servers: %w", err)
+	}
+	servers, err := BuildQuotaSummary("", live)
+	if err != nil {
+		servers = live
+		for i := range servers {
+			servers[i].QuotaKnown = true
+		}
+	}
+	rec := RecommendRoute(servers, weight, time.Now())
+	selected := SelectEligibleProfilesFromCandidates(rec.Candidates, count, excludeProfiles...)
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("no eligible profiles found for workload weight %s", weight)
+	}
+	return selected, nil
+}
