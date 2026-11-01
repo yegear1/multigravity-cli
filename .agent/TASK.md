@@ -7,9 +7,9 @@
 
 ## Active Task
 
-### 📌 Task [05.13.3a]: Add `SynthesizeCascadeRetryPrompt` & Task Complexity Defaulting in `internal/dispatch/plan.go`
+### 📌 Task [05.13.3b]: Wire `quota.EscalateModel` and `SynthesizeCascadeRetryPrompt` into `ExecuteTaskWave` (`internal/dispatch/wave.go`)
 
-- **Description:** Add `SynthesizeCascadeRetryPrompt(basePrompt, prevModel, verifyOutput, logTail string)` in `internal/dispatch/plan.go` (`[05.13.3a]`), followed by dynamic cascade escalation in `internal/dispatch/wave.go` (`[05.13.3b]`), CLI route profiling (`[05.13.4]`), and skill docs (`[05.13.5]`).
+- **Description:** Wire `quota.EscalateModel` and `SynthesizeCascadeRetryPrompt` into `ExecuteTaskWave` in `internal/dispatch/wave.go` (`[05.13.3b]`), followed by CLI route profiling (`[05.13.4]`) and skill docs (`[05.13.5]`).
 - **Systems Involved:** `internal/dispatch`
 - **Action Type:**
   - [ ] Read-only / Documentation
@@ -20,7 +20,7 @@
 ### Acceptance Criteria
 - [x] Define canonical inference tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), ranking matrix, and `EscalateModel(model)` in `internal/quota/tiers.go`.
 - [x] Implement `ClassifyTaskComplexity(input)` based on `Paths`, `Read` line-ranges, and prompt heuristics in `internal/quota/classifier.go`.
-- [ ] Add `SynthesizeCascadeRetryPrompt` in `internal/dispatch/plan.go` and unit tests in `internal/dispatch/plan_test.go` (`[05.13.3a]`).
+- [x] Add `SynthesizeCascadeRetryPrompt` in `internal/dispatch/plan.go` and unit tests in `internal/dispatch/plan_test.go` (`[05.13.3a]`).
 - [ ] Wire `quota.EscalateModel` and `SynthesizeCascadeRetryPrompt` into `ExecuteTaskWave` in `internal/dispatch/wave.go` and unit tests in `internal/dispatch/wave_test.go` (`[05.13.3b]`).
 - [ ] Add `--task`, `--paths`, and `--read` support to `multigravity route` in `internal/cmd/route.go` (`[05.13.4]`).
 - [ ] Synchronize `skills/multigravity-orchestrator/SKILL.md` with inference tier matrix and cascade escalation (`[05.13.5]`).
@@ -32,6 +32,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.13.3a] | Add `SynthesizeCascadeRetryPrompt` helper in `internal/dispatch/plan.go` and unit tests in `internal/dispatch/plan_test.go` | [`f4b34d2`](https://github.com/yegear1/multigravity-cli/commit/f4b34d2) | 2026-11-01 |
 | [05.13.2] | Implement static zero-token task complexity classifier (`ClassifyTaskComplexity`) in `internal/quota/classifier.go` | [`407eec5`](https://github.com/yegear1/multigravity-cli/commit/407eec5) | 2026-11-01 |
 | [05.13.1] | Define canonical inference tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), model metadata ranking matrix, and `EscalateModel(model)` in `internal/quota/tiers.go` | [`65bb810`](https://github.com/yegear1/multigravity-cli/commit/65bb810) | 2026-11-01 |
 | [05.12] | Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` defaults, and model-aware quota routing | [`2b8e717`](https://github.com/yegear1/multigravity-cli/commit/2b8e717) | 2026-11-01 |
@@ -82,10 +83,7 @@
 - [x] **[05.12]** `[APPROVED]` `[SEQ: W5]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` defaults, and model-aware quota routing *(Points 2.A–2.E)* (`2b8e717`)
 - [x] **[05.13.1]** `[APPROVED]` `[PARALLEL: W6]` Define canonical inference tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), model metadata ranking matrix, and `EscalateModel(model)` in `internal/quota/tiers.go` (`65bb810`)
 - [x] **[05.13.2]** `[APPROVED]` `[PARALLEL: W6]` Implement static zero-token task complexity classifier (`ClassifyTaskComplexity`) in `internal/quota/classifier.go` (`407eec5`)
-- [ ] **[05.13.3a]** `[APPROVED]` `[SEQ: W7]` Add `SynthesizeCascadeRetryPrompt` helper in `internal/dispatch/plan.go` and unit tests in `internal/dispatch/plan_test.go`
-  - `Read:` `internal/dispatch/plan.go:230-310`
-  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
-  - `Verify:` `go test -v ./internal/dispatch -run "TestSynthesizeCascadeRetryPrompt"`
+- [x] **[05.13.3a]** `[APPROVED]` `[SEQ: W7]` Add `SynthesizeCascadeRetryPrompt` helper in `internal/dispatch/plan.go` and unit tests in `internal/dispatch/plan_test.go` (`f4b34d2`)
 - [ ] **[05.13.3b]** `[APPROVED]` `[SEQ: W7b]` Wire `quota.EscalateModel` and `SynthesizeCascadeRetryPrompt` into `ExecuteTaskWave` in `internal/dispatch/wave.go` and add unit tests in `internal/dispatch/wave_test.go`
   - `Read:` `internal/dispatch/wave.go:315-360, internal/dispatch/wave_test.go:190-265`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
