@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -8,45 +9,56 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
 
 // SubtaskSpec defines parameters for a single subtask within an execution plan.
 type SubtaskSpec struct {
-	ID         string            `json:"id,omitempty"`
-	Profile    string            `json:"profile"`
-	Prompt     string            `json:"prompt,omitempty"`
-	AgentType  string            `json:"agent_type,omitempty"`
-	Command    string            `json:"command,omitempty"`
-	Args       []string          `json:"args,omitempty"`
-	Branch     string            `json:"branch,omitempty"`
-	BaseCommit string            `json:"base_commit,omitempty"`
-	Cwd        string            `json:"cwd,omitempty"`
-	Env        map[string]string `json:"env,omitempty"`
-	GatewayURL string            `json:"gateway_url,omitempty"`
-	GatewayKey string            `json:"gateway_key,omitempty"`
-	Verify     string            `json:"verify,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	ID            string            `json:"id,omitempty"`
+	Profile       string            `json:"profile"`
+	Prompt        string            `json:"prompt,omitempty"`
+	AgentType     string            `json:"agent_type,omitempty"`
+	Command       string            `json:"command,omitempty"`
+	Args          []string          `json:"args,omitempty"`
+	Branch        string            `json:"branch,omitempty"`
+	BaseCommit    string            `json:"base_commit,omitempty"`
+	Cwd           string            `json:"cwd,omitempty"`
+	Env           map[string]string `json:"env,omitempty"`
+	GatewayURL    string            `json:"gateway_url,omitempty"`
+	GatewayKey    string            `json:"gateway_key,omitempty"`
+	Verify        string            `json:"verify,omitempty"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
+	Read          []string          `json:"read,omitempty"`
+	Paths         []string          `json:"paths,omitempty"`
+	CommitMessage string            `json:"commit_message,omitempty"`
+	Model         string            `json:"model,omitempty"`
 }
 
 // PlanRequest defines the input payload for dispatching a batch of subtasks concurrently across worktrees.
 type PlanRequest struct {
-	PlanID     string        `json:"plan_id,omitempty"`
-	RepoPath   string        `json:"repo_path,omitempty"`
-	BaseBranch string        `json:"base_branch,omitempty"`
-	BaseCommit string        `json:"base_commit,omitempty"`
-	Timeout    string        `json:"timeout,omitempty"`
-	Workers    int           `json:"workers,omitempty"`
-	Subtasks   []SubtaskSpec `json:"subtasks,omitempty"`
-	Tasks      []SubtaskSpec `json:"tasks,omitempty"` // Alias for Subtasks
+	PlanID       string        `json:"plan_id,omitempty"`
+	RepoPath     string        `json:"repo_path,omitempty"`
+	BaseBranch   string        `json:"base_branch,omitempty"`
+	BaseCommit   string        `json:"base_commit,omitempty"`
+	Timeout      string        `json:"timeout,omitempty"`
+	Workers      int           `json:"workers,omitempty"`
+	Subtasks     []SubtaskSpec `json:"subtasks,omitempty"`
+	Tasks        []SubtaskSpec `json:"tasks,omitempty"` // Alias for Subtasks
+	DefaultModel string        `json:"default_model,omitempty"`
+	ApplyAtomic  bool          `json:"apply_atomic,omitempty"`
+	OmitDiff     bool          `json:"omit_diff,omitempty"`
+	InlineRead   bool          `json:"inline_read,omitempty"`
 }
 
 // SubtaskResult encapsulates execution details and git diff produced by a single subtask.
@@ -71,6 +83,9 @@ type SubtaskResult struct {
 	Diff                 string          `json:"diff,omitempty"`
 	StructuredDiff       *StructuredDiff `json:"structured_diff,omitempty"`
 	FilesChanged         []string        `json:"files_changed,omitempty"`
+	Commit               string          `json:"commit,omitempty"`
+	RecoveredFromTimeout bool            `json:"recovered_from_timeout,omitempty"`
+	Model                string          `json:"model,omitempty"`
 }
 
 // UnifiedDiffSummary aggregates diff statistics, affected files, and scope collision analysis.
@@ -97,6 +112,145 @@ type PlanResult struct {
 	EndedAt         time.Time          `json:"ended_at"`
 	Subtasks        []SubtaskResult    `json:"subtasks"`
 	UnifiedSummary  UnifiedDiffSummary `json:"unified_summary"`
+}
+
+// SynthesizeSubtaskPrompt formats a subtask prompt and resolves the model to use.
+func SynthesizeSubtaskPrompt(st SubtaskSpec, defaultModel string) (string, string) {
+	return SynthesizeSubtaskPromptWithRepo(st, defaultModel, "", false)
+}
+
+// SynthesizeSubtaskPromptWithRepo formats a subtask prompt, resolving the model and optionally embedding file contents.
+func SynthesizeSubtaskPromptWithRepo(st SubtaskSpec, defaultModel, repoRoot string, inlineRead bool) (string, string) {
+	resolvedModel := st.Model
+	if resolvedModel == "" {
+		if defaultModel != "" {
+			resolvedModel = defaultModel
+		} else if len(st.Read) > 0 || len(st.Paths) > 0 {
+			resolvedModel = "gemini-3.8-flash-low"
+		}
+	}
+
+	var sb strings.Builder
+	if strings.TrimSpace(st.Prompt) != "" {
+		sb.WriteString(st.Prompt)
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString("Guardrails:\n")
+	sb.WriteString("- Read ONLY the specified files first. If a referenced type or constant is missing, you may run at most ONE targeted `grep` in that package instead of guessing. Do NOT run baseline tests before editing. Exit immediately once validation passes without writing a prose summary.\n")
+
+	if len(st.Read) > 0 {
+		sb.WriteString("\nFiles to read:\n")
+		for _, r := range st.Read {
+			sb.WriteString(fmt.Sprintf("- %s\n", r))
+		}
+	}
+
+	if len(st.Paths) > 0 {
+		sb.WriteString("\nAllowed mutable paths:\n")
+		for _, p := range st.Paths {
+			sb.WriteString(fmt.Sprintf("- %s\n", p))
+		}
+	}
+
+	if inlineRead && repoRoot != "" && len(st.Read) > 0 {
+		var embeddedSection strings.Builder
+		totalBytes := 0
+		const maxBudget = 15360
+
+		for _, entry := range st.Read {
+			if totalBytes >= maxBudget {
+				break
+			}
+			filePath := entry
+			startLine := 0
+			endLine := 0
+
+			if idx := strings.LastIndex(entry, ":"); idx != -1 {
+				linePart := entry[idx+1:]
+				parts := strings.Split(linePart, "-")
+				if len(parts) == 2 {
+					s, err1 := strconv.Atoi(parts[0])
+					e, err2 := strconv.Atoi(parts[1])
+					if err1 == nil && err2 == nil && s > 0 && e >= s {
+						filePath = entry[:idx]
+						startLine = s
+						endLine = e
+					}
+				}
+			}
+
+			fullPath := filepath.Join(repoRoot, filePath)
+			f, err := os.Open(fullPath)
+			if err != nil {
+				continue
+			}
+
+			scanner := bufio.NewScanner(f)
+			currentLine := 0
+			var lines []string
+			for scanner.Scan() {
+				currentLine++
+				if startLine > 0 && currentLine < startLine {
+					continue
+				}
+				if endLine > 0 && currentLine > endLine {
+					break
+				}
+				lines = append(lines, scanner.Text())
+			}
+			f.Close()
+
+			if len(lines) == 0 {
+				continue
+			}
+
+			content := strings.Join(lines, "\n")
+			snippet := fmt.Sprintf("\n--- %s ---\n%s\n", entry, content)
+			if totalBytes+len(snippet) > maxBudget {
+				remaining := maxBudget - totalBytes
+				if remaining > 0 {
+					embeddedSection.WriteString(snippet[:remaining])
+					totalBytes += remaining
+				}
+				break
+			} else {
+				embeddedSection.WriteString(snippet)
+				totalBytes += len(snippet)
+			}
+		}
+
+		if embeddedSection.Len() > 0 {
+			sb.WriteString("\n[PRE-LOADED READ CONTEXT]")
+			sb.WriteString(embeddedSection.String())
+		}
+	}
+
+	return sb.String(), resolvedModel
+}
+
+// ValidatePlan validates a PlanRequest before execution, allowing empty or "auto" profile.
+func ValidatePlan(req *PlanRequest) error {
+	subtasks := req.Subtasks
+	if len(subtasks) == 0 && len(req.Tasks) > 0 {
+		subtasks = req.Tasks
+	}
+	if len(subtasks) == 0 {
+		return errors.New("subtasks are required: at least one subtask must be specified")
+	}
+
+	for i, st := range subtasks {
+		prof := strings.TrimSpace(st.Profile)
+		if prof != "" && prof != "auto" {
+			if err := config.ValidateProfileName(prof); err != nil {
+				return fmt.Errorf("subtask [%d]: invalid profile name %q: %w", i, prof, err)
+			}
+			if !profile.ProfileExists(prof) {
+				return fmt.Errorf("subtask [%d]: profile %q does not exist", i, prof)
+			}
+		}
+	}
+	return nil
 }
 
 // GeneratePlanID produces a unique identifier for a subtask aggregation plan.
@@ -151,17 +305,9 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 		return nil, errors.New("cannot execute plan: directory is not inside a git repository")
 	}
 
-	// Validate profiles
-	for i, st := range subtasks {
-		if strings.TrimSpace(st.Profile) == "" {
-			return nil, fmt.Errorf("subtask [%d]: profile name is required", i)
-		}
-		if err := config.ValidateProfileName(st.Profile); err != nil {
-			return nil, fmt.Errorf("subtask [%d]: invalid profile name %q: %w", i, st.Profile, err)
-		}
-		if !profile.ProfileExists(st.Profile) {
-			return nil, fmt.Errorf("subtask [%d]: profile %q does not exist", i, st.Profile)
-		}
+	// Validate plan request
+	if err := ValidatePlan(&req); err != nil {
+		return nil, err
 	}
 
 	planID := strings.TrimSpace(req.PlanID)
@@ -218,22 +364,39 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					}
 				}
 
+				// Resolve prompt and model
+				resolvedPrompt, resolvedModel := SynthesizeSubtaskPromptWithRepo(st, req.DefaultModel, repoRoot, req.InlineRead)
+
+				// Resolve profile if empty or "auto"
+				effectiveProfile := strings.TrimSpace(st.Profile)
+				if effectiveProfile == "" || effectiveProfile == "auto" {
+					eligible, err := quota.SelectEligibleProfilesForModel(1, resolvedModel, quota.WeightMedium)
+					if err == nil && len(eligible) > 0 {
+						effectiveProfile = eligible[0]
+					} else {
+						if profs, err := profile.ListProfiles(); err == nil && len(profs) > 0 {
+							effectiveProfile = profs[0]
+						}
+					}
+				}
+
 				res := SubtaskResult{
 					ID:         stID,
 					TaskID:     taskID,
-					Profile:    st.Profile,
-					Prompt:     st.Prompt,
+					Profile:    effectiveProfile,
+					Prompt:     resolvedPrompt,
 					AgentType:  st.AgentType,
 					Branch:     branch,
 					BaseCommit: baseCommit,
 					ExitCode:   -1,
+					Model:      resolvedModel,
 				}
 
 				dOpts := DispatchOptions{
 					ID:          taskID,
-					Profile:     st.Profile,
+					Profile:     effectiveProfile,
 					RepoPath:    repoRoot,
-					Prompt:      st.Prompt,
+					Prompt:      resolvedPrompt,
 					AgentType:   st.AgentType,
 					Command:     st.Command,
 					Args:        st.Args,
@@ -298,19 +461,9 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					res.Error = waitErr.Error()
 				}
 
-				if res.Status != StatusCompleted {
-					if logs, err := m.GetTaskLogs(repoRoot, taskID, 1000); err == nil && len(logs) > 0 {
-						res.LogTail = string(logs)
-					} else if completedTask != nil && completedTask.LogPath != "" {
-						if data, err := os.ReadFile(completedTask.LogPath); err == nil && len(data) > 0 {
-							res.LogTail = tailString(string(data), 1000)
-						}
-					}
-				}
-
 				// Capture diffs even if cancelled/timed out so partial diffs are preserved when non-empty
 				if res.WorktreePath != "" {
-					rawDiff, diffErr := m.GetTaskDiff(repoRoot, taskID, false)
+					rawDiff, diffErr := worktree.GetWorktreeDiff(repoRoot, res.WorktreeID, worktree.DiffOptions{Paths: st.Paths})
 					if diffErr == nil {
 						res.Diff = rawDiff
 						sd := ParseUnifiedDiff(rawDiff)
@@ -323,6 +476,64 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					} else if res.Error == "" {
 						res.Error = fmt.Sprintf("diff error: %v", diffErr)
 					}
+				}
+
+				if res.Status != StatusCompleted || strings.TrimSpace(res.Diff) == "" {
+					if logs, err := m.GetTaskLogs(repoRoot, taskID, 1000); err == nil && len(logs) > 0 {
+						res.LogTail = string(logs)
+					} else if completedTask != nil && completedTask.LogPath != "" {
+						if data, err := os.ReadFile(completedTask.LogPath); err == nil && len(data) > 0 {
+							res.LogTail = tailString(string(data), 1000)
+						}
+					}
+				}
+
+				if len(st.Paths) > 0 && strings.TrimSpace(res.Diff) == "" && res.Status == StatusCompleted {
+					res.Status = StatusAuditFailed
+					res.Error = "empty_diff: subtask exited without modifying any allowed paths"
+				}
+
+				if req.ApplyAtomic && res.Status == StatusCompleted && res.Diff != "" {
+					if err := worktree.GitApply(repoRoot, res.Diff, false, false); err != nil {
+						res.Status = StatusFailed
+						res.Error = fmt.Sprintf("apply diff error: %v", err)
+					} else {
+						// Stage st.Paths or git add -A
+						addArgs := []string{"add"}
+						if len(st.Paths) > 0 {
+							addArgs = append(addArgs, st.Paths...)
+						} else {
+							addArgs = append(addArgs, "-A")
+						}
+						addCmd := exec.Command("git", addArgs...)
+						addCmd.Dir = repoRoot
+						if out, err := addCmd.CombinedOutput(); err != nil {
+							res.Status = StatusFailed
+							res.Error = fmt.Sprintf("git add error: %v (%s)", err, strings.TrimSpace(string(out)))
+						} else {
+							commitMsg := st.CommitMessage
+							if commitMsg == "" {
+								commitMsg = fmt.Sprintf("chore: apply subtask %s", stID)
+							}
+							commitCmd := exec.Command("git", "commit", "-m", commitMsg)
+							commitCmd.Dir = repoRoot
+							if out, err := commitCmd.CombinedOutput(); err != nil {
+								res.Status = StatusFailed
+								res.Error = fmt.Sprintf("git commit error: %v (%s)", err, strings.TrimSpace(string(out)))
+							} else {
+								// Retrieve short SHA
+								revCmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+								revCmd.Dir = repoRoot
+								if sha, err := revCmd.Output(); err == nil {
+									res.Commit = strings.TrimSpace(string(sha))
+								}
+							}
+						}
+					}
+				}
+
+				if req.OmitDiff {
+					res.Diff = ""
 				}
 
 				subtaskResults[idx] = res
@@ -395,6 +606,11 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 		overallStatus = "failed"
 	}
 
+	combinedDiff := combinedDiffBuilder.String()
+	if req.OmitDiff {
+		combinedDiff = ""
+	}
+
 	planResult := &PlanResult{
 		PlanID:          planID,
 		RepoPath:        repoRoot,
@@ -413,7 +629,7 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 			ModifiedFiles:       allFiles,
 			DisjointScopesClean: len(conflictingFiles) == 0,
 			ConflictingFiles:    conflictingFiles,
-			CombinedDiff:        combinedDiffBuilder.String(),
+			CombinedDiff:        combinedDiff,
 		},
 	}
 

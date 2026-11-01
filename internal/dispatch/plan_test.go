@@ -169,15 +169,6 @@ func TestExecutePlanValidationErrors(t *testing.T) {
 		t.Errorf("expected error for empty subtasks, got: %v", err)
 	}
 
-	// Missing profile
-	_, err = taskMgr.ExecutePlan(ctx, PlanRequest{
-		RepoPath: repoDir,
-		Subtasks: []SubtaskSpec{{Command: "echo 1"}},
-	})
-	if err == nil || !strings.Contains(err.Error(), "profile name is required") {
-		t.Errorf("expected error for missing profile, got: %v", err)
-	}
-
 	// Non-existent profile
 	_, err = taskMgr.ExecutePlan(ctx, PlanRequest{
 		RepoPath: repoDir,
@@ -356,5 +347,180 @@ func TestExecutePlanVerificationOutputAndLogTail(t *testing.T) {
 	}
 	if !strings.Contains(stRes.Diff, "done.txt") {
 		t.Errorf("expected Diff to contain 'done.txt', got %q", stRes.Diff)
+	}
+}
+
+func TestSynthesizeSubtaskPrompt(t *testing.T) {
+	tmpDir := t.TempDir()
+	fooFile := filepath.Join(tmpDir, "foo.go")
+	lines := []string{
+		"line 1",
+		"line 2",
+		"line 3",
+		"line 4",
+		"line 5",
+	}
+	if err := os.WriteFile(fooFile, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Test model default to gemini-3.8-flash-low when st.Model == "" && defaultModel == "" and Read/Paths non-empty
+	st1 := SubtaskSpec{
+		Prompt: "implement feature X",
+		Read:   []string{"foo.go:2-4"},
+		Paths:  []string{"foo.go"},
+	}
+	prompt1, model1 := SynthesizeSubtaskPromptWithRepo(st1, "", tmpDir, true)
+	if model1 != "gemini-3.8-flash-low" {
+		t.Errorf("expected model 'gemini-3.8-flash-low', got %q", model1)
+	}
+	// Guardrail check
+	guardrail := "Read ONLY the specified files first. If a referenced type or constant is missing, you may run at most ONE targeted `grep` in that package instead of guessing. Do NOT run baseline tests before editing. Exit immediately once validation passes without writing a prose summary."
+	if !strings.Contains(prompt1, guardrail) {
+		t.Errorf("expected prompt to contain guardrail, got:\n%s", prompt1)
+	}
+	// Inline read injection check
+	if !strings.Contains(prompt1, "[PRE-LOADED READ CONTEXT]") {
+		t.Errorf("expected prompt to contain pre-loaded read context, got:\n%s", prompt1)
+	}
+	if !strings.Contains(prompt1, "line 2\nline 3\nline 4") {
+		t.Errorf("expected prompt to contain lines 2-4, got:\n%s", prompt1)
+	}
+	if strings.Contains(prompt1, "line 1") || strings.Contains(prompt1, "line 5") {
+		t.Errorf("expected prompt NOT to contain line 1 or line 5, got:\n%s", prompt1)
+	}
+
+	// Test defaultModel takes precedence over fallback
+	_, model2 := SynthesizeSubtaskPrompt(st1, "custom-model")
+	if model2 != "custom-model" {
+		t.Errorf("expected model 'custom-model', got %q", model2)
+	}
+
+	// Test st.Model takes precedence over defaultModel
+	st3 := SubtaskSpec{
+		Model: "subtask-model",
+		Paths: []string{"bar.go"},
+	}
+	_, model3 := SynthesizeSubtaskPrompt(st3, "custom-model")
+	if model3 != "subtask-model" {
+		t.Errorf("expected model 'subtask-model', got %q", model3)
+	}
+}
+
+func TestValidatePlanAutoProfile(t *testing.T) {
+	setupTestProfiles(t, "dev1")
+
+	// Empty profile is allowed
+	req1 := &PlanRequest{
+		Subtasks: []SubtaskSpec{
+			{Profile: ""},
+		},
+	}
+	if err := ValidatePlan(req1); err != nil {
+		t.Errorf("expected empty profile to be valid, got: %v", err)
+	}
+
+	// "auto" profile is allowed
+	req2 := &PlanRequest{
+		Subtasks: []SubtaskSpec{
+			{Profile: "auto"},
+		},
+	}
+	if err := ValidatePlan(req2); err != nil {
+		t.Errorf("expected 'auto' profile to be valid, got: %v", err)
+	}
+
+	// Existing profile is valid
+	req3 := &PlanRequest{
+		Subtasks: []SubtaskSpec{
+			{Profile: "dev1"},
+		},
+	}
+	if err := ValidatePlan(req3); err != nil {
+		t.Errorf("expected 'dev1' profile to be valid, got: %v", err)
+	}
+
+	// Non-existent profile fails
+	req4 := &PlanRequest{
+		Subtasks: []SubtaskSpec{
+			{Profile: "nonexistent"},
+		},
+	}
+	if err := ValidatePlan(req4); err == nil {
+		t.Errorf("expected error for nonexistent profile")
+	}
+}
+
+func TestExecutePlanEmptyDiffAuditAndOmitDiff(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev1")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	// 1. Test empty diff audit failure when Paths is specified
+	req := PlanRequest{
+		PlanID:   "plan-test-audit-fail-empty",
+		RepoPath: repoDir,
+		Workers:  1,
+		Subtasks: []SubtaskSpec{
+			{
+				ID:      "subtask-no-op",
+				Profile: "dev1",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'doing nothing to paths'"},
+				Paths:   []string{"expected_file.go"},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	result, err := taskMgr.ExecutePlan(ctx, req)
+	if err != nil {
+		t.Fatalf("ExecutePlan failed: %v", err)
+	}
+
+	if len(result.Subtasks) != 1 {
+		t.Fatalf("expected 1 subtask, got %d", len(result.Subtasks))
+	}
+	stRes := result.Subtasks[0]
+	if stRes.Status != StatusAuditFailed {
+		t.Errorf("expected status 'audit_failed', got %q", stRes.Status)
+	}
+	if !strings.Contains(stRes.Error, "empty_diff: subtask exited without modifying any allowed paths") {
+		t.Errorf("expected empty_diff error, got %q", stRes.Error)
+	}
+	if !strings.Contains(stRes.LogTail, "doing nothing to paths") {
+		t.Errorf("expected LogTail to be populated on empty diff, got %q", stRes.LogTail)
+	}
+
+	// 2. Test OmitDiff clears diffs
+	reqOmit := PlanRequest{
+		PlanID:   "plan-test-omit-diff",
+		RepoPath: repoDir,
+		Workers:  1,
+		OmitDiff: true,
+		Subtasks: []SubtaskSpec{
+			{
+				ID:      "subtask-edit",
+				Profile: "dev1",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'hello' > omitted.txt"},
+				Paths:   []string{"omitted.txt"},
+			},
+		},
+	}
+
+	resOmit, err := taskMgr.ExecutePlan(ctx, reqOmit)
+	if err != nil {
+		t.Fatalf("ExecutePlan with OmitDiff failed: %v", err)
+	}
+	if resOmit.UnifiedSummary.CombinedDiff != "" {
+		t.Errorf("expected empty CombinedDiff when OmitDiff=true, got %q", resOmit.UnifiedSummary.CombinedDiff)
+	}
+	if len(resOmit.Subtasks) != 1 || resOmit.Subtasks[0].Diff != "" {
+		t.Errorf("expected empty subtask Diff when OmitDiff=true, got %q", resOmit.Subtasks[0].Diff)
 	}
 }
