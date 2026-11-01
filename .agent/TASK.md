@@ -7,19 +7,19 @@
 
 ## Active Task
 
-### 📌 Task [05.18]: Add `LintTaskWave` and `--lint` flag to `multigravity dispatch wave`
+### 📌 Queue Empty — Awaiting Next Ideation
 
-- **Description:** Add `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` and `--lint` flag to `multigravity dispatch wave` in `internal/cmd/dispatch.go`: report violations when a `TierMicro` (`gemini-3.8-flash-low`) task has `> 2` `Paths:` files or spans multiple Go packages, or when any task has `> 4` `Read:` entries or missing `Verify:`; exit non-zero when violations are found.
-- **Systems Involved:** `internal/dispatch/wave.go`, `internal/dispatch/wave_test.go`, `internal/cmd/dispatch.go`
+- **Description:** All tasks in Epic `05.14`–`05.21` (`W9`–`W12`) have been implemented, verified, and committed.
+- **Systems Involved:** N/A
 - **Action Type:**
-  - [ ] Read-only / Documentation
-  - [x] Source code changes
-- **Status:** RUNNING
+  - [x] Read-only / Documentation
+  - [ ] Source code changes
+- **Status:** READY FOR PLANNING
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` reports micro-contract violations.
-- [ ] `multigravity dispatch wave --lint` in `internal/cmd/dispatch.go` runs `LintTaskWave` and exits non-zero when violations are found.
+- [x] `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` reports micro-contract violations.
+- [x] `multigravity dispatch wave --lint` in `internal/cmd/dispatch.go` runs `LintTaskWave` and exits non-zero when violations are found.
 
 ---
 
@@ -27,6 +27,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.18] | Add `LintTaskWave` in `internal/dispatch/wave.go` and `--lint` flag to `multigravity dispatch wave` in `internal/cmd/dispatch.go` | [`7637c47`](https://github.com/yegear1/multigravity-cli/commit/7637c47) | 2026-11-01 |
 | [05.19] | Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` | [`3efaa40`](https://github.com/yegear1/multigravity-cli/commit/3efaa40) | 2026-11-01 |
 | [05.21] | Include `Verify:` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files within residual `maxBudget`, and record `TokensUsed` in `SubtaskResult` | [`1524e9d`](https://github.com/yegear1/multigravity-cli/commit/1524e9d) | 2026-11-01 |
 | [05.20] | Wire `ClassifyTaskComplexity` into `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` and pass `--model <resolvedModel>` into `dOpts.Args` | [`9e27365`](https://github.com/yegear1/multigravity-cli/commit/9e27365) | 2026-11-01 |
@@ -102,11 +103,7 @@
 - [x] **[05.20]** `[APPROVED]` `[PARALLEL: W10]` Wire `ClassifyTaskComplexity` into `SynthesizeSubtaskPromptWithRepo` / `ExecutePlan` when `st.Model == ""` and `defaultModel == ""` (preserving `gemini-3.8-flash-low` for single-path or line-ranged micro-contracts) AND pass `--model <resolvedModel>` into `dOpts.Args` when `st.Command == ""` and `--model` is not already present in `st.Args` (`9e27365`)
 - [x] **[05.19]** `[APPROVED]` `[PARALLEL: W11]` Clean governance tags (`[APPROVED]`, `[PARALLEL: Wx]`, `[SEQ: Wx]`) from `WaveTaskSpec.Title` in `ParseTaskWave` so commit messages (`feat(id): <clean title>`) and worker prompts do not leak markdown metadata tags (`3efaa40`)
 - [x] **[05.21]** `[APPROVED]` `[PARALLEL: W11]` Include `Verify: <st.Verify>` in `SynthesizeSubtaskPromptWithRepo`, pre-inject trailing lines of sibling `*_test.go` files for `st.Paths` using only residual space within the 15 KB `maxBudget` after all explicit `st.Read` slices are loaded, and record estimated prompt/completion `TokensUsed int` in `SubtaskResult` (`1524e9d`)
-- [ ] **[05.18]** `[APPROVED]` `[SEQ: W12]` Add `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` and `--lint` flag to `multigravity dispatch wave` in `internal/cmd/dispatch.go`: report violations when a `TierMicro` (`gemini-3.8-flash-low`) task has `> 2` `Paths:` files or spans multiple Go packages, or when any task has `> 4` `Read:` entries or missing `Verify:`; exit non-zero when violations are found.
-  - `Read:` `internal/dispatch/wave.go:17-95, internal/cmd/dispatch.go:220-235, internal/cmd/dispatch.go:1078-1130`
-  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go, internal/cmd/dispatch.go`
-  - `Verify:` `go test -v ./internal/dispatch ./internal/cmd -run "Test.*Wave|Test.*Lint"`
-  - `Model:` `gemini-3.8-flash-medium`
+- [x] **[05.18]** `[APPROVED]` `[SEQ: W12]` Add `LintTaskWave(waveSpec *WaveSpec) []string` in `internal/dispatch/wave.go` and `--lint` flag to `multigravity dispatch wave` in `internal/cmd/dispatch.go`: report violations when a `TierMicro` (`gemini-3.8-flash-low`) task has `> 2` `Paths:` files or spans multiple Go packages, or when any task has `> 4` `Read:` entries or missing `Verify:`; exit non-zero when violations are found (`7637c47`)
 
 ---
 
