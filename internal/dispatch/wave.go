@@ -222,6 +222,47 @@ func ParseTaskWave(taskFilePath, waveTag string) (*WaveSpec, error) {
 	}, nil
 }
 
+// LintTaskWave validates a parsed WaveSpec against governance and architectural rules.
+// It reports violations when:
+// (1) a TierMicro ('gemini-3.8-flash-low' or quota.TierForModel(t.Model) == quota.TierMicro) task
+//     has > 2 Paths: files or spans multiple Go packages (distinct filepath.Dir of Paths),
+// (2) any task has > 4 Read: entries, or
+// (3) any task is missing Verify: (strings.TrimSpace(t.Verify) == "").
+func LintTaskWave(waveSpec *WaveSpec) []string {
+	if waveSpec == nil {
+		return []string{}
+	}
+
+	violations := make([]string, 0)
+
+	for _, t := range waveSpec.Tasks {
+		isTierMicro := t.Model == "gemini-3.8-flash-low" || quota.TierForModel(t.Model) == quota.TierMicro
+		if isTierMicro {
+			if len(t.Paths) > 2 {
+				violations = append(violations, fmt.Sprintf("task [%s]: TierMicro task has %d Paths files (maximum 2)", t.ID, len(t.Paths)))
+			}
+
+			dirs := make(map[string]struct{})
+			for _, p := range t.Paths {
+				dirs[filepath.Dir(filepath.Clean(p))] = struct{}{}
+			}
+			if len(dirs) > 1 {
+				violations = append(violations, fmt.Sprintf("task [%s]: TierMicro task spans %d Go packages (distinct directories: %d)", t.ID, len(dirs), len(dirs)))
+			}
+		}
+
+		if len(t.Read) > 4 {
+			violations = append(violations, fmt.Sprintf("task [%s]: task has %d Read entries (maximum 4)", t.ID, len(t.Read)))
+		}
+
+		if strings.TrimSpace(t.Verify) == "" {
+			violations = append(violations, fmt.Sprintf("task [%s]: missing Verify command", t.ID))
+		}
+	}
+
+	return violations
+}
+
 func matchField(content *string, lower, fieldPrefix string) bool {
 	// matches `field:` or field:
 	// If bulletContent is `Read:` `...`, or `Read:` ..., or Read: ...

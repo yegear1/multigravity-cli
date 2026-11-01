@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -52,6 +53,7 @@ var (
 	dpWaveRepo        string
 	dpWaveTimeout     string
 	dpWaveNoRetry     bool
+	dpWaveLint        bool
 	dpRunProfile      string
 	dpRunRepo     string
 	dpSandbox     bool
@@ -231,6 +233,7 @@ and execute them in parallel or sequence with automatic profile and quota routin
 	waveSubCmd.Flags().StringVar(&dpWaveRepo, "repo", "", "Target git repository directory")
 	waveSubCmd.Flags().StringVar(&dpWaveTimeout, "timeout", "4m", "Execution timeout duration (e.g. 4m, 300s)")
 	waveSubCmd.Flags().BoolVar(&dpWaveNoRetry, "no-retry", false, "Disable automatic retry of failed subtasks")
+	waveSubCmd.Flags().BoolVar(&dpWaveLint, "lint", false, "Validate task wave specifications against governance lint rules without executing")
 
 	// Apply Subcommand
 	applySubCmd := &cobra.Command{
@@ -1082,8 +1085,60 @@ func runDispatchWave(cmd *cobra.Command, args []string) error {
 		dpWaveRepo = ""
 		dpWaveTimeout = ""
 		dpWaveNoRetry = false
+		dpWaveLint = false
 		dpJSON = false
 	}()
+
+	if dpWaveLint {
+		repoRoot := dpWaveRepo
+		if repoRoot == "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("failed to get current working directory: %w", err)
+			}
+			repoRoot = cwd
+		}
+
+		taskFile := dpWaveFile
+		if taskFile == "" {
+			taskFile = filepath.Join(repoRoot, ".agent", "TASK.md")
+		} else if !filepath.IsAbs(taskFile) {
+			taskFile = filepath.Join(repoRoot, taskFile)
+		}
+
+		waveSpec, err := dispatch.ParseTaskWave(taskFile, dpWaveTag)
+		if err != nil {
+			return err
+		}
+
+		violations := dispatch.LintTaskWave(waveSpec)
+		if violations == nil {
+			violations = []string{}
+		}
+
+		out := cmd.OutOrStdout()
+		if dpJSON {
+			enc := json.NewEncoder(out)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(violations); err != nil {
+				return err
+			}
+		} else {
+			if len(violations) == 0 {
+				fmt.Fprintln(out, "Wave lint passed with zero violations.")
+			} else {
+				fmt.Fprintf(out, "%s Found %d wave lint violation(s):\n", dpRed("✗"), len(violations))
+				for _, v := range violations {
+					fmt.Fprintf(out, "  - %s\n", v)
+				}
+			}
+		}
+
+		if len(violations) > 0 {
+			return fmt.Errorf("wave lint failed with %d violation(s)", len(violations))
+		}
+		return nil
+	}
 
 	var timeoutDur time.Duration
 	if dpWaveTimeout != "" {

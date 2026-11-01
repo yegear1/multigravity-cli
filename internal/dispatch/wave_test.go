@@ -330,3 +330,164 @@ Status: RUNNING
 		t.Errorf("expected [05.12] row in Completed Tasks Log, got:\n%s", finalContent)
 	}
 }
+
+func TestLintTaskWave(t *testing.T) {
+	t.Run("nil or empty wave", func(t *testing.T) {
+		if v := LintTaskWave(nil); len(v) != 0 {
+			t.Errorf("expected 0 violations for nil wave, got %d", len(v))
+		}
+		if v := LintTaskWave(&WaveSpec{}); len(v) != 0 {
+			t.Errorf("expected 0 violations for empty wave, got %d", len(v))
+		}
+	})
+
+	t.Run("valid tasks pass lint", func(t *testing.T) {
+		spec := &WaveSpec{
+			WaveTag: "W1",
+			Tasks: []WaveTaskSpec{
+				{
+					ID:     "05.18",
+					Title:  "Valid TierMicro task",
+					Model:  "gemini-3.8-flash-low",
+					Paths:  []string{"internal/dispatch/wave.go", "internal/dispatch/wave_test.go"},
+					Read:   []string{"file1.go", "file2.go", "file3.go", "file4.go"},
+					Verify: "go test ./...",
+				},
+				{
+					ID:     "05.19",
+					Title:  "Valid Standard tier task with multi-package paths",
+					Model:  "gemini-3.8-flash-medium",
+					Paths:  []string{"internal/dispatch/wave.go", "internal/cmd/dispatch.go", "pkg/util/util.go"},
+					Read:   []string{"file1.go"},
+					Verify: "go test ./...",
+				},
+			},
+		}
+		violations := LintTaskWave(spec)
+		if len(violations) != 0 {
+			t.Errorf("expected 0 violations, got %d: %v", len(violations), violations)
+		}
+	})
+
+	t.Run("TierMicro task has > 2 paths", func(t *testing.T) {
+		spec := &WaveSpec{
+			WaveTag: "W1",
+			Tasks: []WaveTaskSpec{
+				{
+					ID:     "05.20",
+					Model:  "gemini-3.8-flash-low",
+					Paths:  []string{"pkg/a/f1.go", "pkg/a/f2.go", "pkg/a/f3.go"},
+					Verify: "go test ./...",
+				},
+			},
+		}
+		violations := LintTaskWave(spec)
+		if len(violations) != 1 {
+			t.Fatalf("expected 1 violation for >2 paths, got %d: %v", len(violations), violations)
+		}
+		if !strings.Contains(violations[0], "05.20") || !strings.Contains(violations[0], "Paths") {
+			t.Errorf("unexpected violation message: %s", violations[0])
+		}
+	})
+
+	t.Run("TierMicro task spans multiple packages", func(t *testing.T) {
+		spec := &WaveSpec{
+			WaveTag: "W1",
+			Tasks: []WaveTaskSpec{
+				{
+					ID:     "05.21",
+					Model:  "gemini-3.8-flash-low",
+					Paths:  []string{"pkg/a/f1.go", "pkg/b/f2.go"},
+					Verify: "go test ./...",
+				},
+			},
+		}
+		violations := LintTaskWave(spec)
+		if len(violations) != 1 {
+			t.Fatalf("expected 1 violation for multi-package, got %d: %v", len(violations), violations)
+		}
+		if !strings.Contains(violations[0], "05.21") || !strings.Contains(violations[0], "packages") {
+			t.Errorf("unexpected violation message: %s", violations[0])
+		}
+	})
+
+	t.Run("TierMicro classified via quota.TierForModel", func(t *testing.T) {
+		spec := &WaveSpec{
+			WaveTag: "W1",
+			Tasks: []WaveTaskSpec{
+				{
+					ID:     "05.22",
+					Model:  "gpt-4o-mini", // Classified as TierMicro by quota.TierForModel
+					Paths:  []string{"pkg/a/f1.go", "pkg/b/f2.go"},
+					Verify: "go test ./...",
+				},
+			},
+		}
+		violations := LintTaskWave(spec)
+		if len(violations) != 1 {
+			t.Fatalf("expected 1 violation for TierMicro via TierForModel, got %d: %v", len(violations), violations)
+		}
+	})
+
+	t.Run("Task has > 4 read entries", func(t *testing.T) {
+		spec := &WaveSpec{
+			WaveTag: "W1",
+			Tasks: []WaveTaskSpec{
+				{
+					ID:     "05.23",
+					Model:  "gemini-3.8-flash-medium",
+					Paths:  []string{"pkg/a/f1.go"},
+					Read:   []string{"r1.go", "r2.go", "r3.go", "r4.go", "r5.go"},
+					Verify: "go test ./...",
+				},
+			},
+		}
+		violations := LintTaskWave(spec)
+		if len(violations) != 1 {
+			t.Fatalf("expected 1 violation for >4 read entries, got %d: %v", len(violations), violations)
+		}
+		if !strings.Contains(violations[0], "05.23") || !strings.Contains(violations[0], "Read") {
+			t.Errorf("unexpected violation message: %s", violations[0])
+		}
+	})
+
+	t.Run("Task missing verify command", func(t *testing.T) {
+		spec := &WaveSpec{
+			WaveTag: "W1",
+			Tasks: []WaveTaskSpec{
+				{
+					ID:     "05.24",
+					Model:  "gemini-3.8-flash-medium",
+					Paths:  []string{"pkg/a/f1.go"},
+					Verify: "   ",
+				},
+			},
+		}
+		violations := LintTaskWave(spec)
+		if len(violations) != 1 {
+			t.Fatalf("expected 1 violation for missing verify, got %d: %v", len(violations), violations)
+		}
+		if !strings.Contains(violations[0], "05.24") || !strings.Contains(violations[0], "Verify") {
+			t.Errorf("unexpected violation message: %s", violations[0])
+		}
+	})
+
+	t.Run("Multiple violations reported across tasks", func(t *testing.T) {
+		spec := &WaveSpec{
+			WaveTag: "W1",
+			Tasks: []WaveTaskSpec{
+				{
+					ID:     "05.25",
+					Model:  "gemini-3.8-flash-low",
+					Paths:  []string{"pkg/a/f1.go", "pkg/a/f2.go", "pkg/b/f3.go"}, // >2 paths AND multi-package
+					Read:   []string{"r1", "r2", "r3", "r4", "r5"},               // >4 reads
+					Verify: "",                                                    // missing verify
+				},
+			},
+		}
+		violations := LintTaskWave(spec)
+		if len(violations) != 4 {
+			t.Fatalf("expected 4 violations for combined bad task, got %d: %v", len(violations), violations)
+		}
+	})
+}
