@@ -136,6 +136,9 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity quota [name]` | Show live AI token limits, usage percentage, and countdown until reset |
 | `multigravity alerts [name]` | Report critical quota, recent quota drops, and reaped headless processes (`--json`) |
 | `multigravity quota history [name]` | Show the stored quota and token time series (`--since 24h`, `--source`, `--json`) |
+| `multigravity quota burn [name] [--since <dur>] [--json]` | Track token burn rates and consumption velocity over rolling time windows |
+| `multigravity quota throttle [name] [--json]` | Inspect active throttle states, backoff cooldowns, and rate limits |
+| `multigravity quota calibration [name] [--json]` | Calibrate token accounting and consumption benchmarks against actual upstream quotas |
 | `multigravity ai quota [name]` | Alias for `multigravity quota` |
 | `multigravity prime [name] [opt]` | Automatically prime weekly token cycles upon reset (dual bucket, jitter, cron/systemd) |
 | `multigravity ai prime [name] [opt]` | Alias for `multigravity prime` |
@@ -152,8 +155,11 @@ Each profile gets an automatic clickable desktop launcher:
 | `multigravity dispatch dashboard [--json]` | Executive summary dashboard of running, completed, and failed tasks |
 | `multigravity dispatch cancel <task-id> [--force]` | Cancel a running task gracefully (or force kill) |
 | `multigravity dispatch delete <task-id> [--worktree]` | Delete task record and optionally clean its worktree |
-| `multigravity dispatch plan <plan.json> [--json]` | Dispatch multi-subtask plan concurrently across worktrees and aggregate diffs |
+| `multigravity dispatch wave [--wave <id>] [--lint] [--no-retry] [--json]` | Execute parallel wave of tasks across isolated worktrees and profiles with automated lint validation |
+| `multigravity dispatch plan <plan.json> [--apply-atomic] [--omit-diff] [--json]` | Dispatch multi-subtask plan concurrently across worktrees, with optional atomic apply and diff omission |
+| `multigravity dispatch apply <task-id> [--json]` | Apply and merge Git diff from a completed task worktree into the base branch |
 | `multigravity dispatch prune [--max-age <dur>]` | Prune finished tasks older than retention threshold |
+| `multigravity route [--weight <w>] [--task <t>] [--paths <p>] [--read] [--json]` | Route task to optimal profile based on quota health, file paths, weight, and read-only affinity |
 | `multigravity agent run <profile> [--] <cmd>` | Run an interactive CLI agent (Claude Code, Aider, OpenCode) in a dedicated PTY (alias: `ag run`) |
 | `multigravity agent list [--json]` | List active PTY agent sessions |
 | `multigravity agent attach <id>` | Attach terminal directly to a running PTY agent session |
@@ -334,6 +340,15 @@ multigravity ai quota work
 # Time series of remaining quota and tokens (gateway, headless, and live snapshots)
 multigravity quota history work --since 24h --json
 
+# Track token burn rates and consumption velocity over rolling windows
+multigravity quota burn work --since 6h --json
+
+# Inspect active throttle states, backoff cooldowns, and rate limits
+multigravity quota throttle work --json
+
+# Calibrate token accounting and consumption benchmarks against actual upstream quotas
+multigravity quota calibration work
+
 # Critical quota (<= 5% remaining), a drop of at least 5 points since the previous snapshot, and reaped headless processes
 multigravity alerts
 multigravity alerts work --json
@@ -401,7 +416,10 @@ Pick the first matching row.
 
 | Situation | Command |
 |---|---|
+| Execute a parallel wave of tasks across worktrees | `dispatch wave --wave W1 --lint` |
 | The result is a git diff to review or merge | `dispatch run --new-worktree` or `dispatch plan` |
+| Apply a completed task diff into the base branch | `dispatch apply <task-id>` |
+| Route and select optimal profile by paths & weight | `route --task <id> --paths <files> --weight <n>` |
 | A human will attach a terminal, or the CLI needs a PTY | `agent run` |
 | The same prompt runs on two or more profiles and the result is a report | `exec` |
 | The only goal is to advance a quota window | `prime` |
@@ -439,6 +457,22 @@ multigravity dispatch diff <task-id> --structured
 # Open the interactive visual web diff viewer in your browser
 multigravity dispatch diff <task-id> --web
 # Or visit the embedded dashboard directly: http://127.0.0.1:8989/ui/tasks
+
+# Apply and merge the generated diff of a completed task into the base branch
+multigravity dispatch apply <task-id>
+```
+
+### Parallel Wave Orchestration & Multi-Account Routing
+
+```bash
+# Execute a parallel wave of tasks across isolated worktrees and profiles with lint checks and no retries
+multigravity dispatch wave --wave W1 --lint --no-retry
+
+# Dispatch a multi-subtask plan with atomic commit and omitted diff output
+multigravity dispatch plan plan.json --apply-atomic --omit-diff
+
+# Route a task to the optimal profile based on paths, task weight, and read-only mode
+multigravity route --task 05.24 --paths "README.md,README.pt-br.md" --weight 2 --read
 ```
 
 ### Interactive PTY Sessions

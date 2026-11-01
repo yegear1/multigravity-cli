@@ -136,6 +136,9 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity quota [nome]` | Exibe limites de tokens, porcentagem de uso e contagem regressiva para o reset |
 | `multigravity alerts [nome]` | Reporta cota crítica, queda recente de cota e processos headless recolhidos (`--json`) |
 | `multigravity quota history [nome]` | Exibe a série temporal de cota e tokens (`--since 24h`, `--source`, `--json`) |
+| `multigravity quota burn [nome] [--since <dur>] [--json]` | Acompanha taxas de queima de tokens (burn rate) e velocidade de consumo |
+| `multigravity quota throttle [nome] [--json]` | Inspeciona estados de throttling ativos, cooldowns de backoff e rate limits |
+| `multigravity quota calibration [nome] [--json]` | Calibra a contabilidade de tokens e benchmarks de consumo contra cotas upstream reais |
 | `multigravity ai quota [nome]` | Alias para `multigravity quota` |
 | `multigravity prime [nome] [opt]` | Prime automático dos ciclos semanais de tokens no reset (dual-bucket, jitter, cron/systemd) |
 | `multigravity ai prime [nome] [opt]` | Alias para `multigravity prime` |
@@ -152,8 +155,11 @@ Cada perfil recebe automaticamente um atalho executável integrado ao sistema op
 | `multigravity dispatch dashboard [--json]` | Dashboard executivo com contadores de tarefas em execução, concluídas e com falha |
 | `multigravity dispatch cancel <task-id> [--force]` | Cancela uma tarefa em execução graciosamente (ou forçado) |
 | `multigravity dispatch delete <task-id> [--worktree]` | Exclui registro da tarefa e limpa opcionalmente seu worktree |
-| `multigravity dispatch plan <plan.json> [--json]` | Despacha plano de subtarefas concorrentemente em worktrees e agrega diffs |
+| `multigravity dispatch wave [--wave <w>] [--lint] [--no-retry] [--json]` | Executa onda paralela de tarefas em worktrees e perfis isolados com validação automática de linter |
+| `multigravity dispatch plan <plan.json> [--apply-atomic] [--omit-diff] [--json]` | Despacha plano de subtarefas concorrentemente em worktrees, com aplicação atômica e omissão de diff opcionais |
+| `multigravity dispatch apply <task-id> [--json]` | Aplica e mescla o diff Git gerado no worktree da tarefa concluída na branch base |
 | `multigravity dispatch prune [--max-age <dur>]` | Remove tarefas concluídas anteriores ao limite de retenção |
+| `multigravity route [--weight <w>] [--task <t>] [--paths <p>] [--read] [--json]` | Roteia tarefa para o melhor perfil com base em saúde de cotas, arquivos, peso e afinidade de leitura |
 | `multigravity agent run <perfil> [--] <cmd>` | Executa agente CLI interativo (Claude Code, Aider, OpenCode) em PTY dedicado (alias: `ag run`) |
 | `multigravity agent list [--json]` | Lista sessões ativas de agentes em PTY |
 | `multigravity agent attach <id>` | Conecta o terminal diretamente a uma sessão de agente em PTY |
@@ -334,6 +340,15 @@ multigravity ai quota trabalho
 # Série temporal de cota restante e tokens (gateway, headless e snapshots ao vivo)
 multigravity quota history trabalho --since 24h --json
 
+# Monitorar taxas de queima de tokens (burn rate) e velocidade de consumo em janelas de tempo
+multigravity quota burn trabalho --since 6h --json
+
+# Inspecionar estados de throttling ativos, cooldowns de backoff e rate limits
+multigravity quota throttle trabalho --json
+
+# Calibrar contabilidade de tokens e benchmarks de consumo contra cotas upstream reais
+multigravity quota calibration trabalho
+
 # Cota crítica (<= 5% restante), queda de pelo menos 5 pontos desde o snapshot anterior e processos headless recolhidos
 multigravity alerts
 multigravity alerts trabalho --json
@@ -401,7 +416,10 @@ Use a primeira linha que casar.
 
 | Situação | Comando |
 |---|---|
+| Executar uma onda paralela de tarefas em worktrees | `dispatch wave --wave W1 --lint` |
 | O resultado é um diff Git para revisar ou mergear | `dispatch run --new-worktree` ou `dispatch plan` |
+| Aplicar o diff de uma tarefa concluída na branch base | `dispatch apply <task-id>` |
+| Rotear e selecionar o melhor perfil por caminhos e peso | `route --task <id> --paths <arquivos> --weight <n>` |
 | Um humano vai anexar o terminal, ou a CLI precisa de PTY | `agent run` |
 | O mesmo prompt roda em dois ou mais perfis e o resultado é um relatório | `exec` |
 | O único objetivo é avançar a janela de cota | `prime` |
@@ -439,6 +457,22 @@ multigravity dispatch diff <task-id> --structured
 # Abrir visualizador gráfico interativo de diffs no navegador
 multigravity dispatch diff <task-id> --web
 # Ou acesse o painel diretamente: http://127.0.0.1:8989/ui/tasks
+
+# Aplicar e mesclar o diff gerado de uma tarefa concluída na branch base
+multigravity dispatch apply <task-id>
+```
+
+### Orquestração em Ondas Paralelas e Roteamento Multi-Contas
+
+```bash
+# Executar onda paralela de tarefas independentes em worktrees e perfis isolados
+multigravity dispatch wave --wave W1 --lint --no-retry
+
+# Despachar plano multi-tarefas com aplicação atômica e omissão de diff completo
+multigravity dispatch plan plan.json --apply-atomic --omit-diff
+
+# Rotear inteligentemente uma tarefa para o perfil ideal baseado em caminhos, peso e leitura
+multigravity route --task 05.24 --paths "README.md,README.pt-br.md" --weight 2 --read
 ```
 
 ### Sessões Interativas de PTY
