@@ -143,6 +143,49 @@ func TestResolveAgentCommand(t *testing.T) {
 	if cmd != "codex" || len(args) != 6 || args[0] != "exec" || args[1] != "--sandbox" || args[2] != "workspace-write" || args[3] != "-C" || args[4] != "/custom" || args[5] != "fix tests" {
 		t.Errorf("unexpected codex command with existing prompt in args: %s %v", cmd, args)
 	}
+
+	// agy --model and --effort normalization (separate flags)
+	cmd, args = ResolveAgentCommand("agy", "", []string{"--model", "gemini-2.5-pro-low", "--effort", "high"}, "fix issue")
+	if cmd != "agy" || len(args) != 2 || args[0] != "--model" || args[1] != "gemini-2.5-pro-high" {
+		t.Errorf("unexpected normalized agy args (separate): %s %v", cmd, args)
+	}
+
+	// agy --model= and --effort= normalization (combined flags)
+	cmd, args = ResolveAgentCommand("agy", "", []string{"--model=gemini-2.5-flash-medium", "--effort=low"}, "fix issue")
+	if cmd != "agy" || len(args) != 1 || args[0] != "--model=gemini-2.5-flash-low" {
+		t.Errorf("unexpected normalized agy args (combined): %s %v", cmd, args)
+	}
+
+	// agy --model with -tiered suffix rewritten to -medium
+	cmd, args = ResolveAgentCommand("agy", "", []string{"--model", "gemini-3.8-flash-tiered", "--effort=medium"}, "")
+	if cmd != "agy" || len(args) != 2 || args[0] != "--model" || args[1] != "gemini-3.8-flash-medium" {
+		t.Errorf("unexpected normalized agy args (tiered): %s %v", cmd, args)
+	}
+
+	// agy --model without suffix should not be modified
+	cmd, args = ResolveAgentCommand("agy", "", []string{"--model", "gemini-2.5-pro", "--effort", "high"}, "")
+	if cmd != "agy" || len(args) != 4 || args[0] != "--model" || args[1] != "gemini-2.5-pro" || args[2] != "--effort" || args[3] != "high" {
+		t.Errorf("unexpected unmodified agy args: %s %v", cmd, args)
+	}
+}
+
+func TestVerifyNoTestsToRun(t *testing.T) {
+	out, exitCode, err := defaultExecuteVerifyCommand("", "echo testing: warning: no tests to run")
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+	if err == nil || !strings.Contains(err.Error(), "verification matched zero tests") {
+		t.Errorf("expected verification matched zero tests error, got: %v", err)
+	}
+	if !strings.Contains(string(out), "testing: warning: no tests to run") {
+		t.Errorf("expected output to contain warning, got: %s", string(out))
+	}
+
+	// Normal command exiting 0 without warning should succeed
+	out, exitCode, err = defaultExecuteVerifyCommand("", "echo ok")
+	if exitCode != 0 || err != nil {
+		t.Errorf("expected exit code 0 and nil error, got exitCode=%d, err=%v", exitCode, err)
+	}
 }
 
 func TestDispatchTaskLifecycle(t *testing.T) {
