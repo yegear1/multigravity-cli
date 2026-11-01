@@ -7,14 +7,14 @@
 
 ## Active Task
 
-### [06.5] Profile-aware concurrency throttling
+### [06.6] Line and size bounds on InlineRead injection
 - Status: READY FOR PLANNING
 - Priority: P1
 - Model: `gemini-3.8-flash-medium`
-- Read: `internal/dispatch/plan.go:490-545`
+- Read: `internal/dispatch/plan.go:200-280`
 - Paths: `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
-- Verify: `go test -v ./internal/dispatch -run TestProfileAwareConcurrency`
-- Description: Clamp workers to `min(req.Workers, activeEligibleProfiles)` to prevent single-profile starvation.
+- Verify: `go test -v ./internal/dispatch -run TestSynthesizeSubtaskPromptWithRepoSizeBounds`
+- Description: Cap non-ranged `Read:` entries to 150 lines and 5 KB.
 
 ---
 
@@ -22,6 +22,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [06.5] | Profile-aware concurrency throttling (clamp workers to `min(req.Workers, activeEligibleProfiles)` to prevent single-profile starvation) | `6dbb07f` | 2026-11-01 |
 | [06.3] | Verify-on-Timeout recovery in Go plan executor (run `Verify:` on deadline if diff exists; recover as `completed` on exit 0) | `eed33f1` | 2026-11-01 |
 | [06.4] | Default model fallback before wave linting (prevent un-modelled tasks from falsely failing `TierMicro` path/package rules) | `6bb3b0a` | 2026-11-01 |
 | [06.1] | Default compact JSON output and persist run artifacts (`.multigravity/runs/<plan_id>.json`, `--full` flag for verbose JSON) | [`da17053`](https://github.com/yegear1/multigravity-cli/commit/da17053) | 2026-11-01 |
@@ -130,7 +131,7 @@
   - `Read:` `internal/dispatch/wave.go:230-265`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
   - `Verify:` `go test -v ./internal/dispatch -run TestLintTaskWaveDefaultModel`
-- [ ] **[06.5]** `[APPROVED]` `[SEQ: W3]` Profile-aware concurrency throttling (clamp workers to `min(req.Workers, activeEligibleProfiles)` to prevent single-profile starvation)
+- [x] **[06.5]** `[APPROVED]` `[SEQ: W3]` Profile-aware concurrency throttling (clamp workers to `min(req.Workers, activeEligibleProfiles)` to prevent single-profile starvation) (6dbb07f)
   - `Model:` `gemini-3.8-flash-medium`
   - `Read:` `internal/dispatch/plan.go:490-545`
   - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`
