@@ -320,14 +320,36 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 				continue
 			}
 
-			retryModel := "gemini-4-argon-medium"
-			if res.Model != "" && res.Model != "gemini-3.8-flash-low" {
-				if nextM, ok := quota.EscalateModel(res.Model); ok && nextM != "" {
+			// (3) on 'empty_diff' or 'timeout' when VerificationOutput == "" and LogTail == "", skip retry altogether and preserve the failure reason.
+			if (res.FailureReason == "empty_diff" || res.FailureReason == "timeout") && res.VerificationOutput == "" && res.LogTail == "" {
+				continue
+			}
+
+			currentModel := res.Model
+			if currentModel == "" {
+				currentModel = t.Model
+			}
+			if currentModel == "" {
+				currentModel = opts.DefaultModel
+			}
+			if currentModel == "" {
+				currentModel = "gemini-3.8-flash-medium"
+			}
+
+			retryModel := currentModel
+			if res.FailureReason == "rate_limited" {
+				if res.Profile != "" {
+					quota.RecordProfileCooldown(res.Profile, 5*time.Minute)
+				}
+				// retry with the SAME model on an alternate profile (do not escalate model)
+				retryModel = currentModel
+			} else if (res.FailureReason == "verify_failed" && res.VerificationOutput != "") || res.FailureReason == "agent_error" {
+				if nextM, ok := quota.EscalateModel(currentModel); ok && nextM != "" {
 					retryModel = nextM
 				}
 			}
 
-			// Retry with escalated model excluding the failed profile
+			// Retry with selected model excluding the failed profile
 			failedProfile := res.Profile
 			var eligibleProfiles []string
 			if candidates, qErr := quota.SelectEligibleProfilesForModel(100, retryModel, quota.WeightHeavy); qErr == nil {
