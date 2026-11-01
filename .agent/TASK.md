@@ -7,26 +7,23 @@
 
 ## Active Task
 
-### 📌 Task [05.1]: Centralize PATH enrichment, preserve host toolchain variables (CARGO_HOME/RUSTUP_HOME), and diagnose toolchain bleed in doctor
+### 📌 Task [05.2]: Ephemeral Worktree Host Project Environment Seeding (`.venv`, `PYTHONPATH`, `NODE_PATH`)
 
-- **Description:** Centralize duplicated PATH enrichment logic (`launcher.go`, `headless/manager.go`, `agent/env.go`) into `internal/profile/env.go`. Expand path candidates to discover native Linux Node/JS runtimes (`pnpm`, `nvm`, `fnm`, `volta`), and on WSL2/Linux guarantee native Linux binaries precede `/mnt/c/` Windows mounts. Automatically preserve host `CARGO_HOME` and `RUSTUP_HOME` (and default `GOPATH`) in isolated profile environments to eliminate broken `$HOME`-relative compiler shims and prevent accidental toolchain installs inside profile directories. Add a diagnostic check in `multigravity doctor` to detect orphaned toolchains (`.cargo`, `.rustup`) inside profile directories.
-- **Systems Involved:** `internal/profile`, `internal/headless`, `internal/agent`, `internal/doctor`, `.agent/INVARIANTS.md`, `.agent/NOTES.md`
+- **Description:** Seed host repository project environments (`.venv`, `UV_PROJECT_ENVIRONMENT`, `VIRTUAL_ENV`, `PYTHONPATH` with worktree `src/` precedence over editable `.pth` links, and `NODE_PATH` / `node_modules/.bin`) into isolated agent sessions running inside ephemeral git worktrees (`.multigravity/worktrees/<id>`), eliminating manual environment boilerplate in orchestrator `Verify:` commands.
+- **Systems Involved:** `internal/profile`, `internal/agent`, `.agent/NOTES.md`
 - **Action Type:**
-  - [x] Read-only / Documentation
+  - [ ] Read-only / Documentation
   - [x] Source code changes
-- **Status:** COMPLETED
+- **Status:** APPROVED
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [x] Create `internal/profile/env.go` consolidating `BuildEnrichedPATH(hostHome string) string` and environment seeding helpers (`PopulateToolchainEnv`).
-- [x] Add discovery for common JS/Node bin directories: `~/.local/share/pnpm`, `~/.nvm/versions/node/*/bin`, `~/.fnm/current/bin`, `~/.volta/bin`.
-- [x] On WSL2 / Linux, ensure Linux system and user paths precede any `/mnt/c/` Windows paths.
-- [x] Export `CARGO_HOME` and `RUSTUP_HOME` pointing to `realHome` if unset in `launcher.go`, `headless/manager.go`, and `agent/env.go`.
-- [x] Refactor `internal/headless` and `internal/agent` to consume the centralized PATH enrichment from `internal/profile`.
-- [x] Add diagnostic rule in `internal/doctor` warning if `.cargo` or `.rustup` directory exists inside any profile directory under `~/AntigravityProfiles/`.
-- [x] Add unit tests asserting PATH enrichment (including Node detection, WSL2 ordering, deduplication), toolchain env population, and doctor toolchain detection.
-- [x] Verify full test suite passes with `go test ./...` and `go build ./cmd/multigravity`.
-- [x] Update `.agent/INVARIANTS.md` and `.agent/NOTES.md` to document the active contracts.
+- [ ] Add `PopulateWorktreeProjectEnv(envMap map[string]string, baseRepoPath, worktreePath string)` in `internal/profile/env.go`.
+- [ ] When `<baseRepoPath>/.venv` exists, set `UV_PROJECT_ENVIRONMENT` and `VIRTUAL_ENV` (if unset), prepend `<baseRepoPath>/.venv/bin` (or `Scripts` on Windows) to `PATH`, and prepend `<worktreePath>/src` (if present) and `<worktreePath>` to `PYTHONPATH` so worktree packages shadow base repo editable `.pth` links.
+- [ ] When `<baseRepoPath>/node_modules` exists, set `NODE_PATH=<baseRepoPath>/node_modules` (if unset) and prepend `<baseRepoPath>/node_modules/.bin` to `PATH`.
+- [ ] Invoke `PopulateWorktreeProjectEnv` from `BuildAgentEnv` (`internal/agent/env.go`) when `opts.WorktreeID != ""` and `opts.Cwd` / `opts.RepoPath` resolve an ephemeral worktree under `<baseRepoPath>/.multigravity/worktrees/`.
+- [ ] Add unit tests in `internal/profile/env_test.go` and `internal/agent/agent_test.go` verifying `.venv`, `PYTHONPATH`, and `node_modules` seeding.
+- [ ] Verify full test suite passes with `go test -v ./internal/profile ./internal/agent`.
 
 ---
 
@@ -62,8 +59,22 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-
-- [ ] *(Queue empty — awaiting next prioritization)*
+- [ ] **[05.2]** `[APPROVED]` `[PARALLEL: W1]` Seed base repository `.venv` (`UV_PROJECT_ENVIRONMENT`, `VIRTUAL_ENV`, `PYTHONPATH` worktree precedence) and `NODE_PATH` into ephemeral worktree agent environments
+  - `Read:` `internal/profile/env.go, internal/agent/env.go, internal/agent/types.go`
+  - `Paths:` `internal/profile/env.go, internal/profile/env_test.go, internal/agent/env.go, internal/agent/agent_test.go`
+  - `Verify:` `go test -v ./internal/profile ./internal/agent`
+- [ ] **[05.3]** `[APPROVED]` `[PARALLEL: W1]` Terminate running subtasks on `ExecutePlan` timeout, add cross-process PID fallback in `CancelTask`, and expose bounded `verification_output`/`log_tail` in `SubtaskResult`
+  - `Read:` `internal/dispatch/plan.go, internal/dispatch/manager.go, internal/dispatch/types.go`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go, internal/dispatch/manager.go, internal/dispatch/dispatch_test.go`
+  - `Verify:` `go test -v ./internal/dispatch`
+- [ ] **[05.4]** `[APPROVED]` `[PARALLEL: W1]` Align `multigravity route` model identifiers with live `agy models` (`gemini-3.8-flash-low/medium/high`) and expose `recommended_effort` (`low`/`medium`/`high`)
+  - `Read:` `internal/quota/routing.go, internal/quota/routing_test.go`
+  - `Paths:` `internal/quota/routing.go, internal/quota/routing_test.go`
+  - `Verify:` `go test -v ./internal/quota -run TestRecommendRoute`
+- [ ] **[05.5]** `[APPROVED]` `[SEQ: W2]` Synchronize `multigravity-orchestrator` skill with `Read:/Paths:/Verify:` micro-contracts, `--effort low` defaults, and bounded diagnostic tail handling
+  - `Read:` `skills/multigravity-orchestrator/SKILL.md, .agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`
+  - `Paths:` `skills/multigravity-orchestrator/SKILL.md`
+  - `Verify:` `git diff --check skills/multigravity-orchestrator/SKILL.md`
 
 ---
 

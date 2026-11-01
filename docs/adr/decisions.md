@@ -24,6 +24,15 @@ type: architectural-decision-log
 
 ## Cumulative Decisions
 
+### 2026-11-01 [Subagent Wave Orchestration Hardening: Timeout Process Termination, Worktree .venv/PYTHONPATH Seeding, and Diagnostic Tails]
+
+- **Context:** Real-world multi-account parallel wave execution (`multigravity dispatch plan` via `task-queue`) exposed five operational bottlenecks: (1) `agy -p` with `gemini-3.8-flash-medium` and unrestricted thinking generated ~20,000 thinking tokens in a single turn and ran redundant baseline tests before creating files, exceeding 3m timeouts; (2) when `ExecutePlan` hit `context.DeadlineExceeded`, `WaitForTask` detached without terminating the running child session, and subsequent cross-process `multigravity dispatch cancel` calls failed to kill `task.PID` when `m.agentMgr` had no in-memory session, leaving orphaned `agy` processes that later mutated the base working tree; (3) ephemeral git worktrees (`.multigravity/worktrees/<id>`) lacked access to the base repository's `.venv` and `node_modules`, and Python editable installs (`.pth`) inside `<repo>/.venv` shadowed `<worktree>/src` unless `PYTHONPATH` prioritized the worktree; (4) `SubtaskResult` omitted `VerificationOutput`, `VerificationExitCode`, and `LogTail`, forcing orchestrator agents to burn tokens inspecting raw logs; and (5) `multigravity route` model IDs needed alignment with current `agy models` CLI identifiers (`gemini-3.8-flash-low`, `gemini-3.8-flash-medium`, `gemini-3.8-flash-high`, `claude-sonnet-4-6`).
+- **Decision:**
+  - `internal/profile/env.go` & `internal/agent/env.go`: Introduce `PopulateWorktreeProjectEnv(envMap map[string]string, baseRepoPath, worktreePath string)` to automatically inject `UV_PROJECT_ENVIRONMENT`, `VIRTUAL_ENV`, `<baseRepo>/.venv/bin` into `PATH`, and `<worktree>/src:<worktree>` into `PYTHONPATH` (plus `NODE_PATH` and `<baseRepo>/node_modules/.bin` for Node projects) whenever an agent session runs inside an ephemeral worktree.
+  - `internal/dispatch/plan.go` & `internal/dispatch/manager.go`: Ensure `ExecutePlan` forcibly cancels any still-running subtask (`m.CancelTask(repoRoot, taskID, true)`) when `planCtx` expires, add OS PID termination fallback in `CancelTask` for cross-process CLI invocations, and populate `VerificationExitCode`, bounded `VerificationOutput`, and bounded `LogTail` on `SubtaskResult`.
+  - `internal/quota/routing.go`: Align `ModelForWeight` and route recommendations with live `agy` CLI model identifiers and expose a recommended `Effort` level (`low`, `medium`, `high`).
+  - See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](../../.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md).
+
 ### 2026-10-23 [Linux D-Bus Keyring Bypass in Antigravity `language_server`]
 
 - **Context:** Antigravity's Go `language_server` (`codeassistclient.NewCompositeTokenStorage`) does not read `GEMINI_FORCE_FILE_STORAGE`. On Linux desktops with `gnome-keyring-daemon` (`org.freedesktop.secrets`), it stores OAuth tokens in the session-wide keyring under a single global service key (`"antigravity"`), causing any newly launched IDE profile to load the last account that signed in across the OS session.
@@ -99,3 +108,28 @@ type: architectural-decision-log
   - Reuses the existing ephemeral git worktree and branch in place across retry attempts.
   - Generates feedback prompts via `SynthesizeRetryPrompt` embedding the verification command, exit code, failure output, and original task instructions.
   - Updates `Task.RetryCount`, logs retry markers (`=== Retrying Task (attempt X/Y) ===`), and exposes live streaming across retry sessions.
+
+### [Spec 05.2] Ephemeral Worktree Host Project Environment Seeding (`.venv`, `PYTHONPATH`, `NODE_PATH`)
+- **Objective:** Eliminate manual `UV_PROJECT_ENVIRONMENT` and `PYTHONPATH` boilerplate in orchestrator `Verify:` commands when running Python (`uv`/`pytest`/`ruff`/`mypy`) or Node (`npm`/`vitest`) validation inside `.multigravity/worktrees/<id>`.
+- **Mechanics:**
+  1. Add `PopulateWorktreeProjectEnv(envMap map[string]string, baseRepoPath, worktreePath string)` in `internal/profile/env.go`.
+  2. When `<baseRepoPath>/.venv` exists, set `UV_PROJECT_ENVIRONMENT` and `VIRTUAL_ENV` (if unset), prepend `<baseRepoPath>/.venv/bin` (or `Scripts` on Windows) to `PATH`, and prepend `<worktreePath>/src` (if present) and `<worktreePath>` to `PYTHONPATH` so worktree modules always precede editable `.pth` links in `<baseRepoPath>/.venv`.
+  3. When `<baseRepoPath>/node_modules` exists, set `NODE_PATH=<baseRepoPath>/node_modules` (if unset) and prepend `<baseRepoPath>/node_modules/.bin` to `PATH`.
+  4. Invoke `PopulateWorktreeProjectEnv` from `BuildAgentEnv` (`internal/agent/env.go`) when `opts.WorktreeID != ""` and `opts.Cwd` / `opts.RepoPath` resolve a worktree inside `<baseRepoPath>/.multigravity/worktrees/`.
+
+### [Spec 05.3] Plan Timeout Process-Tree Termination, Cross-Process PID Cancellation & Diagnostic Tail (`SubtaskResult`)
+- **Objective:** Prevent orphaned `agy` / `language_server` processes from surviving `multigravity dispatch plan --timeout` and surface compact failure diagnostics directly in `SubtaskResult` JSON.
+- **Mechanics:**
+  1. In `ExecutePlan` (`internal/dispatch/plan.go`), if `planCtx.Err() != nil` or `completedTask.Status == StatusRunning` after `WaitForTask`, call `m.CancelTask(repoRoot, taskID, true)` and still capture any partial worktree diff before returning.
+  2. In `CancelTask` (`internal/dispatch/manager.go`), if `m.agentMgr.KillSession(task.SessionID)` or `StopSession` returns an error (e.g., cross-process CLI invocation where `m.agentMgr` has no in-memory session) and `task.PID > 0`, kill the OS process (`os.FindProcess(task.PID)`).
+  3. In `defaultExecuteVerifyCommand` (`internal/dispatch/manager.go`), when `dir` is inside `<repoRoot>/.multigravity/worktrees/<id>`, inject `PopulateWorktreeProjectEnv` into `cmd.Env` so post-session `--verify` commands also resolve `.venv` and `PYTHONPATH` automatically.
+  4. Extend `SubtaskResult` (`internal/dispatch/plan.go`) backward-compatibly with `VerificationExitCode int json:"verification_exit_code,omitempty"`, `VerificationOutput string json:"verification_output,omitempty"` (last 1000 bytes), and `LogTail string json:"log_tail,omitempty"` (last 1000 bytes on failure/timeout).
+
+### [Spec 05.4] Route Model Identifier Alignment & Reasoning Effort Recommendation (`multigravity route`)
+- **Objective:** Align `multigravity route` model recommendations with active `agy models` CLI identifiers and recommend `--effort` flags to prevent 20k-token thinking loops on micro-contract tasks.
+- **Mechanics:**
+  1. Update `ModelForWeight` in `internal/quota/routing.go`: `light` -> `gemini-3.8-flash-low`, `medium` -> `gemini-3.8-flash-medium`, `heavy` -> `gemini-3.8-flash-high`.
+  2. Add `EffortForWeight(w RouteWeight) string` (`light` -> `low`, `medium` -> `medium`, `heavy` -> `high`) and include `RecommendedEffort string json:"recommended_effort,omitempty"` in `RouteRecommendation`.
+
+### [Spec 05.5] Synchronize `multigravity-orchestrator` Skill with Micro-Contract & Zero-Diff-Bloat Wave Patterns
+- **Objective:** Update `skills/multigravity-orchestrator/SKILL.md` to document `Read:/Paths:/Verify:` micro-contracts, `--effort low` / `gemini-3.8-flash-low` defaults for scoped subtasks, and bounded `verification_output`/`log_tail` inspection.
