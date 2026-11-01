@@ -268,6 +268,22 @@ func tailString(s string, maxBytes int) string {
 	return s[len(s)-maxBytes:]
 }
 
+// SynthesizeCascadeRetryPrompt constructs an enriched prompt for retry attempts incorporating failure diagnostics.
+func SynthesizeCascadeRetryPrompt(basePrompt, prevModel, verifyOutput, logTail string) string {
+	diag := strings.TrimSpace(verifyOutput)
+	if diag == "" {
+		diag = strings.TrimSpace(logTail)
+	}
+	if diag == "" {
+		return basePrompt
+	}
+	modelName := strings.TrimSpace(prevModel)
+	if modelName == "" {
+		modelName = "unknown"
+	}
+	return fmt.Sprintf("%s\n\n[PREVIOUS ATTEMPT FAILED ON MODEL %s]\nDiagnostic Output:\n%s\nFix the root cause above without regressing allowed paths.", basePrompt, modelName, diag)
+}
+
 func getPlansDir(repoRoot string) string {
 	if repoRoot != "" {
 		return filepath.Join(repoRoot, ".multigravity", "plans")

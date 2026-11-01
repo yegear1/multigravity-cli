@@ -11,6 +11,46 @@ import (
 	"github.com/ye-dev/multigravity-cli/internal/agent"
 )
 
+func TestSynthesizeCascadeRetryPrompt(t *testing.T) {
+	base := "Implement feature X according to spec."
+
+	// (a) both verifyOutput and logTail empty returns basePrompt unchanged
+	gotA := SynthesizeCascadeRetryPrompt(base, "gemini-pro", "   ", "  \n\t ")
+	if gotA != base {
+		t.Fatalf("expected base prompt unchanged, got: %q", gotA)
+	}
+
+	// (b) verifyOutput non-empty includes [PREVIOUS ATTEMPT FAILED ON MODEL ...] and verifyOutput
+	gotB := SynthesizeCascadeRetryPrompt(base, "gemini-pro", "syntax error on line 42", "tail logs that should be ignored")
+	if !strings.Contains(gotB, "[PREVIOUS ATTEMPT FAILED ON MODEL gemini-pro]") {
+		t.Errorf("expected model header in output, got: %q", gotB)
+	}
+	if !strings.Contains(gotB, "Diagnostic Output:\nsyntax error on line 42") {
+		t.Errorf("expected verifyOutput in diagnostic output, got: %q", gotB)
+	}
+	if strings.Contains(gotB, "tail logs that should be ignored") {
+		t.Errorf("expected logTail to be ignored when verifyOutput is present, got: %q", gotB)
+	}
+
+	// (c) verifyOutput empty and logTail non-empty includes logTail
+	gotC := SynthesizeCascadeRetryPrompt(base, "claude-sonnet", "", "panic: runtime error\ngoroutine 1...")
+	if !strings.Contains(gotC, "[PREVIOUS ATTEMPT FAILED ON MODEL claude-sonnet]") {
+		t.Errorf("expected model header in output, got: %q", gotC)
+	}
+	if !strings.Contains(gotC, "Diagnostic Output:\npanic: runtime error\ngoroutine 1...") {
+		t.Errorf("expected logTail in diagnostic output, got: %q", gotC)
+	}
+
+	// (d) empty prevModel defaults to unknown
+	gotD := SynthesizeCascadeRetryPrompt(base, "   ", "compilation failed", "")
+	if !strings.Contains(gotD, "[PREVIOUS ATTEMPT FAILED ON MODEL unknown]") {
+		t.Errorf("expected unknown model header in output, got: %q", gotD)
+	}
+	if !strings.Contains(gotD, "Diagnostic Output:\ncompilation failed") {
+		t.Errorf("expected diagnostic output, got: %q", gotD)
+	}
+}
+
 func setupTestProfiles(t *testing.T, names ...string) string {
 	t.Helper()
 	home := t.TempDir()
