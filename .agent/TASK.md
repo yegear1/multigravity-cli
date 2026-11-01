@@ -7,10 +7,10 @@
 
 ## Active Task
 
-### 📌 Task [05.13.1]: Define Canonical Inference Tiers, Capacity Ranking Matrix & `EscalateModel` (`internal/quota/tiers.go`)
+### 📌 Task [05.13.3]: Implement Dynamic Cascade Escalation & Previous Failure Diagnostic Injection (`internal/dispatch/wave.go` & `plan.go`)
 
-- **Description:** Implement inference capacity tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), model metadata registry, and `EscalateModel(model)` in `internal/quota/tiers.go`, followed by static complexity classifier (`[05.13.2]`), cascade escalation (`[05.13.3]`), CLI route profiling (`[05.13.4]`), and skill docs (`[05.13.5]`).
-- **Systems Involved:** `internal/quota`, `internal/dispatch`, `internal/cmd`, `skills/multigravity-orchestrator`
+- **Description:** Implement dynamic cascade escalation (`quota.EscalateModel`) and previous failure diagnostic (`LogTail`/`VerificationOutput`) injection in `internal/dispatch/wave.go` and `plan.go`, plus automatic task complexity model selection (`quota.ClassifyTaskComplexity`).
+- **Systems Involved:** `internal/dispatch`
 - **Action Type:**
   - [ ] Read-only / Documentation
   - [x] Source code changes
@@ -18,8 +18,8 @@
   *(Workflow: `READY FOR PLANNING` → `PLANNING` on presenting plan → approval → `RUNNING`)*
 
 ### Acceptance Criteria
-- [ ] Define canonical inference tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), ranking matrix, and `EscalateModel(model)` in `internal/quota/tiers.go`.
-- [ ] Implement `ClassifyTaskComplexity(input)` based on `Paths`, `Read` line-ranges, and prompt heuristics in `internal/quota/classifier.go`.
+- [x] Define canonical inference tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), ranking matrix, and `EscalateModel(model)` in `internal/quota/tiers.go`.
+- [x] Implement `ClassifyTaskComplexity(input)` based on `Paths`, `Read` line-ranges, and prompt heuristics in `internal/quota/classifier.go`.
 - [ ] Implement dynamic cascade escalation and previous failure diagnostic (`LogTail`/`VerificationOutput`) injection in `internal/dispatch/wave.go` and `plan.go`.
 - [ ] Add `--task`, `--paths`, and `--read` support to `multigravity route` in `internal/cmd/route.go`.
 - [ ] Synchronize `skills/multigravity-orchestrator/SKILL.md` with inference tier matrix and cascade escalation.
@@ -31,6 +31,8 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [05.13.2] | Implement static zero-token task complexity classifier (`ClassifyTaskComplexity`) in `internal/quota/classifier.go` | [`407eec5`](https://github.com/yegear1/multigravity-cli/commit/407eec5) | 2026-11-01 |
+| [05.13.1] | Define canonical inference tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), model metadata ranking matrix, and `EscalateModel(model)` in `internal/quota/tiers.go` | [`65bb810`](https://github.com/yegear1/multigravity-cli/commit/65bb810) | 2026-11-01 |
 | [05.12] | Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` defaults, and model-aware quota routing | [`2b8e717`](https://github.com/yegear1/multigravity-cli/commit/2b8e717) | 2026-11-01 |
 | [05.11] | Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion and automatic `TASK.md` completion logging | [`74d1e09`](https://github.com/yegear1/multigravity-cli/commit/74d1e09) | 2026-11-01 |
 | [05.10] | Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` in `internal/dispatch/plan.go` | [`2f53f12`](https://github.com/yegear1/multigravity-cli/commit/2f53f12) | 2026-11-01 |
@@ -77,14 +79,8 @@
 - [x] **[05.10]** `[APPROVED]` `[SEQ: W3]` Add line-ranged `Read:` pre-injection (`file:start-end`), `gemini-3.8-flash-low` micro-contract default with single-grep escape hatch, `empty_diff` `LogTail` audit, model-aware auto-profile routing, and `--apply-atomic` / `--omit-diff` execution in `internal/dispatch/plan.go` *(Points 2.B, 2.C, 2.D, 2.E)* (`2f53f12`)
 - [x] **[05.11]** `[APPROVED]` `[SEQ: W4]` Implement native `.agent/TASK.md` wave parser (`ParseTaskWave`) and `multigravity dispatch wave` CLI subcommand with auto-retry profile exclusion and automatic `TASK.md` completion logging *(Point 2.A)* (`74d1e09`)
 - [x] **[05.12]** `[APPROVED]` `[SEQ: W5]` Synchronize `skills/multigravity-orchestrator/SKILL.md` with `multigravity dispatch wave`, line-ranged `Read: file:start-end` pre-injection, `gemini-3.8-flash-low` defaults, and model-aware quota routing *(Points 2.A–2.E)* (`2b8e717`)
-- [ ] **[05.13.1]** `[APPROVED]` `[PARALLEL: W6]` Define canonical inference tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), model metadata ranking matrix, and `EscalateModel(model)` in `internal/quota/tiers.go`
-  - `Read:` `internal/quota/routing.go:100-125, internal/quota/routing.go:435-465`
-  - `Paths:` `internal/quota/tiers.go, internal/quota/tiers_test.go`
-  - `Verify:` `go test -v ./internal/quota -run "Test.*Tier|TestEscalateModel"`
-- [ ] **[05.13.2]** `[APPROVED]` `[PARALLEL: W6]` Implement static zero-token task complexity classifier (`ClassifyTaskComplexity`) in `internal/quota/classifier.go`
-  - `Read:` `internal/quota/routing.go:10-42`
-  - `Paths:` `internal/quota/classifier.go, internal/quota/classifier_test.go`
-  - `Verify:` `go test -v ./internal/quota -run "TestClassifyTaskComplexity"`
+- [x] **[05.13.1]** `[APPROVED]` `[PARALLEL: W6]` Define canonical inference tiers (`TierMicro`, `TierStandard`, `TierReasoning`, `TierArchitecture`), model metadata ranking matrix, and `EscalateModel(model)` in `internal/quota/tiers.go` (`65bb810`)
+- [x] **[05.13.2]** `[APPROVED]` `[PARALLEL: W6]` Implement static zero-token task complexity classifier (`ClassifyTaskComplexity`) in `internal/quota/classifier.go` (`407eec5`)
 - [ ] **[05.13.3]** `[APPROVED]` `[SEQ: W7]` Implement dynamic cascade escalation and previous failure diagnostic (`LogTail`/`VerificationOutput`) injection in `internal/dispatch/wave.go` and `internal/dispatch/plan.go`
   - `Read:` `internal/dispatch/wave.go:315-360, internal/dispatch/plan.go:110-165`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go, internal/dispatch/plan.go, internal/dispatch/plan_test.go`
