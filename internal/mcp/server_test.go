@@ -669,4 +669,56 @@ func TestDispatchTask_ArgsAndPrompt(t *testing.T) {
 			t.Errorf("expected 'profile is required' error, got %s", callResult.Content[0].Text)
 		}
 	})
+
+	// 6. profile: "auto" resolves to an eligible existing profile
+	t.Run("ProfileAutoRouting", func(t *testing.T) {
+		capturedOpts = nil
+		req := &JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      305,
+			Method:  "tools/call",
+			Params:  json.RawMessage(`{"name":"dispatch_task","arguments":{"profile":"auto","command":"agy","prompt":"check quota","background":true}}`),
+		}
+		resp := srv.HandleRequest(context.Background(), req)
+		if resp == nil || resp.Error != nil {
+			t.Fatalf("unexpected error response: %v", resp)
+		}
+		callResult, ok := resp.Result.(*CallToolResult)
+		if !ok || callResult.IsError {
+			t.Fatalf("expected successful CallToolResult, got %+v", callResult)
+		}
+		var task dispatch.Task
+		if err := json.Unmarshal([]byte(callResult.Content[0].Text), &task); err != nil {
+			t.Fatalf("failed to decode task response: %v", err)
+		}
+		if task.Profile == "" || task.Profile == "auto" {
+			t.Errorf("expected task.Profile to be resolved from 'auto', got %q", task.Profile)
+		}
+	})
+
+	// 7. wait: true waits for task completion
+	t.Run("WaitSynchronous", func(t *testing.T) {
+		capturedOpts = nil
+		req := &JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      306,
+			Method:  "tools/call",
+			Params:  json.RawMessage(`{"name":"dispatch_task","arguments":{"profile":"dev","command":"echo wait-test","wait":true,"timeout":10}}`),
+		}
+		resp := srv.HandleRequest(context.Background(), req)
+		if resp == nil || resp.Error != nil {
+			t.Fatalf("unexpected error response: %v", resp)
+		}
+		callResult, ok := resp.Result.(*CallToolResult)
+		if !ok || callResult.IsError {
+			t.Fatalf("expected successful CallToolResult, got %+v", callResult)
+		}
+		var task dispatch.Task
+		if err := json.Unmarshal([]byte(callResult.Content[0].Text), &task); err != nil {
+			t.Fatalf("failed to decode task response: %v", err)
+		}
+		if task.Status != dispatch.StatusCompleted {
+			t.Errorf("expected task.Status 'completed' when wait=true, got %q", task.Status)
+		}
+	})
 }

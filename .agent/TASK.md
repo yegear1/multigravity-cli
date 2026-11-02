@@ -7,11 +7,11 @@
 
 ## Active Task
 
-### [08.1] Cross-Profile Toolchain & PATH Discovery
+### [08.2] Build Isolation & Compiler Cache Strategy for Concurrent Worktrees
 - Status: READY FOR PLANNING
 - Priority: P1
-- Description: Automatically discover and inject host system and peer profile toolchains (`cargo`, `rustc`, `node`, `pnpm`, `go`, `python`) into ephemeral subagent execution environments, resolving missing binary paths when running under isolated profile environments without manual PATH exports.
-- Paths: `internal/profile/sharing.go`, `internal/profile/env.go`, `internal/doctor/doctor.go`
+- Description: Isolate `CARGO_TARGET_DIR` and temporary build artifacts per worktree while linking global compiler cache (`sccache` / build cache) to prevent `.cargo-lock` file contention during parallel wave runs.
+- Paths: `internal/worktree/manager.go`, `internal/worktree/symlink.go`, `internal/dispatch/executor.go`
 
 ---
 
@@ -19,6 +19,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [08.1] | Cross-Profile Toolchain & PATH Discovery | `5716c84` | 2026-11-02 |
 
 ---
 
@@ -26,9 +27,11 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [ ] **[08.2]** `[APPROVED]` `[SEQ: W2]` Build Isolation & Compiler Cache Strategy for Concurrent Worktrees — Isolate `CARGO_TARGET_DIR` and temporary build artifacts per worktree while linking global compiler cache (`sccache` / build cache) to prevent `.cargo-lock` file contention during parallel wave runs. (`Paths: internal/worktree/manager.go, internal/worktree/symlink.go, internal/dispatch/executor.go`)
 - [ ] **[08.3]** `[APPROVED]` `[SEQ: W3]` On-Demand Headless Agent Runner for Inactive Profiles — Automatically spawn headless CLI subagents (`agy --headless` / CLI fallback) when routing tasks to inactive profiles with healthy quota without requiring the user to have the profile open in the desktop UI. (`Paths: internal/agent/runner.go, internal/headless/manager.go, internal/dispatch/wave.go`)
 - [ ] **[08.4]** `[APPROVED]` `[SEQ: W4]` Cross-Profile Shared Cooldown & Throttling Pool — Centralize rate-limit/429 feedback into a global lock/cooldown state across all profiles, preventing secondary profiles from repeating identical model rate-limit exhaustion. (`Paths: internal/quota/history.go, internal/quota/routing.go, internal/gateway/client.go`)
+- [ ] **[08.5]** `[APPROVED]` `[SEQ: W5]` Dynamic Dispatch Roles & Execution Sandboxing — Expose `--role` and `--read-only` in `dispatch run/plan/wave`, integrating `agent-guard` subshell mutation intercepts to restrict command capabilities per task persona (e.g. researcher, verifier, developer). (`Paths: internal/cmd/dispatch_run.go, internal/dispatch/types.go, internal/dispatch/manager.go, internal/dispatch/plan.go, internal/agent/guard.go`)
+- [ ] **[08.6]** `[APPROVED]` `[SEQ: W6]` Hybrid Workspace Modes (Zero-I/O Read-Only Dispatch) — Add workspace modes (`--workspace=worktree|mirror|inherit`) to avoid ephemeral git worktree creation overhead for read-only / research tasks, executing safely in-place with filesystem mutation guards. (`Paths: internal/cmd/dispatch_run.go, internal/dispatch/types.go, internal/dispatch/manager.go, internal/dispatch/plan.go, internal/dispatch/wave.go`)
+- [ ] **[08.7]** `[APPROVED]` `[SEQ: W7]` Native Antigravity Subagent Orchestration Bridge — Connect Multigravity macro-routing directly to Antigravity subagent workers via headless CLI invocation (`agy --headless -p`) and native MCP delegation tools with quota-aware profile failover. (`Paths: internal/mcp/server.go, internal/agent/runner.go, internal/dispatch/manager.go, internal/quota/routing.go`)
 
 ---
 

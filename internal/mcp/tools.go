@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/alert"
 	"github.com/ye-dev/multigravity-cli/internal/config"
@@ -125,7 +126,27 @@ func RegisterDefaultTools(s *Server) {
 				},
 				"profile": {
 					Type:        "string",
-					Description: "Antigravity profile name for identity and credentials isolation (e.g. 'yegear', 'yegear2').",
+					Description: "Antigravity profile name for identity and credentials isolation (e.g. 'yegear', 'yegear2'), or 'auto' to dynamically route to the profile with the healthiest quota.",
+				},
+				"model": {
+					Type:        "string",
+					Description: "Target model for quota-aware routing when profile is 'auto' (e.g. 'gemini-3.8-flash', 'claude-3-7-sonnet').",
+				},
+				"weight": {
+					Type:        "string",
+					Description: "Task weight for quota routing thresholds when profile is 'auto': 'light', 'medium', or 'heavy' (default 'medium').",
+				},
+				"probe": {
+					Type:        "boolean",
+					Description: "Whether to probe and awaken inactive secondary profiles when profile is 'auto' (default false).",
+				},
+				"wait": {
+					Type:        "boolean",
+					Description: "Wait synchronously for task execution to reach terminal status before returning result (default false).",
+				},
+				"timeout": {
+					Type:        "integer",
+					Description: "Maximum seconds to wait when wait is true (default 120).",
 				},
 				"repo": {
 					Type:        "string",
@@ -180,11 +201,61 @@ func RegisterDefaultTools(s *Server) {
 		if prof == "" {
 			return nil, fmt.Errorf("profile is required")
 		}
-		if err := config.ValidateProfileName(prof); err != nil {
-			return nil, err
-		}
-		if !profile.ProfileExists(prof) {
-			return nil, fmt.Errorf("profile %q does not exist", prof)
+
+		if strings.EqualFold(prof, "auto") {
+			weight := quota.NormalizeWeight(quota.RouteWeight(getString(args, "weight")))
+			model := getString(args, "model")
+			if model == "" {
+				model = "gemini-3.8-flash"
+			}
+			if getBool(args, "probe") {
+				_, _ = quota.ProbeInactiveProfiles(nil)
+			}
+			resolvedProf := ""
+			eligible, err := quota.SelectEligibleProfilesForModel(0, model, weight)
+			if err == nil && len(eligible) > 0 {
+				for _, p := range eligible {
+					if profile.ProfileExists(p) && !quota.IsProfileOnCooldown(p) {
+						resolvedProf = p
+						break
+					}
+				}
+			}
+			if resolvedProf == "" {
+				candidates, cErr := quota.PreflightProfilesForModel(0, model, weight, quota.DefaultSafetyQuotaThreshold)
+				if cErr == nil && len(candidates) > 0 {
+					for _, c := range candidates {
+						if profile.ProfileExists(c.Profile) && !quota.IsProfileOnCooldown(c.Profile) {
+							resolvedProf = c.Profile
+							break
+						}
+					}
+				}
+			}
+			if resolvedProf == "" {
+				if profs, pErr := profile.ListProfiles(); pErr == nil && len(profs) > 0 {
+					for _, p := range profs {
+						if profile.ProfileExists(p) && !quota.IsProfileOnCooldown(p) {
+							resolvedProf = p
+							break
+						}
+					}
+					if resolvedProf == "" {
+						resolvedProf = profs[0]
+					}
+				}
+			}
+			if resolvedProf == "" {
+				return nil, fmt.Errorf("auto-routing failed: no eligible profiles available")
+			}
+			prof = resolvedProf
+		} else {
+			if err := config.ValidateProfileName(prof); err != nil {
+				return nil, err
+			}
+			if !profile.ProfileExists(prof) {
+				return nil, fmt.Errorf("profile %q does not exist", prof)
+			}
 		}
 
 		repo := getString(args, "repo")
@@ -222,6 +293,16 @@ func RegisterDefaultTools(s *Server) {
 		task, err := mgr.Dispatch(opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to dispatch task: %w", err)
+		}
+
+		if getBool(args, "wait") {
+			timeoutSec := getInt(args, "timeout", 120)
+			waitCtx, waitCancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+			defer waitCancel()
+			completedTask, waitErr := mgr.WaitForTask(waitCtx, repo, task.ID)
+			if waitErr == nil && completedTask != nil {
+				task = completedTask
+			}
 		}
 
 		return toJSONText(task)
