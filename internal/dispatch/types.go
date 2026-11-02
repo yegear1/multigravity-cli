@@ -30,6 +30,7 @@ type Task struct {
 	WorktreePath         string            `json:"worktree_path,omitempty"`
 	Sandbox              bool              `json:"sandbox,omitempty"`
 	Role                 string            `json:"role,omitempty"`
+	ReadOnly             bool              `json:"read_only,omitempty"`
 	Verify               string            `json:"verify,omitempty"`
 	VerificationOutput   string            `json:"verification_output,omitempty"`
 	VerificationExitCode int               `json:"verification_exit_code,omitempty"`
@@ -63,6 +64,7 @@ type DispatchOptions struct {
 	Args         []string          `json:"args,omitempty"`
 	Sandbox      bool              `json:"sandbox,omitempty"`
 	Role         string            `json:"role,omitempty"`
+	ReadOnly     bool              `json:"read_only,omitempty"`
 	Verify       string            `json:"verify,omitempty"`
 	Retry        int               `json:"retry,omitempty"`
 	TraceID      string            `json:"trace_id,omitempty"`

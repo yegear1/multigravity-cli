@@ -347,6 +347,39 @@ func TestAgentGuardCLI(t *testing.T) {
 	if !strings.Contains(err.Error(), "subshell execution violation") {
 		t.Errorf("expected 'subshell execution violation' in error, got: %v", err)
 	}
+
+	// 3. Blocked case: researcher persona attempting file mutation inside repo
+	guardCmdResearcher := newAgentGuardCmd()
+	guardCmdResearcher.SetArgs([]string{"wrap", "--role", "researcher", "--repo", testRepo, "--", "touch", filepath.Join(testRepo, "new.txt")})
+	err = guardCmdResearcher.Execute()
+	if err == nil {
+		t.Fatal("expected agent-guard wrap to block touch in researcher role, but got nil")
+	}
+	if !strings.Contains(err.Error(), "read-only mode") {
+		t.Errorf("expected 'read-only mode' error, got: %v", err)
+	}
+
+	// 4. Blocked case: verifier persona attempting git commit
+	guardCmdVerifier := newAgentGuardCmd()
+	guardCmdVerifier.SetArgs([]string{"wrap", "--role", "verifier", "--repo", testRepo, "--", "git", "commit", "-m", "fix"})
+	err = guardCmdVerifier.Execute()
+	if err == nil {
+		t.Fatal("expected agent-guard wrap to block git commit in verifier role, but got nil")
+	}
+	if !strings.Contains(err.Error(), "verifier persona") {
+		t.Errorf("expected 'verifier persona' error, got: %v", err)
+	}
+
+	// 5. Blocked case: developer with explicit --read-only
+	guardCmdReadOnly := newAgentGuardCmd()
+	guardCmdReadOnly.SetArgs([]string{"wrap", "--role", "developer", "--read-only", "--repo", testRepo, "--", "touch", filepath.Join(testRepo, "test.txt")})
+	err = guardCmdReadOnly.Execute()
+	if err == nil {
+		t.Fatal("expected agent-guard wrap to block mutation with --read-only, but got nil")
+	}
+	if !strings.Contains(err.Error(), "read-only mode") {
+		t.Errorf("expected 'read-only mode' error, got: %v", err)
+	}
 }
 
 func TestAgentCLITraceIDFlagAndStatus(t *testing.T) {

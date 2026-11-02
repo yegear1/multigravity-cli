@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1348,4 +1349,110 @@ func TestProfileAwareConcurrency(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestExecutePlanRoleAndReadOnly(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev-role")
+
+	var capturedOpts []agent.CreateSessionOptions
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		capturedOpts = append(capturedOpts, opts)
+		return exec.Command("sh", "-c", "echo 'mock subtask execution'")
+	})
+	defer cleanup()
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	// 1. Researcher persona subtask does not fail empty_diff audit
+	req := PlanRequest{
+		PlanID:   "plan-test-researcher-role",
+		RepoPath: repoDir,
+		Workers:  1,
+		Subtasks: []SubtaskSpec{
+			{
+				ID:      "subtask-research",
+				Profile: "dev-role",
+				Command: "sh",
+				Args:    []string{"-c", "git status"},
+				Role:    "researcher",
+				Paths:   []string{"non_mutated.go"},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	result, err := taskMgr.ExecutePlan(ctx, req)
+	if err != nil {
+		t.Fatalf("ExecutePlan failed: %v", err)
+	}
+
+	if len(result.Subtasks) != 1 {
+		t.Fatalf("expected 1 subtask, got %d", len(result.Subtasks))
+	}
+	stRes := result.Subtasks[0]
+	if stRes.Status != StatusCompleted {
+		t.Errorf("expected status 'completed' for researcher persona, got %q (error: %s)", stRes.Status, stRes.Error)
+	}
+	if stRes.Role != "researcher" {
+		t.Errorf("expected role 'researcher', got %q", stRes.Role)
+	}
+	if !stRes.ReadOnly {
+		t.Errorf("expected ReadOnly to be true for researcher persona")
+	}
+
+	if len(capturedOpts) < 1 {
+		t.Fatalf("expected at least 1 captured session options")
+	}
+	opt0 := capturedOpts[0]
+	if opt0.Role != "researcher" {
+		t.Errorf("expected captured role 'researcher', got %q", opt0.Role)
+	}
+	if !opt0.ReadOnly {
+		t.Errorf("expected captured ReadOnly true")
+	}
+	if !opt0.Sandbox {
+		t.Errorf("expected captured Sandbox true")
+	}
+	if opt0.Command != "agent-guard" {
+		t.Errorf("expected command 'agent-guard', got %q", opt0.Command)
+	}
+
+	// 2. PlanRequest with Role and ReadOnly inherits to subtasks
+	reqInherit := PlanRequest{
+		PlanID:   "plan-test-inherit-role",
+		RepoPath: repoDir,
+		Workers:  1,
+		Role:     "verifier",
+		ReadOnly: true,
+		Subtasks: []SubtaskSpec{
+			{
+				ID:      "subtask-verify",
+				Profile: "dev-role",
+				Command: "sh",
+				Args:    []string{"-c", "echo 'verifying'"},
+			},
+		},
+	}
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel2()
+
+	resInherit, err := taskMgr.ExecutePlan(ctx2, reqInherit)
+	if err != nil {
+		t.Fatalf("ExecutePlan inherit failed: %v", err)
+	}
+	if len(resInherit.Subtasks) != 1 {
+		t.Fatalf("expected 1 subtask, got %d", len(resInherit.Subtasks))
+	}
+	stInherit := resInherit.Subtasks[0]
+	if stInherit.Role != "verifier" {
+		t.Errorf("expected role 'verifier', got %q", stInherit.Role)
+	}
+	if !stInherit.ReadOnly {
+		t.Errorf("expected ReadOnly true from PlanRequest")
+	}
 }

@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	guardRole string
-	guardRepo string
+	guardRole     string
+	guardRepo     string
+	guardReadOnly bool
 )
 
 func newAgentGuardCmd() *cobra.Command {
@@ -31,14 +32,21 @@ intercepting and preventing destructive mutations outside the target repository 
 		RunE:  runAgentGuardWrap,
 	}
 
-	wrapCmd.Flags().StringVar(&guardRole, "role", "developer", "Execution role boundary (developer, reviewer, auditor)")
+	wrapCmd.Flags().StringVar(&guardRole, "role", "developer", "Execution role boundary (developer, researcher, verifier, reviewer, auditor)")
 	wrapCmd.Flags().StringVar(&guardRepo, "repo", ".", "Target repository root boundary")
+	wrapCmd.Flags().BoolVar(&guardReadOnly, "read-only", false, "Enforce strict read-only execution prohibiting any filesystem mutation")
 
 	guardCmd.AddCommand(wrapCmd)
 	return guardCmd
 }
 
 func runAgentGuardWrap(cmd *cobra.Command, args []string) error {
+	defer func() {
+		guardRole = "developer"
+		guardRepo = "."
+		guardReadOnly = false
+	}()
+
 	if len(args) == 0 {
 		return fmt.Errorf("command is required after -- in agent-guard wrap")
 	}
@@ -61,9 +69,9 @@ func runAgentGuardWrap(cmd *cobra.Command, args []string) error {
 	command := args[0]
 	cmdArgs := args[1:]
 
-	// 1. Inspect subshell and direct command for mutation violations outside target repo
+	// 1. Inspect subshell and direct command for mutation violations outside target repo or role violations
 	fullCmdLine := strings.Join(args, " ")
-	if err := agent.InterceptSubshellMutation(absRepo, fullCmdLine); err != nil {
+	if err := agent.InterceptSubshellMutationWithRole(absRepo, fullCmdLine, guardRole, guardReadOnly); err != nil {
 		return err
 	}
 
@@ -71,7 +79,7 @@ func runAgentGuardWrap(cmd *cobra.Command, args []string) error {
 	baseCmd := strings.ToLower(filepath.Base(command))
 	baseCmd = strings.TrimSuffix(baseCmd, ".exe")
 	if (baseCmd == "sh" || baseCmd == "bash") && len(cmdArgs) >= 2 && cmdArgs[0] == "-c" {
-		if err := agent.InterceptSubshellMutation(absRepo, cmdArgs[1]); err != nil {
+		if err := agent.InterceptSubshellMutationWithRole(absRepo, cmdArgs[1], guardRole, guardReadOnly); err != nil {
 			return err
 		}
 	}

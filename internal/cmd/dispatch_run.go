@@ -26,6 +26,8 @@ var (
 	dpRunProfile   string
 	dpRunRepo      string
 	dpSandbox      bool
+	dpRole         string
+	dpReadOnly     bool
 	dpVerify       string
 	dpRetry        int
 	dpNoGovernance bool
@@ -57,6 +59,8 @@ func newDispatchRunCmd() *cobra.Command {
 	runSubCmd.Flags().StringVar(&dpGateway, "gateway", "", "Gateway base URL (defaults to auto-detecting http://127.0.0.1:8080/v1)")
 	runSubCmd.Flags().StringVar(&dpGatewayKey, "gateway-key", "", "Gateway authentication key")
 	runSubCmd.Flags().BoolVar(&dpSandbox, "sandbox", false, "Enforce filesystem and execution boundaries via agent-guard")
+	runSubCmd.Flags().StringVar(&dpRole, "role", "developer", "Execution role boundary (developer, researcher, verifier, reviewer, auditor)")
+	runSubCmd.Flags().BoolVar(&dpReadOnly, "read-only", false, "Enforce strict read-only execution prohibiting any filesystem mutation")
 	runSubCmd.Flags().StringVar(&dpVerify, "verify", "", "Verification command to execute inside worktree upon agent completion (e.g. 'go test ./...')")
 	runSubCmd.Flags().IntVar(&dpRetry, "retry", 0, "Maximum number of retries if verification fails")
 	runSubCmd.Flags().StringVar(&dpTraceID, "trace-id", "", "Distributed trace identifier (or MAESTRI_TRACE_ID)")
@@ -76,6 +80,9 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		dpCwd = ""
 		dpRunRepo = ""
 		dpRunProfile = ""
+		dpSandbox = false
+		dpRole = ""
+		dpReadOnly = false
 		dpGateway = ""
 		dpGatewayKey = ""
 		dpVerify = ""
@@ -136,7 +143,9 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		AgentType:    dpAgentType,
 		Command:      command,
 		Args:         cmdArgs,
-		Sandbox:      dpSandbox,
+		Sandbox:      dpSandbox || dpReadOnly || (dpRole != "" && dpRole != "developer"),
+		Role:         dpRole,
+		ReadOnly:     dpReadOnly,
 		Verify:       dpVerify,
 		Retry:        dpRetry,
 		TraceID:      dpTraceID,
@@ -175,6 +184,12 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		}
 		if task.Governance {
 			fmt.Fprintf(out, "  Governance: %s\n", dpGreen("injected"))
+		}
+		if task.Role != "" {
+			fmt.Fprintf(out, "  Role:       %s\n", dpCyan(task.Role))
+		}
+		if task.ReadOnly {
+			fmt.Fprintf(out, "  Mode:       %s\n", dpYellow("read-only"))
 		}
 		if task.Prompt != "" {
 			fmt.Fprintf(out, "  Prompt:     %s\n", dpDim(task.Prompt))

@@ -26,6 +26,8 @@ type WaveTaskSpec struct {
 	Paths    []string `json:"paths,omitempty"`
 	Verify   string   `json:"verify,omitempty"`
 	Model    string   `json:"model,omitempty"`
+	Role     string   `json:"role,omitempty"`
+	ReadOnly bool     `json:"read_only,omitempty"`
 }
 
 // WaveSpec represents a collection of tasks belonging to the same wave tag.
@@ -41,6 +43,8 @@ type WaveOptions struct {
 	WaveTag      string        `json:"wave_tag,omitempty"`
 	Timeout      time.Duration `json:"timeout,omitempty"`
 	DefaultModel string        `json:"default_model,omitempty"`
+	Role         string        `json:"role,omitempty"`
+	ReadOnly     bool          `json:"read_only,omitempty"`
 	NoRetry      bool          `json:"no_retry,omitempty"`
 	Probe        bool          `json:"probe,omitempty"`
 }
@@ -187,6 +191,11 @@ func ParseTaskWave(taskFilePath, waveTag string) (*WaveSpec, error) {
 					currentTask.Verify = cleanBackticksAndSpaces(bulletContent)
 				} else if matchField(&bulletContent, lower, "model:") {
 					currentTask.Model = cleanBackticksAndSpaces(bulletContent)
+				} else if matchField(&bulletContent, lower, "role:") {
+					currentTask.Role = cleanBackticksAndSpaces(bulletContent)
+				} else if matchField(&bulletContent, lower, "read-only:") || matchField(&bulletContent, lower, "readonly:") {
+					val := strings.ToLower(cleanBackticksAndSpaces(bulletContent))
+					currentTask.ReadOnly = (val == "true" || val == "1" || val == "yes")
 				}
 			} else if trimmed != "" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
 				// Reached an unindented non-bullet line, flush current task
@@ -354,6 +363,11 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 	// Build PlanRequest
 	subtasks := make([]SubtaskSpec, len(waveSpec.Tasks))
 	for i, t := range waveSpec.Tasks {
+		taskRole := t.Role
+		if taskRole == "" {
+			taskRole = opts.Role
+		}
+		taskReadOnly := t.ReadOnly || opts.ReadOnly
 		subtasks[i] = SubtaskSpec{
 			ID:            t.ID,
 			Profile:       "auto",
@@ -362,6 +376,8 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 			Read:          t.Read,
 			Paths:         t.Paths,
 			Model:         t.Model,
+			Role:          taskRole,
+			ReadOnly:      taskReadOnly,
 			CommitMessage: fmt.Sprintf("feat(%s): %s", t.ID, t.Title),
 		}
 	}
@@ -455,6 +471,12 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 
 			retryPrompt := SynthesizeCascadeRetryPrompt(t.Title, res.Model, res.VerificationOutput, res.LogTail)
 
+			retryRole := t.Role
+			if retryRole == "" {
+				retryRole = opts.Role
+			}
+			retryReadOnly := t.ReadOnly || opts.ReadOnly
+
 			retrySubtask := SubtaskSpec{
 				ID:            t.ID,
 				Profile:       retryProfile,
@@ -463,6 +485,8 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 				Read:          t.Read,
 				Paths:         t.Paths,
 				Model:         retryModel,
+				Role:          retryRole,
+				ReadOnly:      retryReadOnly,
 				CommitMessage: fmt.Sprintf("feat(%s): %s", t.ID, t.Title),
 			}
 

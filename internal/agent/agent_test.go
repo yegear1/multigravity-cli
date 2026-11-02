@@ -399,6 +399,123 @@ func TestInterceptSubshellMutation(t *testing.T) {
 	}
 }
 
+func TestWrapWithAgentGuardWithOptions_Roles(t *testing.T) {
+	// 1. Researcher persona auto-activates --read-only
+	cmd, args := WrapWithAgentGuardWithOptions("claude", []string{"-p", "audit"}, GuardOptions{
+		RepoPath: "/repo/path",
+		Role:     RoleResearcher,
+	})
+	if cmd != "agent-guard" {
+		t.Fatalf("expected agent-guard, got %q", cmd)
+	}
+	expectedResearcher := []string{"wrap", "--role", "researcher", "--repo", "/repo/path", "--read-only", "--", "claude", "-p", "audit"}
+	if strings.Join(args, " ") != strings.Join(expectedResearcher, " ") {
+		t.Errorf("got %v, want %v", args, expectedResearcher)
+	}
+
+	// 2. Verifier persona without read-only
+	cmd, args = WrapWithAgentGuardWithOptions("agy", []string{"-p", "verify"}, GuardOptions{
+		RepoPath: "/repo/path",
+		Role:     RoleVerifier,
+	})
+	expectedVerifier := []string{"wrap", "--role", "verifier", "--repo", "/repo/path", "--", "agy", "-p", "verify"}
+	if strings.Join(args, " ") != strings.Join(expectedVerifier, " ") {
+		t.Errorf("got %v, want %v", args, expectedVerifier)
+	}
+
+	// 3. Developer with explicit read-only
+	cmd, args = WrapWithAgentGuardWithOptions("claude", []string{"-p", "inspect"}, GuardOptions{
+		RepoPath: "/repo/path",
+		Role:     RoleDeveloper,
+		ReadOnly: true,
+	})
+	expectedDevReadOnly := []string{"wrap", "--role", "developer", "--repo", "/repo/path", "--read-only", "--", "claude", "-p", "inspect"}
+	if strings.Join(args, " ") != strings.Join(expectedDevReadOnly, " ") {
+		t.Errorf("got %v, want %v", args, expectedDevReadOnly)
+	}
+}
+
+func TestInterceptSubshellMutationWithRole_Personas(t *testing.T) {
+	repoDir := "/home/user/project"
+
+	// 1. Researcher role (strictly read-only)
+	allowedResearcher := []string{
+		"cat README.md",
+		"grep -r 'func' .",
+		"git status",
+		"git diff",
+		"git log -n 5",
+		"echo 'discard' > /dev/null",
+	}
+	for _, cmd := range allowedResearcher {
+		if err := InterceptSubshellMutationWithRole(repoDir, cmd, RoleResearcher, false); err != nil {
+			t.Errorf("expected researcher command %q to be allowed, got: %v", cmd, err)
+		}
+	}
+
+	blockedResearcher := []string{
+		"touch newfile.txt",
+		"rm file.txt",
+		"mkdir -p temp",
+		"echo 'data' > output.log",
+		"echo 'data' >> output.log",
+		"git commit -m 'write'",
+		"git push origin main",
+		"git reset --hard HEAD",
+		"git checkout -b feature",
+		"sed -i 's/a/b/' file.txt",
+	}
+	for _, cmd := range blockedResearcher {
+		if err := InterceptSubshellMutationWithRole(repoDir, cmd, RoleResearcher, false); err == nil {
+			t.Errorf("expected researcher command %q to be blocked, but was allowed", cmd)
+		}
+	}
+
+	// 2. Verifier role (allowed test execution, blocked code/repo mutations)
+	allowedVerifier := []string{
+		"go test ./...",
+		"cargo test",
+		"pytest",
+		"golangci-lint run",
+		"git diff",
+		"git status",
+		"go test -v ./... > test.log 2>&1",
+		"go test ./... > /dev/null",
+	}
+	for _, cmd := range allowedVerifier {
+		if err := InterceptSubshellMutationWithRole(repoDir, cmd, RoleVerifier, false); err != nil {
+			t.Errorf("expected verifier command %q to be allowed, got: %v", cmd, err)
+		}
+	}
+
+	blockedVerifier := []string{
+		"touch main.go",
+		"rm -rf src/",
+		"echo 'package bad' > main.go",
+		"git commit -m 'test fix'",
+		"git push origin main",
+		"sed -i 's/foo/bar/' main.go",
+	}
+	for _, cmd := range blockedVerifier {
+		if err := InterceptSubshellMutationWithRole(repoDir, cmd, RoleVerifier, false); err == nil {
+			t.Errorf("expected verifier command %q to be blocked, but was allowed", cmd)
+		}
+	}
+
+	// 3. Developer role with ReadOnly = true
+	blockedDevReadOnly := []string{
+		"touch main.go",
+		"echo 'hello' > out.txt",
+		"rm file.txt",
+		"git commit -m 'fail'",
+	}
+	for _, cmd := range blockedDevReadOnly {
+		if err := InterceptSubshellMutationWithRole(repoDir, cmd, RoleDeveloper, true); err == nil {
+			t.Errorf("expected developer read-only command %q to be blocked, but was allowed", cmd)
+		}
+	}
+}
+
 func TestStartSession_SandboxWrapping(t *testing.T) {
 	mgr := NewManager()
 	testRepo := t.TempDir()

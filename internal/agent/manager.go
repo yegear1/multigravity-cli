@@ -72,12 +72,16 @@ func (m *Manager) StartSession(opts CreateSessionOptions) (*SessionInstance, err
 	command := opts.Command
 	args := opts.Args
 
-	if opts.Sandbox && !SupportsNativeSandbox(agentType) {
+	if (opts.Sandbox || opts.ReadOnly) && !SupportsNativeSandbox(agentType) {
 		repoPath := opts.RepoPath
 		if repoPath == "" {
 			repoPath = opts.Cwd
 		}
-		command, args = WrapWithAgentGuard(command, args, repoPath, opts.Role)
+		command, args = WrapWithAgentGuardWithOptions(command, args, GuardOptions{
+			RepoPath: repoPath,
+			Role:     opts.Role,
+			ReadOnly: opts.ReadOnly,
+		})
 	}
 
 	var cmd *exec.Cmd

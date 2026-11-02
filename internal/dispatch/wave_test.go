@@ -28,6 +28,8 @@ func TestParseTaskWave(t *testing.T) {
   - ` + "`Paths:` `internal/dispatch/plan.go, internal/dispatch/plan_test.go`" + `
   - ` + "`Verify:` `go test ./internal/dispatch -run TestPlan`" + `
   - ` + "`Model:` `gemini-3.8-flash-low`" + `
+  - ` + "`Role:` `researcher`" + `
+  - ` + "`Read-Only:` `true`" + `
 - [ ] **[05.11]** Feature   B ` + "`[APPROVED]` `[PARALLEL: W1]`" + `
   - ` + "`Read:` `internal/cmd/dispatch.go:930-1045`" + `
   - ` + "`Paths:` `internal/dispatch/wave.go, internal/cmd/dispatch.go`" + `
@@ -77,6 +79,12 @@ func TestParseTaskWave(t *testing.T) {
 	}
 	if t1.Model != "gemini-3.8-flash-low" {
 		t.Errorf("unexpected Model for 05.10: %s", t1.Model)
+	}
+	if t1.Role != "researcher" {
+		t.Errorf("expected Role 'researcher' for 05.10, got %q", t1.Role)
+	}
+	if !t1.ReadOnly {
+		t.Errorf("expected ReadOnly true for 05.10")
 	}
 
 	// Verify task 05.11

@@ -22,6 +22,8 @@ var (
 	dpWaveLint    bool
 	dpWaveFull    bool
 	dpWaveProbe   bool
+	dpWaveRole    string
+	dpWaveReadOnly bool
 )
 
 func newDispatchWaveCmd() *cobra.Command {
@@ -41,6 +43,8 @@ and execute them in parallel or sequence with automatic profile and quota routin
 	waveSubCmd.Flags().BoolVar(&dpWaveLint, "lint", false, "Validate task wave specifications against governance lint rules without executing")
 	waveSubCmd.Flags().BoolVar(&dpWaveFull, "full", false, "Output full verbose wave execution result including subtask prompts and diffs")
 	waveSubCmd.Flags().BoolVar(&dpWaveProbe, "probe", false, "Probe and wake inactive secondary profile language servers during pre-flight")
+	waveSubCmd.Flags().StringVar(&dpWaveRole, "role", "", "Execution role boundary for wave tasks (e.g. developer, researcher, verifier)")
+	waveSubCmd.Flags().BoolVar(&dpWaveReadOnly, "read-only", false, "Enforce strict read-only execution across wave tasks")
 	return waveSubCmd
 }
 
@@ -54,6 +58,8 @@ func runDispatchWave(cmd *cobra.Command, args []string) error {
 		dpWaveLint = false
 		dpWaveFull = false
 		dpWaveProbe = false
+		dpWaveRole = ""
+		dpWaveReadOnly = false
 		dpJSON = false
 	}()
 
@@ -124,6 +130,8 @@ func runDispatchWave(cmd *cobra.Command, args []string) error {
 		Timeout:  timeoutDur,
 		NoRetry:  dpWaveNoRetry,
 		Probe:    dpWaveProbe,
+		Role:     dpWaveRole,
+		ReadOnly: dpWaveReadOnly,
 	}
 
 	out := cmd.OutOrStdout()

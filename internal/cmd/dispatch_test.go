@@ -888,6 +888,60 @@ func TestDispatchCLISandbox(t *testing.T) {
 		t.Errorf("expected taskCodex.Command to be 'codex', got %q", taskCodex.Command)
 	}
 	time.Sleep(200 * time.Millisecond)
+
+	// 3. Dispatch run with --role researcher auto-activates sandbox and read-only
+	outResearcher, err := executeCommand(cmd, "run", "dev", "--repo", repoDir, "--role", "researcher", "--agent", "claude", "-p", "research something", "--detach", "--json")
+	if err != nil {
+		t.Fatalf("failed to dispatch researcher task: %v (out: %s)", err, outResearcher)
+	}
+	var taskResearcher dispatch.Task
+	if err := json.Unmarshal([]byte(outResearcher), &taskResearcher); err != nil {
+		t.Fatalf("failed to parse researcher task JSON: %v", err)
+	}
+	if taskResearcher.Role != "researcher" {
+		t.Errorf("expected role 'researcher', got %q", taskResearcher.Role)
+	}
+	if !taskResearcher.ReadOnly {
+		t.Errorf("expected taskResearcher.ReadOnly to be true")
+	}
+	if !taskResearcher.Sandbox {
+		t.Errorf("expected taskResearcher.Sandbox to be true")
+	}
+	if taskResearcher.Command != "agent-guard" {
+		t.Errorf("expected command 'agent-guard', got %q", taskResearcher.Command)
+	}
+	foundRole := false
+	foundReadOnly := false
+	for i, a := range taskResearcher.Args {
+		if a == "--role" && i+1 < len(taskResearcher.Args) && taskResearcher.Args[i+1] == "researcher" {
+			foundRole = true
+		}
+		if a == "--read-only" {
+			foundReadOnly = true
+		}
+	}
+	if !foundRole || !foundReadOnly {
+		t.Errorf("expected --role researcher and --read-only in args, got: %v", taskResearcher.Args)
+	}
+
+	// 4. Dispatch run with explicit --read-only
+	outReadOnly, err := executeCommand(cmd, "run", "dev", "--repo", repoDir, "--read-only", "--agent", "claude", "-p", "inspect code", "--detach", "--json")
+	if err != nil {
+		t.Fatalf("failed to dispatch read-only task: %v (out: %s)", err, outReadOnly)
+	}
+	var taskReadOnly dispatch.Task
+	if err := json.Unmarshal([]byte(outReadOnly), &taskReadOnly); err != nil {
+		t.Fatalf("failed to parse read-only task JSON: %v", err)
+	}
+	if !taskReadOnly.ReadOnly {
+		t.Errorf("expected taskReadOnly.ReadOnly to be true")
+	}
+	if !taskReadOnly.Sandbox {
+		t.Errorf("expected taskReadOnly.Sandbox to be true")
+	}
+	if taskReadOnly.Command != "agent-guard" {
+		t.Errorf("expected command 'agent-guard', got %q", taskReadOnly.Command)
+	}
 }
 
 func TestDispatchCLIRunVerify(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ye-dev/multigravity-cli/internal/agent"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
@@ -43,6 +44,9 @@ type SubtaskSpec struct {
 	Paths         []string          `json:"paths,omitempty"`
 	CommitMessage string            `json:"commit_message,omitempty"`
 	Model         string            `json:"model,omitempty"`
+	Role          string            `json:"role,omitempty"`
+	ReadOnly      bool              `json:"read_only,omitempty"`
+	Sandbox       bool              `json:"sandbox,omitempty"`
 }
 
 // PlanRequest defines the input payload for dispatching a batch of subtasks concurrently across worktrees.
@@ -56,6 +60,9 @@ type PlanRequest struct {
 	Subtasks     []SubtaskSpec `json:"subtasks,omitempty"`
 	Tasks        []SubtaskSpec `json:"tasks,omitempty"` // Alias for Subtasks
 	DefaultModel string        `json:"default_model,omitempty"`
+	Role         string        `json:"role,omitempty"`
+	ReadOnly     bool          `json:"read_only,omitempty"`
+	Sandbox      bool          `json:"sandbox,omitempty"`
 	ApplyAtomic  bool          `json:"apply_atomic,omitempty"`
 	OmitDiff     bool          `json:"omit_diff,omitempty"`
 	InlineRead   bool          `json:"inline_read,omitempty"`
@@ -88,6 +95,8 @@ type SubtaskResult struct {
 	Model                string          `json:"model,omitempty"`
 	FailureReason        string          `json:"failure_reason,omitempty"`
 	TokensUsed           int             `json:"tokens_used,omitempty"`
+	Role                 string          `json:"role,omitempty"`
+	ReadOnly             bool            `json:"read_only,omitempty"`
 }
 
 // UnifiedDiffSummary aggregates diff statistics, affected files, and scope collision analysis.
@@ -675,6 +684,16 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					}
 				}
 
+				effectiveRole := st.Role
+				if effectiveRole == "" {
+					effectiveRole = req.Role
+				}
+				if effectiveRole == "" {
+					effectiveRole = agent.RoleDeveloper
+				}
+				effectiveReadOnly := st.ReadOnly || req.ReadOnly || agent.IsReadOnlyRole(effectiveRole)
+				effectiveSandbox := st.Sandbox || req.Sandbox || effectiveReadOnly || (effectiveRole != agent.RoleDeveloper)
+
 				res := SubtaskResult{
 					ID:         stID,
 					TaskID:     taskID,
@@ -685,6 +704,8 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					BaseCommit: baseCommit,
 					ExitCode:   -1,
 					Model:      resolvedModel,
+					Role:       effectiveRole,
+					ReadOnly:   effectiveReadOnly,
 				}
 
 				dArgs := append([]string(nil), st.Args...)
@@ -736,6 +757,9 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					AgentType:   st.AgentType,
 					Command:     st.Command,
 					Args:        dArgs,
+					Sandbox:     effectiveSandbox,
+					Role:        effectiveRole,
+					ReadOnly:    effectiveReadOnly,
 					NewWorktree: true,
 					Branch:      branch,
 					BaseCommit:  baseCommit,
@@ -892,12 +916,12 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					}
 				}
 
-				if len(st.Paths) > 0 && strings.TrimSpace(res.Diff) == "" && res.Status == StatusCompleted {
+				if !effectiveReadOnly && len(st.Paths) > 0 && strings.TrimSpace(res.Diff) == "" && res.Status == StatusCompleted {
 					res.Status = StatusAuditFailed
 					res.Error = "empty_diff: subtask exited without modifying any allowed paths"
 				}
 
-				if req.ApplyAtomic && res.Status == StatusCompleted && res.Diff != "" {
+				if !effectiveReadOnly && req.ApplyAtomic && res.Status == StatusCompleted && res.Diff != "" {
 					if err := worktree.GitApply(repoRoot, res.Diff, false, false); err != nil {
 						res.Status = StatusFailed
 						res.Error = fmt.Sprintf("apply diff error: %v", err)

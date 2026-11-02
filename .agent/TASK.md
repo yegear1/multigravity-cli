@@ -8,7 +8,7 @@
 ## Active Task
 
 ### [08.5] Dynamic Dispatch Roles & Execution Sandboxing
-- Status: APPROVED
+- Status: RUNNING
 - Priority: P1
 - Description: Expose `--role` and `--read-only` in `dispatch run/plan/wave`, integrating `agent-guard` subshell mutation intercepts to restrict command capabilities per task persona (e.g. researcher, verifier, developer).
 - Paths: `internal/cmd/dispatch_run.go`, `internal/dispatch/types.go`, `internal/dispatch/manager.go`, `internal/dispatch/plan.go`, `internal/agent/guard.go`

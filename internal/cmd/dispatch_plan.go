@@ -20,6 +20,8 @@ var (
 	dpPlanApplyAtomic bool
 	dpPlanOmitDiff    bool
 	dpPlanFull        bool
+	dpPlanRole        string
+	dpPlanReadOnly    bool
 )
 
 func newDispatchPlanCmd() *cobra.Command {
@@ -37,6 +39,8 @@ git worktrees, returning a unified summary of execution status and diffs. Use '-
 	planSubCmd.Flags().BoolVar(&dpPlanApplyAtomic, "apply-atomic", false, "Atomically apply diffs to base repo after completion")
 	planSubCmd.Flags().BoolVar(&dpPlanOmitDiff, "omit-diff", false, "Omit diff bodies in output for token efficiency")
 	planSubCmd.Flags().BoolVar(&dpPlanFull, "full", false, "Output full verbose plan result including prompts and diffs")
+	planSubCmd.Flags().StringVar(&dpPlanRole, "role", "", "Execution role boundary for plan subtasks (e.g. developer, researcher, verifier)")
+	planSubCmd.Flags().BoolVar(&dpPlanReadOnly, "read-only", false, "Enforce strict read-only execution across plan subtasks")
 	return planSubCmd
 }
 
@@ -48,6 +52,8 @@ func runDispatchPlan(cmd *cobra.Command, args []string) error {
 		dpPlanApplyAtomic = false
 		dpPlanOmitDiff = false
 		dpPlanFull = false
+		dpPlanRole = ""
+		dpPlanReadOnly = false
 		dpJSON = false
 	}()
 
@@ -83,6 +89,12 @@ func runDispatchPlan(cmd *cobra.Command, args []string) error {
 	}
 	if dpPlanOmitDiff {
 		req.OmitDiff = true
+	}
+	if dpPlanRole != "" {
+		req.Role = dpPlanRole
+	}
+	if dpPlanReadOnly {
+		req.ReadOnly = true
 	}
 
 	out := cmd.OutOrStdout()

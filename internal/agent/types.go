@@ -47,6 +47,7 @@ type CreateSessionOptions struct {
 	RepoPath   string            `json:"repo_path,omitempty"`
 	Sandbox    bool              `json:"sandbox,omitempty"`
 	Role       string            `json:"role,omitempty"`
+	ReadOnly   bool              `json:"read_only,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`
 	GatewayURL string            `json:"gateway_url,omitempty"`
 	GatewayKey string            `json:"gateway_key,omitempty"`

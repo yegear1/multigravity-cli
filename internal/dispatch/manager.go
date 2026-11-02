@@ -533,8 +533,19 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		agentType = agent.DetectAgentType(cmdStr)
 	}
 
-	if opts.Sandbox && !agent.SupportsNativeSandbox(agentType) {
-		cmdStr, args = agent.WrapWithAgentGuard(cmdStr, args, execDir, opts.Role)
+	effectiveRole := opts.Role
+	if effectiveRole == "" {
+		effectiveRole = agent.RoleDeveloper
+	}
+	effectiveReadOnly := opts.ReadOnly || agent.IsReadOnlyRole(effectiveRole)
+	effectiveSandbox := opts.Sandbox || effectiveReadOnly || (effectiveRole != agent.RoleDeveloper)
+
+	if effectiveSandbox && !agent.SupportsNativeSandbox(agentType) {
+		cmdStr, args = agent.WrapWithAgentGuardWithOptions(cmdStr, args, agent.GuardOptions{
+			RepoPath: execDir,
+			Role:     effectiveRole,
+			ReadOnly: effectiveReadOnly,
+		})
 	}
 
 	tasksDir := getTasksDir(repoRoot)
@@ -573,8 +584,9 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		RepoPath:     repoRoot,
 		WorktreeID:   wtID,
 		WorktreePath: wtPath,
-		Sandbox:      opts.Sandbox,
-		Role:         opts.Role,
+		Sandbox:      effectiveSandbox,
+		Role:         effectiveRole,
+		ReadOnly:     effectiveReadOnly,
 		Verify:       opts.Verify,
 		Retry:        opts.Retry,
 		RetryCount:   0,
@@ -618,8 +630,9 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		Cwd:        execDir,
 		WorktreeID: wtID,
 		RepoPath:   execDir,
-		Sandbox:    opts.Sandbox,
-		Role:       opts.Role,
+		Sandbox:    effectiveSandbox,
+		Role:       effectiveRole,
+		ReadOnly:   effectiveReadOnly,
 		Env:        taskEnv,
 		GatewayURL: opts.GatewayURL,
 		GatewayKey: opts.GatewayKey,
@@ -815,8 +828,12 @@ func (m *TaskManager) watchSession(inst *agent.SessionInstance, task *Task, task
 			} else {
 				retryCmd, retryArgs = ResolveAgentCommandWithCwd(task.AgentType, opts.Command, nil, retryPrompt, execDir)
 			}
-			if opts.Sandbox && !agent.SupportsNativeSandbox(task.AgentType) {
-				retryCmd, retryArgs = agent.WrapWithAgentGuard(retryCmd, retryArgs, execDir, opts.Role)
+			if (task.Sandbox || task.ReadOnly) && !agent.SupportsNativeSandbox(task.AgentType) {
+				retryCmd, retryArgs = agent.WrapWithAgentGuardWithOptions(retryCmd, retryArgs, agent.GuardOptions{
+					RepoPath: execDir,
+					Role:     task.Role,
+					ReadOnly: task.ReadOnly,
+				})
 			}
 
 			m.mu.Lock()
@@ -852,8 +869,9 @@ func (m *TaskManager) watchSession(inst *agent.SessionInstance, task *Task, task
 				Cwd:        execDir,
 				WorktreeID: task.WorktreeID,
 				RepoPath:   execDir,
-				Sandbox:    opts.Sandbox,
-				Role:       opts.Role,
+				Sandbox:    task.Sandbox,
+				Role:       task.Role,
+				ReadOnly:   task.ReadOnly,
 				Env:        sessEnv,
 				GatewayURL: opts.GatewayURL,
 				GatewayKey: opts.GatewayKey,

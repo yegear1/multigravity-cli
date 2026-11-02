@@ -22,6 +22,23 @@
 - **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
 - **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts, `--model` vs `--effort` flag conflict rules (`gemini-3.8-flash-low/medium/high` already encode effort), and single-grep escape hatch + line-ranged `Read: file:start-end` pre-injection, (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult` (including on `empty_diff`) and rejecting Go `testing: warning: no tests to run` false-positives, (5) diffing worktrees strictly against `HEAD` (`git diff HEAD -- <paths>`) / immutable SHA `BaseCommit` rather than moving `main` during multi-task wave commits, and (6) model-aware bucket routing (`gemini`/`argon`/`3p`) with failed-profile retry exclusion and native `.agent/TASK.md` wave execution (`multigravity dispatch wave`).
 
+### 2026-11-02 [Task 08.5] Dynamic Dispatch Roles & Execution Sandboxing
+
+- **Context:** Previously, task dispatch assumed full mutating developer privileges for all agent runners, lacking persona role boundaries (researcher, verifier) and strict read-only execution modes.
+- **Active Contracts:**
+  - `internal/agent/guard.go`:
+    - Role constants: `RoleDeveloper` ("developer"), `RoleResearcher` ("researcher"), `RoleVerifier` ("verifier"), `RoleReviewer` ("reviewer"), `RoleAuditor` ("auditor").
+    - `IsReadOnlyRole(role string) bool`: reports whether an execution role is inherently read-only (`researcher`, `reviewer`, `auditor`).
+    - `GuardOptions` & `WrapWithAgentGuardWithOptions(command, args, opts)`: wraps agent commands with `--role <role>` and `--read-only` boundary flags.
+    - `InterceptSubshellMutationWithRole(repoRoot, subshellCmd, role, readOnly)`: checks command pipeline, blocking mutating commands (`rm`, `touch`, `cp`, `mv`, `mkdir`, `rmdir`, `chmod`, `chown`, `truncate`, `tee`), sed in-place (`sed -i`), git mutating actions (`commit`, `push`, `reset`, `clean`, `restore`, `merge`, `rebase`, `apply`, `cherry-pick`, `tag`, `rm`, `mv`, `revert`, `checkout`), and file redirection (`>`, `>>`) in read-only / verifier modes, while safely allowing null sinks (`/dev/null`, `nul`, `&1`, `&2`) and test output logs.
+  - `internal/dispatch/`:
+    - `types.go`: added `ReadOnly bool json:"read_only,omitempty"` to `Task` and `DispatchOptions`.
+    - `manager.go`: `Dispatch` activates sandboxing when `opts.ReadOnly` or non-default `opts.Role` is passed, wrapping commands via `WrapWithAgentGuardWithOptions`, and preserving flags during verification retries.
+    - `plan.go`: `SubtaskSpec`, `PlanRequest`, and `SubtaskResult` accept and propagate `Role` and `ReadOnly`. `ExecutePlan` exempts read-only / researcher tasks from `empty_diff` audit failures and atomic git apply mutations.
+    - `wave.go`: `WaveTaskSpec` and `WaveOptions` parse `- Role:` and `- Read-Only:` bullets from `.agent/TASK.md` and propagate them across wave subtask execution and cascade retries.
+  - `internal/cmd/`:
+    - Added `--role` and `--read-only` flags to `multigravity dispatch run`, `multigravity dispatch plan`, `multigravity dispatch wave`, and `multigravity agent-guard wrap`.
+
 ### 2026-11-02 [Task 08.4] Cross-Profile Shared Cooldown & Throttling Pool
 
 - **Context:** Previously, rate-limit (HTTP 429) feedback was recorded only per-profile in local memory and single profile history. When a model tier or provider RPM/TPM limit was hit, secondary profiles repeatedly attempted the exact same exhausted model, wasting time and quota retries.
