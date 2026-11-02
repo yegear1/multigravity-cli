@@ -7,11 +7,7 @@
 
 ## Active Task
 
-### [08.7] Native Antigravity Subagent Orchestration Bridge
-- Status: READY FOR PLANNING
-- Priority: P1
-- Description: Connect Multigravity macro-routing directly to Antigravity subagent workers via headless CLI invocation (`agy --headless -p`) and native MCP delegation tools with quota-aware profile failover.
-- Paths: `internal/mcp/server.go`, `internal/agent/runner.go`, `internal/dispatch/manager.go`, `internal/quota/routing.go`
+*(No active task — awaiting next planning cycle)*
 
 ---
 
@@ -19,6 +15,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [08.7] | Native Antigravity Subagent Orchestration Bridge | `de163c9` | 2026-11-02 |
 | [08.6] | Hybrid Workspace Modes (Zero-I/O Read-Only Dispatch) | `62d317f` | 2026-11-02 |
 | [08.5] | Dynamic Dispatch Roles & Execution Sandboxing | `d9dfdb8` | 2026-11-02 |
 | [08.4] | Cross-Profile Shared Cooldown & Throttling Pool | `2607306` | 2026-11-02 |
