@@ -7,11 +7,11 @@
 
 ## Active Task
 
-### [08.5] Dynamic Dispatch Roles & Execution Sandboxing
-- Status: RUNNING
+### [08.6] Hybrid Workspace Modes (Zero-I/O Read-Only Dispatch)
+- Status: APPROVED
 - Priority: P1
-- Description: Expose `--role` and `--read-only` in `dispatch run/plan/wave`, integrating `agent-guard` subshell mutation intercepts to restrict command capabilities per task persona (e.g. researcher, verifier, developer).
-- Paths: `internal/cmd/dispatch_run.go`, `internal/dispatch/types.go`, `internal/dispatch/manager.go`, `internal/dispatch/plan.go`, `internal/agent/guard.go`
+- Description: Add workspace modes (`--workspace=worktree|mirror|inherit`) to avoid ephemeral git worktree creation overhead for read-only / research tasks, executing safely in-place with filesystem mutation guards.
+- Paths: `internal/cmd/dispatch_run.go`, `internal/dispatch/types.go`, `internal/dispatch/manager.go`, `internal/dispatch/plan.go`, `internal/dispatch/wave.go`
 
 ---
 
@@ -19,6 +19,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [08.5] | Dynamic Dispatch Roles & Execution Sandboxing | `d9dfdb8` | 2026-11-02 |
 | [08.4] | Cross-Profile Shared Cooldown & Throttling Pool | `2607306` | 2026-11-02 |
 | [08.3] | On-Demand Headless Agent Runner for Inactive Profiles | `ba0fe27` | 2026-11-02 |
 | [08.2] | Build Isolation & Compiler Cache Strategy for Concurrent Worktrees | `ac20aae` | 2026-11-02 |
@@ -30,7 +31,6 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [ ] **[08.6]** `[APPROVED]` `[SEQ: W6]` Hybrid Workspace Modes (Zero-I/O Read-Only Dispatch) — Add workspace modes (`--workspace=worktree|mirror|inherit`) to avoid ephemeral git worktree creation overhead for read-only / research tasks, executing safely in-place with filesystem mutation guards. (`Paths: internal/cmd/dispatch_run.go, internal/dispatch/types.go, internal/dispatch/manager.go, internal/dispatch/plan.go, internal/dispatch/wave.go`)
 - [ ] **[08.7]** `[APPROVED]` `[SEQ: W7]` Native Antigravity Subagent Orchestration Bridge — Connect Multigravity macro-routing directly to Antigravity subagent workers via headless CLI invocation (`agy --headless -p`) and native MCP delegation tools with quota-aware profile failover. (`Paths: internal/mcp/server.go, internal/agent/runner.go, internal/dispatch/manager.go, internal/quota/routing.go`)
 
 ---
