@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.5] - 2026-11-02
+
+### Added
+- **Native Antigravity Subagent Orchestration Bridge:** Dispatches macro-routing plans using `agy` headless invocations or MCP delegation with automatic quota failover across secondary profiles.
+- **Hybrid Workspace Modes for Zero-I/O Dispatch:** Added `worktree`, `mirror`, and `inherit` workspace execution modes to subtask plan requests. Read-only and analysis subtasks run directly in `inherit` mode to eliminate worktree checkout and filesystem overhead.
+- **Dynamic Dispatch Roles & Read-Only Sandboxing:** Added specialized execution personas (`developer`, `researcher`, `tester`, `reviewer`) with read-only subtask guardrails (`ReadOnly: true`) that prevent unauthorized file mutations.
+- **Cross-Profile Shared Cooldown & Throttling Pool:** Coordinated cross-profile cooldown tracking via `~/.multigravity/cooldown-pool.json` to prevent cascade 429 rate limit errors when distributing parallel tasks across accounts.
+- **On-Demand Headless Agent Runner for Inactive Profiles:** Automatically initializes and spawns headless language server runners on inactive secondary profiles when assigned work in parallel wave dispatches.
+- **Build Isolation & Compiler Cache Strategy for Concurrent Worktrees:** Isolates `CARGO_TARGET_DIR` per worktree and configures shared global compiler cache (`sccache`, `ccache`) across concurrent worktrees to avoid lock contention and rebuild overhead.
+- **Cross-Profile Toolchain & PATH Discovery:** Discovers installed SDKs and toolchains across all Antigravity profiles and injects them into ephemeral execution paths.
+- **MCP Auto-Routing & Synchronous Wait:** Added auto profile quota routing (`profile: "auto"`) and synchronous execution waiting (`wait: true`) to the MCP `dispatch_task` tool.
+
 ## [2.2.4] - 2026-11-02
 
 ### Added
