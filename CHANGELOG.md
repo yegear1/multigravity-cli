@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.4] - 2026-11-02
+
+### Added
+- **On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight):** Added `--probe` flag to `multigravity dispatch wave` and background probing (`ProbeSecondaryProfiles`), triggering fast RPC telemetry calibration across secondary profiles to resolve idle unknown quota states prior to wave dispatch.
+- **AST Outline Extraction for Subtask Pre-Injection:** Added AST outline parser (`ExtractASTOutline`) for Go and TypeScript/JavaScript files exceeding inline injection thresholds during subtask prompt generation, preserving structural type signatures and interfaces while significantly reducing context token consumption.
+- **Compact Wave Execution Output Sanitization:** Sanitized compact JSON wave summaries (`ToCompact`) by suppressing empty diff payloads and truncating failed worker logs to the terminal 15 lines (omitted on success) to eliminate token waste in multi-agent pipelines.
+- **Ephemeral Worktree Branch Pruning:** Automatically deletes ephemeral Git branches (`multigravity-plan-*`, `multigravity-task-*`) upon worktree apply (`ApplyWorktree`) and prune (`PruneWorktree`, `PruneAllWorktrees`), eliminating branch residue in host repositories.
+
+### Changed
+- **Componentized Server Handlers & Modular Dispatch CLI:** Modularized HTTP route handlers in `internal/server/` and split dispatch CLI subcommands in `internal/cmd/` into dedicated files without altering endpoint signatures or command line flags.
+
 ## [2.2.3] - 2026-11-01
 
 ### Added
