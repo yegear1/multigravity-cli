@@ -7,7 +7,10 @@
 
 ## Active Task
 
-*(No active task — awaiting next planning cycle)*
+### [01.1] Next Milestone Planning & Triage
+- Status: READY FOR PLANNING
+- Priority: P2
+- Description: Triage next roadmap milestone or features for multigravity-cli.
 
 ---
 
@@ -15,13 +18,6 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
-| [08.7] | Native Antigravity Subagent Orchestration Bridge | `de163c9` | 2026-11-02 |
-| [08.6] | Hybrid Workspace Modes (Zero-I/O Read-Only Dispatch) | `62d317f` | 2026-11-02 |
-| [08.5] | Dynamic Dispatch Roles & Execution Sandboxing | `d9dfdb8` | 2026-11-02 |
-| [08.4] | Cross-Profile Shared Cooldown & Throttling Pool | `2607306` | 2026-11-02 |
-| [08.3] | On-Demand Headless Agent Runner for Inactive Profiles | `ba0fe27` | 2026-11-02 |
-| [08.2] | Build Isolation & Compiler Cache Strategy for Concurrent Worktrees | `ac20aae` | 2026-11-02 |
-| [08.1] | Cross-Profile Toolchain & PATH Discovery | `5716c84` | 2026-11-02 |
 
 ---
 
