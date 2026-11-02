@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	Version = "2.2.4"
+	Version = "2.2.5"
 
 	SentinelIsolatedMCP      = ".isolated_mcp"
 	SentinelIsolatedSkills   = ".isolated_skills"
