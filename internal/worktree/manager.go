@@ -87,6 +87,23 @@ func saveManifest(repoRoot string, manifest *WorktreeManifest) error {
 	return os.WriteFile(path, append(data, '\n'), 0644)
 }
 
+// CleanWorktreeIndexLock proactively removes any stale index.lock file in the worktree's gitdir.
+func CleanWorktreeIndexLock(worktreePath string) {
+	gitFilePath := filepath.Join(worktreePath, ".git")
+	data, err := os.ReadFile(gitFilePath)
+	if err != nil {
+		return
+	}
+	content := strings.TrimSpace(string(data))
+	if strings.HasPrefix(content, "gitdir:") {
+		gitDir := strings.TrimSpace(strings.TrimPrefix(content, "gitdir:"))
+		if !filepath.IsAbs(gitDir) {
+			gitDir = filepath.Join(worktreePath, gitDir)
+		}
+		_ = os.Remove(filepath.Join(gitDir, "index.lock"))
+	}
+}
+
 // CreateWorktree creates a new ephemeral worktree for an agent or task.
 func CreateWorktree(opts CreateOptions) (*Worktree, error) {
 	if err := ValidateWorktreeID(opts.ID); err != nil {
@@ -159,6 +176,7 @@ func CreateWorktree(opts CreateOptions) (*Worktree, error) {
 	}
 
 	headCommit, _ := GitRevParseHead(absTargetDir)
+	CleanWorktreeIndexLock(absTargetDir)
 
 	// Copy requested files
 	for _, file := range opts.CopyFiles {
@@ -179,8 +197,10 @@ func CreateWorktree(opts CreateOptions) (*Worktree, error) {
 		}
 	}
 
-	// Auto-symlink ignored build dependencies
+	// Auto-symlink ignored build dependencies and isolate build artifacts
 	_ = AutoLinkDependencies(repoRoot, absTargetDir)
+	_ = IsolateWorktreeBuildArtifacts(repoRoot, absTargetDir)
+	_ = LinkGlobalCompilerCache(repoRoot, absTargetDir)
 
 	wt := Worktree{
 		ID:         opts.ID,
@@ -514,37 +534,4 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(destinationFile, sourceFile)
 	return err
-}
-
-func linkPath(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-	return os.Symlink(src, dst)
-}
-
-// DefaultAutoLinkPaths lists standard build and dependency directories automatically
-// symlinked from the repository root into ephemeral worktrees if they exist.
-var DefaultAutoLinkPaths = []string{
-	"node_modules",
-	"target",
-	".venv",
-	".cargo",
-}
-
-// AutoLinkDependencies symlinks standard build dependencies from repoRoot into targetDir
-// if they exist in repoRoot and do not already exist in targetDir.
-func AutoLinkDependencies(repoRoot, targetDir string) error {
-	for _, dep := range DefaultAutoLinkPaths {
-		src := filepath.Join(repoRoot, dep)
-		dst := filepath.Join(targetDir, dep)
-		if _, err := os.Lstat(src); err == nil {
-			if _, err := os.Lstat(dst); os.IsNotExist(err) {
-				if err := linkPath(src, dst); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
 }

@@ -2,6 +2,7 @@ package profile
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -325,6 +326,110 @@ func PopulateWorktreeProjectEnv(envMap map[string]string, baseRepoPath, worktree
 			prependPathEntry(envMap, "PATH", nodeBinDir)
 		}
 	}
+
+	// 3. Rust Cargo build isolation & compiler cache
+	cargoToml := filepath.Join(baseRepoPath, "Cargo.toml")
+	repoTarget := filepath.Join(baseRepoPath, "target")
+	hasCargo := false
+	if _, err := os.Stat(cargoToml); err == nil {
+		hasCargo = true
+	} else if _, err := os.Stat(repoTarget); err == nil {
+		hasCargo = true
+	}
+	if hasCargo {
+		if envMap["CARGO_TARGET_DIR"] == "" {
+			envMap["CARGO_TARGET_DIR"] = filepath.Join(worktreePath, "target")
+		}
+		ConfigureCompilerCache(envMap)
+	}
+}
+
+// ConfigureCompilerCache probes for sccache and configures RUSTC_WRAPPER and SCCACHE_DIR.
+func ConfigureCompilerCache(envMap map[string]string) {
+	if envMap == nil {
+		return
+	}
+
+	sccacheBin := FindSccacheBinary()
+	if sccacheBin != "" {
+		if envMap["RUSTC_WRAPPER"] == "" {
+			envMap["RUSTC_WRAPPER"] = sccacheBin
+		}
+		if envMap["SCCACHE_DIR"] == "" {
+			envMap["SCCACHE_DIR"] = GetGlobalCompilerCacheDir()
+		}
+	}
+}
+
+// FindSccacheBinary searches for sccache in PATH, host user cargo bin, and enriched toolchains.
+func FindSccacheBinary() string {
+	// 1. Direct LookPath
+	if p, err := exec.LookPath("sccache"); err == nil {
+		return p
+	}
+
+	// 2. Check ~/.cargo/bin/sccache
+	if hostHome, err := os.UserHomeDir(); err == nil && hostHome != "" {
+		binName := "sccache"
+		if runtime.GOOS == "windows" {
+			binName = "sccache.exe"
+		}
+		cargoBin := filepath.Join(hostHome, ".cargo", "bin", binName)
+		if fi, err := os.Stat(cargoBin); err == nil && !fi.IsDir() {
+			return cargoBin
+		}
+	}
+
+	// 3. Search enriched PATH candidate directories
+	hostHome, _ := os.UserHomeDir()
+	enriched := BuildEnrichedPATH(hostHome)
+	sep := string(os.PathListSeparator)
+	for _, dir := range strings.Split(enriched, sep) {
+		if strings.TrimSpace(dir) == "" {
+			continue
+		}
+		binName := "sccache"
+		if runtime.GOOS == "windows" {
+			binName = "sccache.exe"
+		}
+		candidate := filepath.Join(dir, binName)
+		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
+			return candidate
+		}
+	}
+
+	return ""
+}
+
+// GetGlobalCompilerCacheDir returns the canonical host directory for sccache object storage.
+func GetGlobalCompilerCacheDir() string {
+	if dir := strings.TrimSpace(os.Getenv("SCCACHE_DIR")); dir != "" {
+		return dir
+	}
+
+	hostHome, err := os.UserHomeDir()
+	if err != nil || hostHome == "" {
+		return filepath.Join(os.TempDir(), ".sccache")
+	}
+
+	if runtime.GOOS == "windows" {
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData != "" {
+			return filepath.Join(localAppData, "Mozilla", "sccache")
+		}
+		return filepath.Join(hostHome, "AppData", "Local", "Mozilla", "sccache")
+	}
+
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(hostHome, "Library", "Caches", "Mozilla.sccache")
+	}
+
+	// Linux / BSD / XDG
+	xdgCache := os.Getenv("XDG_CACHE_HOME")
+	if xdgCache != "" {
+		return filepath.Join(xdgCache, "sccache")
+	}
+	return filepath.Join(hostHome, ".cache", "sccache")
 }
 
 func prependPathEntry(envMap map[string]string, key, dir string) {

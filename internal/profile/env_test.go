@@ -347,6 +347,70 @@ func TestPopulateWorktreeProjectEnv(t *testing.T) {
 	if envExisting["PYTHONPATH"] != expectedPrependedPy {
 		t.Errorf("PYTHONPATH with existing = %q; want %q", envExisting["PYTHONPATH"], expectedPrependedPy)
 	}
+
+	// 5. Cargo project CARGO_TARGET_DIR isolation
+	cargoRepo := filepath.Join(tempDir, "cargo-repo")
+	_ = os.MkdirAll(cargoRepo, 0755)
+	_ = os.WriteFile(filepath.Join(cargoRepo, "Cargo.toml"), []byte("[package]\nname = \"demo\"\n"), 0644)
+	cargoWT := filepath.Join(cargoRepo, ".multigravity", "worktrees", "wt-cargo")
+	_ = os.MkdirAll(cargoWT, 0755)
+
+	envCargo := make(map[string]string)
+	PopulateWorktreeProjectEnv(envCargo, cargoRepo, cargoWT)
+	expectedTarget := filepath.Join(cargoWT, "target")
+	if envCargo["CARGO_TARGET_DIR"] != expectedTarget {
+		t.Errorf("CARGO_TARGET_DIR = %q; want %q", envCargo["CARGO_TARGET_DIR"], expectedTarget)
+	}
+
+	// 6. Preserves existing CARGO_TARGET_DIR override
+	envCargoCustom := map[string]string{
+		"CARGO_TARGET_DIR": "/custom/target",
+	}
+	PopulateWorktreeProjectEnv(envCargoCustom, cargoRepo, cargoWT)
+	if envCargoCustom["CARGO_TARGET_DIR"] != "/custom/target" {
+		t.Errorf("CARGO_TARGET_DIR override = %q; want /custom/target", envCargoCustom["CARGO_TARGET_DIR"])
+	}
+}
+
+func TestConfigureCompilerCacheAndSccache(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	// Test GetGlobalCompilerCacheDir defaults
+	cacheDir := GetGlobalCompilerCacheDir()
+	if !strings.Contains(cacheDir, "sccache") {
+		t.Errorf("expected GetGlobalCompilerCacheDir to contain 'sccache', got %q", cacheDir)
+	}
+
+	// Explicit override
+	t.Setenv("SCCACHE_DIR", "/custom/sccache/dir")
+	if GetGlobalCompilerCacheDir() != "/custom/sccache/dir" {
+		t.Errorf("expected custom SCCACHE_DIR, got %q", GetGlobalCompilerCacheDir())
+	}
+
+	// Mock fake sccache executable in ~/.cargo/bin
+	cargoBin := filepath.Join(tempHome, ".cargo", "bin")
+	_ = os.MkdirAll(cargoBin, 0755)
+	binName := "sccache"
+	if runtime.GOOS == "windows" {
+		binName = "sccache.exe"
+	}
+	fakeSccache := filepath.Join(cargoBin, binName)
+	_ = os.WriteFile(fakeSccache, []byte("#!/bin/sh\n"), 0755)
+
+	found := FindSccacheBinary()
+	if found == "" {
+		t.Errorf("expected FindSccacheBinary to discover fake sccache in cargo bin")
+	}
+
+	envMap := make(map[string]string)
+	ConfigureCompilerCache(envMap)
+	if envMap["RUSTC_WRAPPER"] != found {
+		t.Errorf("RUSTC_WRAPPER = %q, want %q", envMap["RUSTC_WRAPPER"], found)
+	}
+	if envMap["SCCACHE_DIR"] != "/custom/sccache/dir" {
+		t.Errorf("SCCACHE_DIR = %q, want /custom/sccache/dir", envMap["SCCACHE_DIR"])
+	}
 }
 
 func TestBuildEnrichedPATH_CrossProfileAndToolchainDiscovery(t *testing.T) {

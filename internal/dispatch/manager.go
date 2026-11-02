@@ -39,36 +39,11 @@ func SetVerifyCommandHook(hook func(dir, cmdStr string) ([]byte, int, error)) {
 }
 
 func defaultExecuteVerifyCommand(dir, cmdStr string) ([]byte, int, error) {
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd.exe", "/c", cmdStr)
-	} else {
-		cmd = exec.Command("sh", "-c", cmdStr)
-	}
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	out, err := cmd.CombinedOutput()
-	exitCode := 0
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		} else {
-			exitCode = -1
-		}
-	}
-	if exitCode == 0 && strings.Contains(string(out), "testing: warning: no tests to run") {
-		return out, 1, fmt.Errorf("verification matched zero tests (\"testing: warning: no tests to run\")")
-	}
-	return out, exitCode, err
+	return defaultExecuteVerifyCommandWithEnv(dir, cmdStr, nil)
 }
 
 func executeVerifyCommand(dir, cmdStr string) ([]byte, int, error) {
-	if verifyCommandHook != nil {
-		return verifyCommandHook(dir, cmdStr)
-	}
-	return defaultExecuteVerifyCommand(dir, cmdStr)
+	return ExecuteVerifyCommandWithEnv(dir, cmdStr, nil)
 }
 
 // TaskManager coordinates task dispatching, worktree isolation, log capture, and status queries.
@@ -700,6 +675,11 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 	}
 	taskMu.Unlock()
 
+	// Proactively clean any transient index.lock in worktree gitdir before launching session
+	if wtID != "" && execDir != "" {
+		worktree.CleanWorktreeIndexLock(execDir)
+	}
+
 	// Launch agent session
 	sessOpts := agent.CreateSessionOptions{
 		Profile:    opts.Profile,
@@ -838,7 +818,7 @@ func (m *TaskManager) watchSession(inst *agent.SessionInstance, task *Task, task
 				verifyDir, _ = os.Getwd()
 			}
 
-			out, exitCode, vErr := executeVerifyCommand(verifyDir, task.Verify)
+			out, exitCode, vErr := ExecuteVerifyCommandWithEnv(verifyDir, task.Verify, taskEnv)
 			verifyEnded := time.Now().UTC()
 
 			m.mu.Lock()

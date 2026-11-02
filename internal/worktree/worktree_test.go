@@ -439,7 +439,7 @@ func TestWorktreeDiffOptionsPathsFiltering(t *testing.T) {
 func TestWorktreeAutoLink(t *testing.T) {
 	repoDir := initTestRepo(t)
 
-	deps := []string{"node_modules", "target", ".venv", ".cargo"}
+	deps := []string{"node_modules", ".venv", ".cargo", ".cache"}
 	for _, dep := range deps {
 		depDir := filepath.Join(repoDir, dep)
 		if err := os.MkdirAll(depDir, 0755); err != nil {
@@ -449,6 +449,15 @@ func TestWorktreeAutoLink(t *testing.T) {
 		if err := os.WriteFile(dummyFile, []byte(dep), 0644); err != nil {
 			t.Fatal(err)
 		}
+	}
+
+	// Create target directory in repo to test build isolation
+	repoTarget := filepath.Join(repoDir, "target")
+	if err := os.MkdirAll(repoTarget, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoTarget, ".cargo-lock"), []byte("lock"), 0644); err != nil {
+		t.Fatal(err)
 	}
 
 	wt, err := CreateWorktree(CreateOptions{
@@ -483,6 +492,23 @@ func TestWorktreeAutoLink(t *testing.T) {
 		} else if string(content) != dep {
 			t.Errorf("expected file content %s, got %s", dep, string(content))
 		}
+	}
+
+	// Verify target directory is isolated (real directory, NOT symlink to repoDir/target)
+	wtTarget := filepath.Join(wt.Path, "target")
+	targetFi, err := os.Lstat(wtTarget)
+	if err != nil {
+		t.Fatalf("expected isolated target directory to exist: %v", err)
+	}
+	if targetFi.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("target must NOT be a symlink to repo target (causes .cargo-lock contention)")
+	}
+	if !targetFi.IsDir() {
+		t.Errorf("expected target to be an isolated directory")
+	}
+	// The repo lockfile should NOT be visible inside wtTarget
+	if _, err := os.Stat(filepath.Join(wtTarget, ".cargo-lock")); !os.IsNotExist(err) {
+		t.Errorf("isolated target directory should not contain repo .cargo-lock")
 	}
 
 	missingDep := filepath.Join(wt.Path, "nonexistent_dep")
@@ -562,5 +588,115 @@ func TestPruneWorktreeAndPruneAllDeletesBranch(t *testing.T) {
 	}
 	if len(branches) != 0 {
 		t.Errorf("expected 0 multigravity branches remaining, got %v", branches)
+	}
+}
+
+func TestConcurrentWorktreeTargetIsolation(t *testing.T) {
+	repoDir := initTestRepo(t)
+
+	// Simulate Cargo project
+	cargoToml := filepath.Join(repoDir, "Cargo.toml")
+	if err := os.WriteFile(cargoToml, []byte("[package]\nname = \"test\"\nversion = \"0.1.0\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	repoTarget := filepath.Join(repoDir, "target")
+	if err := os.MkdirAll(repoTarget, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoTarget, ".cargo-lock"), []byte("main-lock"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create two concurrent worktrees
+	wt1, err := CreateWorktree(CreateOptions{
+		ID:       "wt-cargo-1",
+		RepoPath: repoDir,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree wt1 failed: %v", err)
+	}
+
+	wt2, err := CreateWorktree(CreateOptions{
+		ID:       "wt-cargo-2",
+		RepoPath: repoDir,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree wt2 failed: %v", err)
+	}
+
+	target1 := filepath.Join(wt1.Path, "target")
+	target2 := filepath.Join(wt2.Path, "target")
+
+	// Verify both target directories exist and are NOT symlinks
+	fi1, err := os.Lstat(target1)
+	if err != nil || fi1.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("wt1 target should be an isolated directory, got mode: %v", fi1.Mode())
+	}
+	fi2, err := os.Lstat(target2)
+	if err != nil || fi2.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("wt2 target should be an isolated directory, got mode: %v", fi2.Mode())
+	}
+
+	// Simulate concurrent builds creating their own .cargo-lock
+	lock1 := filepath.Join(target1, ".cargo-lock")
+	lock2 := filepath.Join(target2, ".cargo-lock")
+
+	if err := os.WriteFile(lock1, []byte("lock-wt1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lock2, []byte("lock-wt2"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert independent locks do not overwrite each other or the repo root lock
+	data1, _ := os.ReadFile(lock1)
+	data2, _ := os.ReadFile(lock2)
+	dataMain, _ := os.ReadFile(filepath.Join(repoTarget, ".cargo-lock"))
+
+	if string(data1) != "lock-wt1" {
+		t.Errorf("expected wt1 lock 'lock-wt1', got %q", string(data1))
+	}
+	if string(data2) != "lock-wt2" {
+		t.Errorf("expected wt2 lock 'lock-wt2', got %q", string(data2))
+	}
+	if string(dataMain) != "main-lock" {
+		t.Errorf("expected main repo lock unchanged 'main-lock', got %q", string(dataMain))
+	}
+}
+
+func TestLinkGlobalCompilerCache(t *testing.T) {
+	repoDir := initTestRepo(t)
+
+	// Create repo-level .cache and .sccache
+	repoCache := filepath.Join(repoDir, ".cache")
+	repoSccache := filepath.Join(repoDir, ".sccache")
+	_ = os.MkdirAll(repoCache, 0755)
+	_ = os.MkdirAll(repoSccache, 0755)
+	_ = os.WriteFile(filepath.Join(repoCache, "cache-entry.txt"), []byte("cached"), 0644)
+
+	wt, err := CreateWorktree(CreateOptions{
+		ID:       "wt-cache-link",
+		RepoPath: repoDir,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+
+	wtCache := filepath.Join(wt.Path, ".cache")
+	fi, err := os.Lstat(wtCache)
+	if err != nil {
+		t.Fatalf("expected .cache in worktree: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("expected .cache to be a symlink")
+	}
+
+	wtSccache := filepath.Join(wt.Path, ".sccache")
+	fiSc, err := os.Lstat(wtSccache)
+	if err != nil {
+		t.Fatalf("expected .sccache in worktree: %v", err)
+	}
+	if fiSc.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("expected .sccache to be a symlink")
 	}
 }

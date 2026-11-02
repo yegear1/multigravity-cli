@@ -22,6 +22,22 @@
 - **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
 - **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts, `--model` vs `--effort` flag conflict rules (`gemini-3.8-flash-low/medium/high` already encode effort), and single-grep escape hatch + line-ranged `Read: file:start-end` pre-injection, (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult` (including on `empty_diff`) and rejecting Go `testing: warning: no tests to run` false-positives, (5) diffing worktrees strictly against `HEAD` (`git diff HEAD -- <paths>`) / immutable SHA `BaseCommit` rather than moving `main` during multi-task wave commits, and (6) model-aware bucket routing (`gemini`/`argon`/`3p`) with failed-profile retry exclusion and native `.agent/TASK.md` wave execution (`multigravity dispatch wave`).
 
+### 2026-11-02 [Task 08.2] Build Isolation & Compiler Cache Strategy for Concurrent Worktrees
+
+- **Context:** Parallel subtasks in ephemeral git worktrees previously experienced `.cargo-lock` file contention and intermediate build artifact corruption when multiple workers ran `cargo build` or `cargo test` concurrently against a shared symlinked `target` directory from the repository root.
+- **Active Contracts:**
+  - `internal/worktree/symlink.go` & `internal/worktree/manager.go`:
+    - `DefaultAutoLinkPaths`: updated to `[]string{"node_modules", ".venv", ".cargo", ".cache", ".sccache"}`, excluding `target` to avoid lockfile contention.
+    - `IsolatedBuildPaths`: `[]string{"target", ".pytest_cache", ".mypy_cache", ".turbo"}` tracks output directories that must remain isolated per worktree.
+    - `IsolateWorktreeBuildArtifacts(repoRoot, targetDir string) error`: ensures worktrees for Cargo repositories create an isolated regular `target/` directory rather than symlinking to the repository root.
+    - `LinkGlobalCompilerCache(repoRoot, targetDir string) error`: auto-symlinks `.cache` and `.sccache` from `repoRoot` or the host user cache into worktrees.
+    - `CleanWorktreeIndexLock(worktreePath string)`: proactively removes any transient `index.lock` left in the worktree's gitdir before agent session launch.
+  - `internal/dispatch/executor.go`:
+    - `ConfigureWorktreeBuildEnv(envMap map[string]string, repoRoot, worktreePath string)`: injects worktree-isolated `CARGO_TARGET_DIR` (pointing to `<worktreePath>/target`), discovers `sccache` to set `RUSTC_WRAPPER` and `SCCACHE_DIR`, and preserves host `GOCACHE` and `GOMODCACHE`.
+    - `ExecuteVerifyCommandWithEnv(dir, cmdStr string, env map[string]string) ([]byte, int, error)`: executes verification commands within the worktree with isolated build environment variables and Go test false-positive guard.
+  - `internal/profile/env.go`:
+    - `PopulateWorktreeProjectEnv`: auto-populates `CARGO_TARGET_DIR` and compiler cache (`ConfigureCompilerCache`, `FindSccacheBinary`, `GetGlobalCompilerCacheDir`) for Cargo worktrees alongside Python and Node environments.
+
 ### 2026-11-02 [Task 08.1] Cross-Profile Toolchain & PATH Discovery (`.isolated_toolchain` Sentinel & Doctor Audit)
 
 - **Context:** Subagents and isolated profile environments previously lacked automated discovery of host dev compilers (Python via `uv`/`pyenv`/`conda`, Go SDKs in `/usr/local/go/bin` or `~/sdk/go*/bin`, ASDF/nodenv shims, Windows `Python*/Scripts`) and peer profile toolchain installations under `MULTIGRAVITY_HOME`.

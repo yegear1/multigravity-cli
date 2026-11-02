@@ -1247,3 +1247,62 @@ func TestDispatchTraceIDPropagation(t *testing.T) {
 		t.Errorf("telemetry output missing tr-env-fallback-456: %s", telemStr)
 	}
 }
+
+func TestConfigureWorktreeBuildEnvAndExecutor(t *testing.T) {
+	tempBase := t.TempDir()
+	worktreePath := filepath.Join(tempBase, ".multigravity", "worktrees", "wt-build-1")
+	_ = os.MkdirAll(worktreePath, 0755)
+
+	envMap := make(map[string]string)
+	ConfigureWorktreeBuildEnv(envMap, tempBase, worktreePath)
+
+	expectedTarget := filepath.Join(worktreePath, "target")
+	if envMap["CARGO_TARGET_DIR"] != expectedTarget {
+		t.Errorf("CARGO_TARGET_DIR = %q, want %q", envMap["CARGO_TARGET_DIR"], expectedTarget)
+	}
+
+	// Verify custom override preserved
+	customEnv := map[string]string{
+		"CARGO_TARGET_DIR": "/override/target",
+	}
+	ConfigureWorktreeBuildEnv(customEnv, tempBase, worktreePath)
+	if customEnv["CARGO_TARGET_DIR"] != "/override/target" {
+		t.Errorf("CARGO_TARGET_DIR override = %q, want /override/target", customEnv["CARGO_TARGET_DIR"])
+	}
+}
+
+func TestExecuteVerifyCommandWithEnvIsolation(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// 1. Successful command returning output
+	var cmdStr string
+	if runtime.GOOS == "windows" {
+		cmdStr = "echo verify-success"
+	} else {
+		cmdStr = "printf 'verify-success'"
+	}
+
+	customEnv := map[string]string{
+		"TEST_VERIFY_FLAG": "isolated-val",
+	}
+
+	out, exitCode, err := ExecuteVerifyCommandWithEnv(tempDir, cmdStr, customEnv)
+	if err != nil || exitCode != 0 {
+		t.Fatalf("unexpected verification error: %v, exitCode=%d", err, exitCode)
+	}
+	if !strings.Contains(string(out), "verify-success") {
+		t.Errorf("expected 'verify-success' in output, got %q", string(out))
+	}
+
+	// 2. Failure command
+	var failCmd string
+	if runtime.GOOS == "windows" {
+		failCmd = "cmd /c exit 2"
+	} else {
+		failCmd = "sh -c 'exit 2'"
+	}
+	_, failExit, failErr := ExecuteVerifyCommandWithEnv(tempDir, failCmd, nil)
+	if failExit != 2 || failErr == nil {
+		t.Errorf("expected exitCode 2, got %d, err=%v", failExit, failErr)
+	}
+}
