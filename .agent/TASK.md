@@ -7,10 +7,10 @@
 
 ## Active Task
 
-### Queue Empty — Awaiting Next Ideation
+### [01.1] Next Milestone Planning & Triage
 - Status: READY FOR PLANNING
-- Priority: P3
-- Description: All planned tasks across Epic 07 waves W1 and W2 are complete. Awaiting user instructions or next milestone ideation.
+- Priority: P2
+- Description: Triage next roadmap milestone or features for multigravity-cli.
 
 ---
 
@@ -18,35 +18,14 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
-| [07.4] | On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight) | `e0c7c23` | 2026-11-02 |
-| [07.3] | AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy) | `4ba66dc` | 2026-11-02 |
-| [07.2] | Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation) | `69992b2` | 2026-11-02 |
-| [07.1] | Worktree Ephemeral Branch Cleanup on Apply/Prune | `a1bae69` | 2026-11-02 |
-| [90.1] | Componentize Server HTTP Handlers (internal/server/routes.go) | `8771e7d` | 2026-11-01 |
-| [90.2] | Modularize Dispatch CLI Subcommands (internal/cmd/dispatch.go) | `00362c7` | 2026-11-01 |
 
 ---
 
 ## Backlog (Upcoming, in priority order)
 
-> Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: Wx]` and `Paths: ...` for concurrent `task-queue` execution.
+> Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [x] **[07.1]** `[APPROVED]` `[PARALLEL: W1]` Worktree Ephemeral Branch Cleanup on Apply/Prune (a1bae69)
-  - `Read:` `internal/worktree/manager.go, internal/worktree/git.go`
-  - `Paths:` `internal/worktree/manager.go, internal/worktree/git.go, internal/worktree/manager_test.go`
-  - `Verify:` `go test -v ./internal/worktree/...`
-- [x] **[07.2]** `[APPROVED]` `[PARALLEL: W1]` Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation) (69992b2)
-  - `Read:` `internal/dispatch/wave.go, internal/dispatch/types.go`
-  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
-  - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Compact.*'`
-- [x] **[07.3]** `[APPROVED]` `[PARALLEL: W2]` AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy) (4ba66dc)
-  - `Read:` `internal/dispatch/plan.go`
-  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/outline.go, internal/dispatch/plan_test.go`
-  - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Outline.*'`
-- [x] **[07.4]** `[APPROVED]` `[PARALLEL: W2]` On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight)
-  - `Read:` `internal/quota/routing.go, internal/dispatch/wave.go`
-  - `Paths:` `internal/quota/routing.go, internal/dispatch/wave.go, internal/cmd/dispatch_wave.go`
-  - `Verify:` `go test -v ./internal/quota/... ./internal/dispatch/...`
+- [ ] *(Queue empty — awaiting next milestone planning)*
 
 ---
 

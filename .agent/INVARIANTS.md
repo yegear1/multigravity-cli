@@ -177,3 +177,10 @@ Reference mapping of where Antigravity and AI subsystems store data, tokens, and
 
 - **Strict Path Delimitation (`lineMatchesPath`):** Process inspection routines (POSIX `ps` or Windows WMI/PowerShell) MUST validate boundary delimiters (`/`, `\`, spaces, quotes, `=`, line boundaries) around `profileDir` and `userDataDir`.
 - **Prefix Collision Prevention:** Substring matching causes false positives between profiles where one is a prefix of another (e.g. `yegear2` active falsely reporting `yegear` as active). All checks MUST use `lineMatchesPath`.
+
+---
+
+## 17. Ephemeral Git Worktree Management & Branch Hygiene
+
+- **Ephemeral Branch Cleanup:** Ephemeral git branches generated during subtask plan execution and wave orchestration (`multigravity-plan-*`, `multigravity-task-*`, `multigravity/` prefix) MUST be deleted upon worktree apply (`ApplyWorktree`) and worktree prune (`PruneWorktree`, `PruneAllWorktrees`). Branches actively checked out in a live worktree MUST NOT be deleted.
+- **AST Outline Pre-Injection:** Non-ranged file pre-injections in subtask prompt synthesis exceeding bounds (150 lines, 5 KB) MUST attempt structural AST outline extraction (`ExtractASTOutline`) for Go and TypeScript/JavaScript before falling back to raw line truncation, preserving type signatures and interfaces while respecting the overall subtask budget ceiling (15 KB).

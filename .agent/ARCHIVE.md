@@ -3,6 +3,17 @@
 > Batches archived after Git tag (or when `TASK.md` log exceeds ~15 entries).
 > Canonical header: `## [vX.Y.Z] - YYYY-MM-DD`. Deep detail: `git log`.
 
+## [v2.2.4] - 2026-11-02
+
+| Task | Title | Commit(s) | Date |
+|---|---|---|---|
+| [07.4] | On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight) | `e0c7c23` | 2026-11-02 |
+| [07.3] | AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy) | `4ba66dc` | 2026-11-02 |
+| [07.2] | Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation) | `69992b2` | 2026-11-02 |
+| [07.1] | Worktree Ephemeral Branch Cleanup on Apply/Prune | `a1bae69` | 2026-11-02 |
+| [90.1] | Componentize Server HTTP Handlers (internal/server/routes.go) | `8771e7d` | 2026-11-01 |
+| [90.2] | Modularize Dispatch CLI Subcommands (internal/cmd/dispatch.go) | `00362c7` | 2026-11-01 |
+
 ## [v2.2.3] - 2026-11-01
 
 | Task | Title | Commit(s) | Date |
