@@ -7,10 +7,11 @@
 
 ## Active Task
 
-### [01.1] Next Milestone Planning & Triage
+### [08.1] Cross-Profile Toolchain & PATH Discovery
 - Status: READY FOR PLANNING
-- Priority: P2
-- Description: Triage next roadmap milestone or features for multigravity-cli.
+- Priority: P1
+- Description: Automatically discover and inject host system and peer profile toolchains (`cargo`, `rustc`, `node`, `pnpm`, `go`, `python`) into ephemeral subagent execution environments, resolving missing binary paths when running under isolated profile environments without manual PATH exports.
+- Paths: `internal/profile/sharing.go`, `internal/profile/env.go`, `internal/doctor/doctor.go`
 
 ---
 
@@ -25,7 +26,9 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [ ] *(Queue empty — awaiting next milestone planning)*
+- [ ] **[08.2]** `[APPROVED]` `[SEQ: W2]` Build Isolation & Compiler Cache Strategy for Concurrent Worktrees — Isolate `CARGO_TARGET_DIR` and temporary build artifacts per worktree while linking global compiler cache (`sccache` / build cache) to prevent `.cargo-lock` file contention during parallel wave runs. (`Paths: internal/worktree/manager.go, internal/worktree/symlink.go, internal/dispatch/executor.go`)
+- [ ] **[08.3]** `[APPROVED]` `[SEQ: W3]` On-Demand Headless Agent Runner for Inactive Profiles — Automatically spawn headless CLI subagents (`agy --headless` / CLI fallback) when routing tasks to inactive profiles with healthy quota without requiring the user to have the profile open in the desktop UI. (`Paths: internal/agent/runner.go, internal/headless/manager.go, internal/dispatch/wave.go`)
+- [ ] **[08.4]** `[APPROVED]` `[SEQ: W4]` Cross-Profile Shared Cooldown & Throttling Pool — Centralize rate-limit/429 feedback into a global lock/cooldown state across all profiles, preventing secondary profiles from repeating identical model rate-limit exhaustion. (`Paths: internal/quota/history.go, internal/quota/routing.go, internal/gateway/client.go`)
 
 ---
 
