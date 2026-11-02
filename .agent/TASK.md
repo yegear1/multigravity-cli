@@ -7,16 +7,15 @@
 
 ## Active Task
 
-### [07.2] Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation)
-- Status: RUNNING
-- Priority: P1
-- Description: Sanitize `ToCompact` output in `internal/dispatch/wave.go` and `internal/dispatch/plan.go` by clearing `Prompt` and `Diff`, omitting empty `StructuredDiff`, and bounding/truncating `LogTail` and `VerificationOutput` to prevent token bloat in JSON wave summaries.
+### [07.3] AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy)
+- Status: READY FOR PLANNING
+- Priority: P2
+- Description: Automatically extract Go/TypeScript AST outlines (type signatures, exported functions/methods, struct declarations) for large pre-injected context files exceeding single-file budgets instead of raw line truncation, preserving semantic interface contracts for worker subagents.
 - Acceptance Criteria:
-  - [ ] `WaveExecutionResult.ToCompact` and `PlanResult.ToCompact` clear `Prompt` and `Diff`.
-  - [ ] `StructuredDiff` with 0 modified files is omitted (`nil`) in compact mode.
-  - [ ] `LogTail` and `VerificationOutput` exceeding 500 characters are bounded/truncated in compact mode with indicator.
-  - [ ] Characterization tests in `internal/dispatch/plan_test.go` and `wave_test.go` assert sanitization.
-  - [ ] `go test -v ./internal/dispatch/...` passes with exit code 0.
+  - [ ] Implement `ExtractASTOutline(filePath string, content []byte) (string, error)` for Go files using stdlib `go/parser` and `go/ast`.
+  - [ ] Wire AST outline extraction into `SynthesizeSubtaskPromptWithRepo` when non-ranged files exceed `maxNonRangedBytes` or `maxNonRangedLines`.
+  - [ ] Characterization tests in `internal/dispatch/plan_test.go` and `outline_test.go` verify AST outline generation and token budget preservation.
+  - [ ] `go test -v ./internal/dispatch/... -run 'Test.*Outline.*'` passes with exit code 0.
 
 ---
 
@@ -24,7 +23,8 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
-| [07.1] | Worktree Ephemeral Branch Cleanup on Apply/Prune | `HEAD` | 2026-11-02 |
+| [07.2] | Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation) | `HEAD` | 2026-11-02 |
+| [07.1] | Worktree Ephemeral Branch Cleanup on Apply/Prune | `a1bae69` | 2026-11-02 |
 | [90.1] | Componentize Server HTTP Handlers (internal/server/routes.go) | `8771e7d` | 2026-11-01 |
 | [90.2] | Modularize Dispatch CLI Subcommands (internal/cmd/dispatch.go) | `00362c7` | 2026-11-01 |
 
@@ -34,17 +34,18 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: Wx]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [x] **[07.1]** `[APPROVED]` `[PARALLEL: W1]` Worktree Ephemeral Branch Cleanup on Apply/Prune
+- [x] **[07.1]** `[APPROVED]` `[PARALLEL: W1]` Worktree Ephemeral Branch Cleanup on Apply/Prune (a1bae69)
   - `Read:` `internal/worktree/manager.go, internal/worktree/git.go`
   - `Paths:` `internal/worktree/manager.go, internal/worktree/git.go, internal/worktree/manager_test.go`
   - `Verify:` `go test -v ./internal/worktree/...`
-- [ ] **[07.2]** `[APPROVED]` `[PARALLEL: W1]` Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation)
+- [x] **[07.2]** `[APPROVED]` `[PARALLEL: W1]` Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation)
   - `Read:` `internal/dispatch/wave.go, internal/dispatch/types.go`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
   - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Compact.*'`
 - [ ] **[07.3]** `[PARALLEL: W2]` AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy)
   - `Read:` `internal/dispatch/plan.go`
   - `Paths:` `internal/dispatch/plan.go, internal/dispatch/outline.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Outline.*'`
   - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Outline.*'`
 - [ ] **[07.4]** `[PARALLEL: W2]` On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight)
   - `Read:` `internal/quota/routing.go, internal/dispatch/wave.go`

@@ -930,18 +930,34 @@ func TestClassifySubtaskFailure(t *testing.T) {
 }
 
 func TestPlanResultToCompact(t *testing.T) {
+	longLog := strings.Repeat("log entry line...\n", 50)
+	longVerify := strings.Repeat("verify output test line...\n", 50)
+
 	planRes := &PlanResult{
 		PlanID: "plan-compact-test",
 		Subtasks: []SubtaskResult{
 			{
-				ID:     "st-1",
-				Prompt: "do task 1 with very long prompt...",
-				Diff:   "diff --git a/file1.go b/file1.go\n...",
+				ID:                 "st-1",
+				Prompt:             "do task 1 with very long prompt...",
+				Diff:               "diff --git a/file1.go b/file1.go\n...",
+				LogTail:            longLog,
+				VerificationOutput: longVerify,
+				StructuredDiff: &StructuredDiff{
+					Summary: DiffSummary{FilesChanged: 0},
+					Files:   []DiffFile{},
+				},
 			},
 			{
-				ID:     "st-2",
-				Prompt: "do task 2",
-				Diff:   "diff --git a/file2.go b/file2.go\n...",
+				ID:      "st-2",
+				Prompt:  "do task 2",
+				Diff:    "diff --git a/file2.go b/file2.go\n...",
+				LogTail: "short log",
+				StructuredDiff: &StructuredDiff{
+					Summary: DiffSummary{FilesChanged: 1},
+					Files: []DiffFile{
+						{NewPath: "file2.go"},
+					},
+				},
 			},
 		},
 		UnifiedSummary: UnifiedDiffSummary{
@@ -975,17 +991,44 @@ func TestPlanResultToCompact(t *testing.T) {
 			t.Errorf("subtask %d: expected empty Diff, got %q", i, st.Diff)
 		}
 	}
+
+	// Subtask 0: empty structured diff should be nil, long log and verify should be truncated
+	st0 := compact.Subtasks[0]
+	if st0.StructuredDiff != nil {
+		t.Errorf("expected empty StructuredDiff to be nil in compact mode, got %+v", st0.StructuredDiff)
+	}
+	if !strings.HasPrefix(st0.LogTail, "... (truncated) ...") {
+		t.Errorf("expected LogTail to be truncated, got %q", st0.LogTail)
+	}
+	if !strings.HasPrefix(st0.VerificationOutput, "... (truncated) ...") {
+		t.Errorf("expected VerificationOutput to be truncated, got %q", st0.VerificationOutput)
+	}
+
+	// Subtask 1: non-empty structured diff preserved, short log intact
+	st1 := compact.Subtasks[1]
+	if st1.StructuredDiff == nil || len(st1.StructuredDiff.Files) != 1 {
+		t.Errorf("expected non-empty StructuredDiff to be preserved, got %+v", st1.StructuredDiff)
+	}
+	if st1.LogTail != "short log" {
+		t.Errorf("expected short log intact, got %q", st1.LogTail)
+	}
 }
 
 func TestWaveExecutionResultToCompact(t *testing.T) {
+	longLog := strings.Repeat("long wave log\n", 60)
 	waveRes := &WaveExecutionResult{
 		WaveStatus: "completed",
 		WaveTag:    "W1",
 		Tasks: []SubtaskResult{
 			{
-				ID:     "task-1",
-				Prompt: "prompt 1",
-				Diff:   "diff 1",
+				ID:      "task-1",
+				Prompt:  "prompt 1",
+				Diff:    "diff 1",
+				LogTail: longLog,
+				StructuredDiff: &StructuredDiff{
+					Summary: DiffSummary{FilesChanged: 0},
+					Files:   []DiffFile{},
+				},
 			},
 		},
 	}
@@ -999,6 +1042,12 @@ func TestWaveExecutionResultToCompact(t *testing.T) {
 	}
 	if compact.Tasks[0].Prompt != "" || compact.Tasks[0].Diff != "" {
 		t.Errorf("compact wave result should have empty prompt and diff")
+	}
+	if compact.Tasks[0].StructuredDiff != nil {
+		t.Errorf("expected empty StructuredDiff to be nil in compact mode")
+	}
+	if !strings.HasPrefix(compact.Tasks[0].LogTail, "... (truncated) ...") {
+		t.Errorf("expected compact wave log to be truncated, got %q", compact.Tasks[0].LogTail)
 	}
 }
 

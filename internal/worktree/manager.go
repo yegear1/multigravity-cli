@@ -152,6 +152,12 @@ func CreateWorktree(opts CreateOptions) (*Worktree, error) {
 		return nil, fmt.Errorf("failed to add git worktree: %w", err)
 	}
 
+	// Ensure no transient index.lock is left in worktree git directory
+	if commonDir, err := GetGitCommonDir(repoRoot); err == nil && commonDir != "" {
+		lockPath := filepath.Join(commonDir, "worktrees", opts.ID, "index.lock")
+		_ = os.Remove(lockPath)
+	}
+
 	headCommit, _ := GitRevParseHead(absTargetDir)
 
 	// Copy requested files

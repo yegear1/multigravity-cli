@@ -116,6 +116,25 @@ type PlanResult struct {
 	UnifiedSummary  UnifiedDiffSummary `json:"unified_summary"`
 }
 
+// SanitizeSubtaskCompact returns a sanitized copy of SubtaskResult for compact JSON telemetry,
+// clearing prompts and raw diffs, omitting empty structured diffs, and bounding verbose logs.
+func SanitizeSubtaskCompact(st SubtaskResult) SubtaskResult {
+	stCopy := st
+	stCopy.Prompt = ""
+	stCopy.Diff = ""
+	if stCopy.StructuredDiff != nil && len(stCopy.StructuredDiff.Files) == 0 {
+		stCopy.StructuredDiff = nil
+	}
+	const maxLogLen = 500
+	if len(stCopy.LogTail) > maxLogLen {
+		stCopy.LogTail = "... (truncated) ...\n" + stCopy.LogTail[len(stCopy.LogTail)-maxLogLen:]
+	}
+	if len(stCopy.VerificationOutput) > maxLogLen {
+		stCopy.VerificationOutput = "... (truncated) ...\n" + stCopy.VerificationOutput[len(stCopy.VerificationOutput)-maxLogLen:]
+	}
+	return stCopy
+}
+
 // ToCompact returns a copy of PlanResult where each SubtaskResult has Prompt: "" and Diff: "",
 // and UnifiedSummary.CombinedDiff is empty, omitting prompt dumps and raw diffs.
 func (p *PlanResult) ToCompact() *PlanResult {
@@ -126,10 +145,7 @@ func (p *PlanResult) ToCompact() *PlanResult {
 	if len(p.Subtasks) > 0 {
 		compact.Subtasks = make([]SubtaskResult, len(p.Subtasks))
 		for i, st := range p.Subtasks {
-			stCopy := st
-			stCopy.Prompt = ""
-			stCopy.Diff = ""
-			compact.Subtasks[i] = stCopy
+			compact.Subtasks[i] = SanitizeSubtaskCompact(st)
 		}
 	}
 	compact.UnifiedSummary.CombinedDiff = ""

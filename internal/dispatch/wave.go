@@ -52,7 +52,7 @@ type WaveExecutionResult struct {
 }
 
 // ToCompact returns a copy of WaveExecutionResult where each SubtaskResult in Tasks
-// has Prompt: "" and Diff: "" (omitting prompt dumps and raw diffs).
+// is sanitized with SanitizeSubtaskCompact (omitting prompt dumps and raw diffs).
 func (r *WaveExecutionResult) ToCompact() *WaveExecutionResult {
 	if r == nil {
 		return nil
@@ -61,10 +61,7 @@ func (r *WaveExecutionResult) ToCompact() *WaveExecutionResult {
 	if len(r.Tasks) > 0 {
 		compact.Tasks = make([]SubtaskResult, len(r.Tasks))
 		for i, t := range r.Tasks {
-			tCopy := t
-			tCopy.Prompt = ""
-			tCopy.Diff = ""
-			compact.Tasks[i] = tCopy
+			compact.Tasks[i] = SanitizeSubtaskCompact(t)
 		}
 	}
 	return &compact
