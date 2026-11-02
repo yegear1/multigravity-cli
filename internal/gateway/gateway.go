@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
 
 // TokenResolverFunc resolves an access token dynamically from the request or profile context
@@ -348,7 +350,13 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			if callErr != nil {
 				isRateLimit, statusCode := IsRateLimitOrQuotaExhausted(callErr)
 				if isRateLimit && failoverEnabled {
-					g.router.MarkRateLimited(currentProfile, statusCode, callErr.Error(), 0)
+					dur := time.Duration(0)
+					var upstreamErr *UpstreamHTTPError
+					if errors.As(callErr, &upstreamErr) && upstreamErr.RetryAfter > 0 {
+						dur = upstreamErr.RetryAfter
+					}
+					g.router.MarkRateLimited(currentProfile, statusCode, callErr.Error(), dur)
+					quota.RecordProfileCooldown(currentProfile, dur)
 					g.router.MarkFailover(currentProfile)
 					excluded[currentProfile] = true
 					failoverCount++
@@ -460,7 +468,13 @@ func (g *Gateway) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 				// Connection failed before sending headers to client: auto-failover is safe!
 				isRateLimit, statusCode := IsRateLimitOrQuotaExhausted(callErr)
 				if isRateLimit && failoverEnabled {
-					g.router.MarkRateLimited(currentProfile, statusCode, callErr.Error(), 0)
+					dur := time.Duration(0)
+					var upstreamErr *UpstreamHTTPError
+					if errors.As(callErr, &upstreamErr) && upstreamErr.RetryAfter > 0 {
+						dur = upstreamErr.RetryAfter
+					}
+					g.router.MarkRateLimited(currentProfile, statusCode, callErr.Error(), dur)
+					quota.RecordProfileCooldown(currentProfile, dur)
 					g.router.MarkFailover(currentProfile)
 					excluded[currentProfile] = true
 					failoverCount++

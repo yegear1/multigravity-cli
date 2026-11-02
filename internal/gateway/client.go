@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
 
 var DefaultCloudCodeEndpoints = []string{
@@ -255,10 +257,20 @@ func (c *Client) StreamGenerateContentWithConnect(
 		if resp.StatusCode != http.StatusOK {
 			bodyBytes, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
+			retryAfter := quota.ParseRetryAfterHeader(resp.Header.Get("Retry-After"))
+			if retryAfter <= 0 {
+				retryAfter = quota.ParseQuotaResetDuration(string(bodyBytes), 0)
+			}
+			reqModel := ""
+			if reqPayload != nil {
+				reqModel = reqPayload.Model
+			}
 			upstreamErr := &UpstreamHTTPError{
 				StatusCode: resp.StatusCode,
 				Message:    string(bodyBytes),
 				Endpoint:   endpoint,
+				RetryAfter: retryAfter,
+				Model:      reqModel,
 			}
 			lastErr = upstreamErr
 			// If 429 or 403, we can try the next endpoint if configured
@@ -316,13 +328,52 @@ func (c *Client) StreamGenerateContentWithConnect(
 
 // UpstreamHTTPError captures HTTP error responses from Google CloudCode upstream
 type UpstreamHTTPError struct {
-	StatusCode int
-	Message    string
-	Endpoint   string
+	StatusCode int           `json:"status_code"`
+	Message    string        `json:"message"`
+	Endpoint   string        `json:"endpoint"`
+	RetryAfter time.Duration `json:"retry_after,omitempty"`
+	Model      string        `json:"model,omitempty"`
 }
 
 func (e *UpstreamHTTPError) Error() string {
 	return fmt.Sprintf("upstream %s returned HTTP %d: %s", e.Endpoint, e.StatusCode, e.Message)
+}
+
+// CheckModelCooldown verifies whether the target model is on active shared cooldown
+func CheckModelCooldown(model string) (bool, time.Duration, string) {
+	if onCd, until, reason := quota.IsModelOnCooldown(model); onCd {
+		diff := time.Until(until)
+		if diff < 0 {
+			diff = 0
+		}
+		return true, diff, reason
+	}
+	return false, 0, ""
+}
+
+// RecordUpstreamRateLimit records rate-limit feedback from an upstream HTTP error into the shared cooldown pool.
+func RecordUpstreamRateLimit(model, profile string, err error) {
+	if err == nil {
+		return
+	}
+	dur := 5 * time.Minute
+	reason := err.Error()
+	var upstreamErr *UpstreamHTTPError
+	if errors.As(err, &upstreamErr) {
+		if upstreamErr.RetryAfter > 0 {
+			dur = upstreamErr.RetryAfter
+		}
+		if model == "" && upstreamErr.Model != "" {
+			model = upstreamErr.Model
+		}
+		reason = upstreamErr.Message
+	}
+	if profile != "" {
+		quota.RecordProfileCooldown(profile, dur)
+	}
+	if model != "" {
+		quota.RecordModelCooldown(model, dur, reason)
+	}
 }
 
 // IsRateLimitOrQuotaExhausted tests if an error represents HTTP 429, 403 or quota limits

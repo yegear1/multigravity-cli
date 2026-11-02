@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ye-dev/multigravity-cli/internal/quota"
 )
 
 // ExtractAnthropicSystem extracts the system prompt string from string, array of blocks, or raw JSON
@@ -356,7 +358,13 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			if callErr != nil {
 				isRateLimit, statusCode := IsRateLimitOrQuotaExhausted(callErr)
 				if isRateLimit && failoverEnabled {
-					g.router.MarkRateLimited(currentProfile, statusCode, callErr.Error(), 0)
+					dur := time.Duration(0)
+					var upstreamErr *UpstreamHTTPError
+					if errors.As(callErr, &upstreamErr) && upstreamErr.RetryAfter > 0 {
+						dur = upstreamErr.RetryAfter
+					}
+					g.router.MarkRateLimited(currentProfile, statusCode, callErr.Error(), dur)
+					quota.RecordProfileCooldown(currentProfile, dur)
 					g.router.MarkFailover(currentProfile)
 					excluded[currentProfile] = true
 					failoverCount++
@@ -493,7 +501,13 @@ func (g *Gateway) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			if !headersWritten {
 				isRateLimit, statusCode := IsRateLimitOrQuotaExhausted(callErr)
 				if isRateLimit && failoverEnabled {
-					g.router.MarkRateLimited(currentProfile, statusCode, callErr.Error(), 0)
+					dur := time.Duration(0)
+					var upstreamErr *UpstreamHTTPError
+					if errors.As(callErr, &upstreamErr) && upstreamErr.RetryAfter > 0 {
+						dur = upstreamErr.RetryAfter
+					}
+					g.router.MarkRateLimited(currentProfile, statusCode, callErr.Error(), dur)
+					quota.RecordProfileCooldown(currentProfile, dur)
 					g.router.MarkFailover(currentProfile)
 					excluded[currentProfile] = true
 					failoverCount++

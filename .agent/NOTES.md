@@ -22,6 +22,30 @@
 - **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
 - **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts, `--model` vs `--effort` flag conflict rules (`gemini-3.8-flash-low/medium/high` already encode effort), and single-grep escape hatch + line-ranged `Read: file:start-end` pre-injection, (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult` (including on `empty_diff`) and rejecting Go `testing: warning: no tests to run` false-positives, (5) diffing worktrees strictly against `HEAD` (`git diff HEAD -- <paths>`) / immutable SHA `BaseCommit` rather than moving `main` during multi-task wave commits, and (6) model-aware bucket routing (`gemini`/`argon`/`3p`) with failed-profile retry exclusion and native `.agent/TASK.md` wave execution (`multigravity dispatch wave`).
 
+### 2026-11-02 [Task 08.4] Cross-Profile Shared Cooldown & Throttling Pool
+
+- **Context:** Previously, rate-limit (HTTP 429) feedback was recorded only per-profile in local memory and single profile history. When a model tier or provider RPM/TPM limit was hit, secondary profiles repeatedly attempted the exact same exhausted model, wasting time and quota retries.
+- **Active Contracts:**
+  - `internal/quota/cooldown.go`:
+    - `CooldownEntry` / `CooldownPool`: models active rate-limit and throttling state across targets (`profile:<name>`, `model:<model>`, `bucket:<bucket>`, `global`), persisted to `$MULTIGRAVITY_HOME/.multigravity/cooldown-pool.json` with advisory file locking (`lockFile`/`unlockFile`).
+    - `RecordModelCooldown(model string, duration time.Duration, reason string)`: places a specific model under shared cooldown. Effort suffixes (`-low`, `-medium`, `-high`) match their base family name.
+    - `RecordBucketCooldown(bucketGroup string, duration time.Duration, reason string)`: places model buckets (`argon`, `3p`, `gemini`) under shared cooldown.
+    - `RecordProfileCooldown(profile string, duration time.Duration)`: synchronizes profile cooldown to both the shared cooldown pool and the profile's `quota-history.jsonl`.
+    - `IsModelOnCooldown(model string) (bool, time.Time, string)`: verifies whether global, model, base family, or bucket cooldown is active.
+    - `IsProfileOnCooldown(profile string) bool`: checks in-memory state, shared pool, and history.
+    - `ResetSharedCooldowns()`: clears in-memory and disk shared cooldown state.
+    - `ParseRetryAfterHeader(headerVal string) time.Duration`: parses standard HTTP `Retry-After` headers (integer seconds, duration strings, and RFC1123 HTTP dates).
+  - `internal/quota/routing.go`:
+    - `PreflightProfilesForModelFromCandidates`, `PreflightProfilesForModel`, and `SelectEligibleProfilesForModel`: abort immediately if `IsModelOnCooldown(model)` is true, preventing futile secondary profile attempts.
+    - `SelectEligibleProfilesForModel`: filters candidate profiles ensuring `IsProfileOnCooldown(cand.Profile)` is false.
+    - `ParseQuotaResetDuration`: supports both `Retry-After` header values and "Resets in ..." error strings.
+  - `internal/gateway/client.go`:
+    - `UpstreamHTTPError`: expanded with `RetryAfter time.Duration` and `Model string`.
+    - `StreamGenerateContentWithConnect`: extracts `Retry-After` header and fallback body duration into `UpstreamHTTPError`.
+    - `CheckModelCooldown(model string)` and `RecordUpstreamRateLimit(model, profile string, err error)`: expose fast-path cooldown verification and error feedback recording.
+  - `internal/gateway/gateway.go` & `internal/gateway/anthropic.go`:
+    - Auto-failover inspects `UpstreamHTTPError.RetryAfter` to set precise cooldown on `MarkRateLimited` and `RecordProfileCooldown`.
+
 ### 2026-11-02 [Task 08.3] On-Demand Headless Agent Runner for Inactive Profiles
 
 - **Context:** Automated wave execution and multi-account quota routing previously failed or skipped secondary profiles when inactive (not running in the desktop UI), and invocations specifying `agy --headless` failed with unrecognized flag errors (`flags provided but not defined: -headless`).

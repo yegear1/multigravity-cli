@@ -719,6 +719,10 @@ func SelectEligibleProfiles(count int, weight RouteWeight, excludeProfiles ...st
 // SelectEligibleProfilesForModel discovers running servers, scores each for the requested model's bucket group,
 // sorts candidates deterministically, and delegates to SelectEligibleProfilesFromCandidates.
 func SelectEligibleProfilesForModel(count int, model string, weight RouteWeight, excludeProfiles ...string) ([]string, error) {
+	if onCd, until, reason := IsModelOnCooldown(model); onCd {
+		return nil, fmt.Errorf("model %s is under active shared cooldown until %s (reason: %s)", model, until.Format(time.RFC3339), reason)
+	}
+
 	servers, err := fetchActiveServers("")
 	if err != nil {
 		return nil, fmt.Errorf("fetching active servers: %w", err)
@@ -743,6 +747,9 @@ func SelectEligibleProfilesForModel(count int, model string, weight RouteWeight,
 
 	candidates := make([]RouteCandidate, 0, len(bestByProfile))
 	for _, cand := range bestByProfile {
+		if IsProfileOnCooldown(cand.Profile) {
+			continue
+		}
 		candidates = append(candidates, cand)
 	}
 
@@ -765,6 +772,9 @@ var (
 // ParseQuotaResetDuration extracts a reset duration from provider rate-limit error messages
 // (e.g., "Resets in 151h56m34s" or "Resets in 45m10s."), defaulting to fallback when absent or invalid.
 func ParseQuotaResetDuration(logText string, fallback time.Duration) time.Duration {
+	if dur := ParseRetryAfterHeader(logText); dur > 0 {
+		return dur
+	}
 	idx := strings.Index(strings.ToLower(logText), "resets in ")
 	if idx != -1 {
 		rest := strings.TrimSpace(logText[idx+len("resets in "):])
@@ -798,6 +808,7 @@ func RecordProfileCooldown(profile string, duration time.Duration) {
 	if duration <= 0 {
 		delete(profileCooldowns, prof)
 		profileCooldownMu.Unlock()
+		_ = RecordCooldown("profile:"+prof, 0, "", SourceCooldown)
 		_ = appendSample(prof, Sample{
 			Timestamp:     historyNow().UTC(),
 			Profile:       prof,
@@ -810,6 +821,7 @@ func RecordProfileCooldown(profile string, duration time.Duration) {
 	profileCooldowns[prof] = until
 	profileCooldownMu.Unlock()
 
+	_ = RecordCooldown("profile:"+prof, duration, "profile cooldown", SourceCooldown)
 	_ = appendSample(prof, Sample{
 		Timestamp:     historyNow().UTC(),
 		Profile:       prof,
@@ -833,6 +845,10 @@ func IsProfileOnCooldown(profile string) bool {
 		return now.Before(until)
 	}
 
+	if onCd, _, _ := IsTargetOnCooldown("profile:" + prof); onCd {
+		return true
+	}
+
 	samples, err := readSamples(prof, HistoryQuery{Source: SourceCooldown, Limit: 5})
 	if err == nil && len(samples) > 0 {
 		last := samples[len(samples)-1]
@@ -851,6 +867,10 @@ func IsProfileOnCooldown(profile string) bool {
 // PreflightProfilesForModel discovers running servers, scores each for the requested model's bucket group,
 // sorts candidates deterministically, and delegates to PreflightProfilesForModelFromCandidates.
 func PreflightProfilesForModel(count int, model string, weight RouteWeight, minFraction float64, excludeProfiles ...string) ([]RouteCandidate, error) {
+	if onCd, until, reason := IsModelOnCooldown(model); onCd {
+		return nil, fmt.Errorf("model %s is under active shared cooldown until %s (reason: %s)", model, until.Format(time.RFC3339), reason)
+	}
+
 	servers, err := fetchActiveServers("")
 	if err != nil {
 		return nil, fmt.Errorf("fetching active servers: %w", err)
@@ -889,6 +909,10 @@ func PreflightProfilesForModel(count int, model string, weight RouteWeight, minF
 // (defaulting to SafetyThresholdForModel(model, WeightMedium) or DefaultSafetyQuotaThreshold when minFraction <= 0) or currently under active cooldown.
 // It partitions non-excluded profiles first, followed by excluded profiles as fallback, returning up to count candidates.
 func PreflightProfilesForModelFromCandidates(candidates []RouteCandidate, count int, model string, minFraction float64, excludeProfiles ...string) ([]RouteCandidate, error) {
+	if onCd, until, reason := IsModelOnCooldown(model); onCd {
+		return nil, fmt.Errorf("model %s is under active shared cooldown until %s (reason: %s)", model, until.Format(time.RFC3339), reason)
+	}
+
 	if minFraction <= 0 {
 		if strings.TrimSpace(model) == "" {
 			minFraction = DefaultSafetyQuotaThreshold
