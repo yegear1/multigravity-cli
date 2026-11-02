@@ -23,7 +23,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
-| [07.2] | Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation) | `HEAD` | 2026-11-02 |
+| [07.2] | Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation) | `69992b2` | 2026-11-02 |
 | [07.1] | Worktree Ephemeral Branch Cleanup on Apply/Prune | `a1bae69` | 2026-11-02 |
 | [90.1] | Componentize Server HTTP Handlers (internal/server/routes.go) | `8771e7d` | 2026-11-01 |
 | [90.2] | Modularize Dispatch CLI Subcommands (internal/cmd/dispatch.go) | `00362c7` | 2026-11-01 |
@@ -38,7 +38,7 @@
   - `Read:` `internal/worktree/manager.go, internal/worktree/git.go`
   - `Paths:` `internal/worktree/manager.go, internal/worktree/git.go, internal/worktree/manager_test.go`
   - `Verify:` `go test -v ./internal/worktree/...`
-- [x] **[07.2]** `[APPROVED]` `[PARALLEL: W1]` Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation)
+- [x] **[07.2]** `[APPROVED]` `[PARALLEL: W1]` Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation) (69992b2)
   - `Read:` `internal/dispatch/wave.go, internal/dispatch/types.go`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
   - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Compact.*'`
