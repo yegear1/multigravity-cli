@@ -22,6 +22,7 @@ var (
 	dpPlanFull        bool
 	dpPlanRole        string
 	dpPlanReadOnly    bool
+	dpPlanWorkspace   string
 )
 
 func newDispatchPlanCmd() *cobra.Command {
@@ -41,6 +42,7 @@ git worktrees, returning a unified summary of execution status and diffs. Use '-
 	planSubCmd.Flags().BoolVar(&dpPlanFull, "full", false, "Output full verbose plan result including prompts and diffs")
 	planSubCmd.Flags().StringVar(&dpPlanRole, "role", "", "Execution role boundary for plan subtasks (e.g. developer, researcher, verifier)")
 	planSubCmd.Flags().BoolVar(&dpPlanReadOnly, "read-only", false, "Enforce strict read-only execution across plan subtasks")
+	planSubCmd.Flags().StringVar(&dpPlanWorkspace, "workspace", "", "Workspace isolation mode for plan subtasks (worktree, mirror, inherit)")
 	return planSubCmd
 }
 
@@ -54,6 +56,7 @@ func runDispatchPlan(cmd *cobra.Command, args []string) error {
 		dpPlanFull = false
 		dpPlanRole = ""
 		dpPlanReadOnly = false
+		dpPlanWorkspace = ""
 		dpJSON = false
 	}()
 
@@ -95,6 +98,9 @@ func runDispatchPlan(cmd *cobra.Command, args []string) error {
 	}
 	if dpPlanReadOnly {
 		req.ReadOnly = true
+	}
+	if dpPlanWorkspace != "" {
+		req.Workspace = dpPlanWorkspace
 	}
 
 	out := cmd.OutOrStdout()

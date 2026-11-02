@@ -28,6 +28,7 @@ var (
 	dpSandbox      bool
 	dpRole         string
 	dpReadOnly     bool
+	dpWorkspace    string
 	dpVerify       string
 	dpRetry        int
 	dpNoGovernance bool
@@ -53,6 +54,7 @@ func newDispatchRunCmd() *cobra.Command {
 	runSubCmd.Flags().StringVar(&dpAgentType, "agent", "", "Agent type (claude, aider, opencode, agy, codex, custom)")
 	runSubCmd.Flags().BoolVarP(&dpNewWorktree, "new-worktree", "w", false, "Create a dedicated ephemeral git worktree for the task")
 	runSubCmd.Flags().StringVar(&dpWorktree, "worktree", "", "Associate with an existing worktree ID")
+	runSubCmd.Flags().StringVar(&dpWorkspace, "workspace", "", "Workspace isolation mode (worktree, mirror, inherit)")
 	runSubCmd.Flags().StringVar(&dpBranch, "branch", "", "Git branch name for newly created worktree")
 	runSubCmd.Flags().StringVar(&dpBaseCommit, "base", "", "Base commit or branch to branch off")
 	runSubCmd.Flags().StringVar(&dpCwd, "cwd", "", "Custom working directory")
@@ -83,6 +85,7 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		dpSandbox = false
 		dpRole = ""
 		dpReadOnly = false
+		dpWorkspace = ""
 		dpGateway = ""
 		dpGatewayKey = ""
 		dpVerify = ""
@@ -136,6 +139,18 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		gatewayURL = probeDefaultGateway()
 	}
 
+	workspaceMode := strings.ToLower(strings.TrimSpace(dpWorkspace))
+	if workspaceMode != "" {
+		switch dispatch.WorkspaceMode(workspaceMode) {
+		case dispatch.WorkspaceWorktree, dispatch.WorkspaceMirror, dispatch.WorkspaceInherit:
+		default:
+			return fmt.Errorf("invalid workspace mode %q: must be one of %q, %q, %q",
+				dpWorkspace, dispatch.WorkspaceWorktree, dispatch.WorkspaceMirror, dispatch.WorkspaceInherit)
+		}
+	} else if dpNewWorktree {
+		workspaceMode = string(dispatch.WorkspaceWorktree)
+	}
+
 	opts := dispatch.DispatchOptions{
 		Profile:      profileName,
 		RepoPath:     dpRunRepo,
@@ -146,11 +161,12 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		Sandbox:      dpSandbox || dpReadOnly || (dpRole != "" && dpRole != "developer"),
 		Role:         dpRole,
 		ReadOnly:     dpReadOnly,
+		Workspace:    workspaceMode,
 		Verify:       dpVerify,
 		Retry:        dpRetry,
 		TraceID:      dpTraceID,
 		NoGovernance: dpNoGovernance,
-		NewWorktree:  dpNewWorktree,
+		NewWorktree:  dpNewWorktree || workspaceMode == string(dispatch.WorkspaceWorktree),
 		WorktreeID:   dpWorktree,
 		Branch:       dpBranch,
 		BaseCommit:   dpBaseCommit,
@@ -191,6 +207,9 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 		if task.ReadOnly {
 			fmt.Fprintf(out, "  Mode:       %s\n", dpYellow("read-only"))
 		}
+		if task.Workspace != "" {
+			fmt.Fprintf(out, "  Workspace:  %s\n", dpCyan(task.Workspace))
+		}
 		if task.Prompt != "" {
 			fmt.Fprintf(out, "  Prompt:     %s\n", dpDim(task.Prompt))
 		}
@@ -216,6 +235,9 @@ func runDispatchRun(cmd *cobra.Command, args []string) error {
 	// Foreground mode: stream logs and wait for completion
 	if !dpJSON {
 		fmt.Fprintf(out, "%s Task %s started with profile %s\n", dpGreen("●"), dpBold(task.ID), dpCyan(task.Profile))
+		if task.Workspace != "" {
+			fmt.Fprintf(out, "  Workspace: %s\n", dpCyan(task.Workspace))
+		}
 		if task.WorktreeID != "" {
 			fmt.Fprintf(out, "  Worktree: %s (%s)\n\n", dpBold(task.WorktreeID), dpDim(task.WorktreePath))
 		}

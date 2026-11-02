@@ -1305,3 +1305,68 @@ func TestDispatchCLITraceIDFlagAndStatus(t *testing.T) {
 	}
 }
 
+func TestDispatchCLIWorkspaceModes(t *testing.T) {
+	repoDir := setupTestGitRepoForCmd(t)
+	setupTestProfileForCmd(t, "dev")
+
+	cleanup := agent.SetTestHooks(func(opts agent.CreateSessionOptions) *exec.Cmd {
+		return exec.Command("sh", "-c", "echo 'workspace test done'")
+	})
+	defer cleanup()
+
+	cmd := newDispatchCmd()
+
+	// 1. Inherit workspace mode via CLI
+	out, err := executeCommand(cmd, "run", "dev", "--repo", repoDir, "--workspace", "inherit", "-p", "research something", "--detach", "--json")
+	if err != nil {
+		t.Fatalf("failed to dispatch run with --workspace=inherit: %v (out: %s)", err, out)
+	}
+
+	var task dispatch.Task
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("failed to parse task JSON: %v", err)
+	}
+	if task.Workspace != string(dispatch.WorkspaceInherit) {
+		t.Errorf("expected Workspace 'inherit', got %q", task.Workspace)
+	}
+	if task.WorktreeID != "" {
+		t.Errorf("expected empty WorktreeID, got %q", task.WorktreeID)
+	}
+
+	// 2. Mirror workspace mode via CLI
+	outMirror, err := executeCommand(cmd, "run", "dev", "--repo", repoDir, "--workspace", "mirror", "-p", "inspect mirror", "--detach", "--json")
+	if err != nil {
+		t.Fatalf("failed to dispatch run with --workspace=mirror: %v (out: %s)", err, outMirror)
+	}
+
+	var taskMirror dispatch.Task
+	if err := json.Unmarshal([]byte(outMirror), &taskMirror); err != nil {
+		t.Fatalf("failed to parse mirror task JSON: %v", err)
+	}
+	if taskMirror.Workspace != string(dispatch.WorkspaceMirror) {
+		t.Errorf("expected Workspace 'mirror', got %q", taskMirror.Workspace)
+	}
+	if taskMirror.WorktreeID == "" {
+		t.Errorf("expected non-empty WorktreeID for mirror task")
+	}
+
+	// 3. Invalid workspace mode via CLI
+	_, errInvalid := executeCommand(cmd, "run", "dev", "--repo", repoDir, "--workspace", "bogus", "-p", "fail")
+	if errInvalid == nil || !strings.Contains(errInvalid.Error(), "invalid workspace mode") {
+		t.Errorf("expected invalid workspace mode error, got %v", errInvalid)
+	}
+
+	mgr := dispatch.GetDefaultTaskManager()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		t1, _ := mgr.GetTask(repoDir, task.ID)
+		t2, _ := mgr.GetTask(repoDir, taskMirror.ID)
+		t1Done := t1 == nil || t1.Status != dispatch.StatusRunning
+		t2Done := t2 == nil || t2.Status != dispatch.StatusRunning
+		if t1Done && t2Done {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+

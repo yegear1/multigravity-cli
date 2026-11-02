@@ -16,6 +16,15 @@ const (
 	StatusAuditFailed TaskStatus = "audit_failed"
 )
 
+// WorkspaceMode represents the workspace isolation strategy for dispatched tasks.
+type WorkspaceMode string
+
+const (
+	WorkspaceWorktree WorkspaceMode = "worktree"
+	WorkspaceMirror   WorkspaceMode = "mirror"
+	WorkspaceInherit  WorkspaceMode = "inherit"
+)
+
 // Task models a persistent dispatched agent task execution with its worktree, profile, and logs.
 type Task struct {
 	ID                   string            `json:"id"`
@@ -31,6 +40,7 @@ type Task struct {
 	Sandbox              bool              `json:"sandbox,omitempty"`
 	Role                 string            `json:"role,omitempty"`
 	ReadOnly             bool              `json:"read_only,omitempty"`
+	Workspace            string            `json:"workspace,omitempty"`
 	Verify               string            `json:"verify,omitempty"`
 	VerificationOutput   string            `json:"verification_output,omitempty"`
 	VerificationExitCode int               `json:"verification_exit_code,omitempty"`
@@ -65,6 +75,7 @@ type DispatchOptions struct {
 	Sandbox      bool              `json:"sandbox,omitempty"`
 	Role         string            `json:"role,omitempty"`
 	ReadOnly     bool              `json:"read_only,omitempty"`
+	Workspace    string            `json:"workspace,omitempty"`
 	Verify       string            `json:"verify,omitempty"`
 	Retry        int               `json:"retry,omitempty"`
 	TraceID      string            `json:"trace_id,omitempty"`

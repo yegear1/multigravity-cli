@@ -1306,3 +1306,140 @@ func TestExecuteVerifyCommandWithEnvIsolation(t *testing.T) {
 		t.Errorf("expected exitCode 2, got %d, err=%v", failExit, failErr)
 	}
 }
+
+func TestDispatchWorkspaceInherit(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	// 1. Explicit inherit workspace mode
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:        "task-inherit-1",
+		Profile:   "dev",
+		RepoPath:  repoDir,
+		Workspace: "inherit",
+		Command:   "sh",
+		Args:      []string{"-c", "echo 'hello inherit'"},
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch inherit task: %v", err)
+	}
+
+	if task.Workspace != string(WorkspaceInherit) {
+		t.Errorf("expected Workspace = inherit, got %q", task.Workspace)
+	}
+	if task.WorktreeID != "" {
+		t.Errorf("expected empty WorktreeID for inherit task, got %q", task.WorktreeID)
+	}
+	if task.WorktreePath != "" {
+		t.Errorf("expected empty WorktreePath for inherit task, got %q", task.WorktreePath)
+	}
+
+	// Verify no worktree directory created
+	wtDir := filepath.Join(repoDir, ".multigravity", "worktrees")
+	if entries, err := os.ReadDir(wtDir); err == nil && len(entries) > 0 {
+		t.Errorf("expected no worktrees created under .multigravity/worktrees, found %d", len(entries))
+	}
+
+	// 2. Read-only role auto-defaults to inherit when workspace unset
+	taskRO, err := taskMgr.Dispatch(DispatchOptions{
+		ID:       "task-inherit-ro",
+		Profile:  "dev",
+		RepoPath: repoDir,
+		Role:     "researcher",
+		ReadOnly: true,
+		Command:  "sh",
+		Args:     []string{"-c", "echo 'researching'"},
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch read-only researcher task: %v", err)
+	}
+	if taskRO.Workspace != string(WorkspaceInherit) {
+		t.Errorf("expected read-only task to default to Workspace = inherit, got %q", taskRO.Workspace)
+	}
+	if taskRO.WorktreeID != "" {
+		t.Errorf("expected empty WorktreeID for read-only inherit task, got %q", taskRO.WorktreeID)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _ = taskMgr.WaitForTask(ctx, repoDir, task.ID)
+	_, _ = taskMgr.WaitForTask(ctx, repoDir, taskRO.ID)
+}
+
+func TestDispatchWorkspaceMirror(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	// Create test file in repoDir
+	testFilePath := filepath.Join(repoDir, "sample.txt")
+	if err := os.WriteFile(testFilePath, []byte("original content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	task, err := taskMgr.Dispatch(DispatchOptions{
+		ID:        "task-mirror-1",
+		Profile:   "dev",
+		RepoPath:  repoDir,
+		Workspace: "mirror",
+		Command:   "sh",
+		Args:      []string{"-c", "cat sample.txt"},
+	})
+	if err != nil {
+		t.Fatalf("failed to dispatch mirror task: %v", err)
+	}
+
+	if task.Workspace != string(WorkspaceMirror) {
+		t.Errorf("expected Workspace = mirror, got %q", task.Workspace)
+	}
+	if task.WorktreeID != "task-mirror-1" {
+		t.Errorf("expected WorktreeID = task-mirror-1, got %q", task.WorktreeID)
+	}
+	expectedMirrorDir := filepath.Join(repoDir, ".multigravity", "mirrors", "task-mirror-1")
+	if task.WorktreePath != expectedMirrorDir {
+		t.Errorf("expected WorktreePath = %q, got %q", expectedMirrorDir, task.WorktreePath)
+	}
+
+	// Verify mirrored file exists
+	mirroredFile := filepath.Join(expectedMirrorDir, "sample.txt")
+	content, err := os.ReadFile(mirroredFile)
+	if err != nil || string(content) != "original content" {
+		t.Errorf("expected mirrored sample.txt to contain 'original content', err=%v, content=%q", err, string(content))
+	}
+
+	// Wait for task completion
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _ = taskMgr.WaitForTask(ctx, repoDir, task.ID)
+
+	// Verify deletion removes mirror directory
+	if err := taskMgr.DeleteTask(repoDir, task.ID, true); err != nil {
+		t.Fatalf("failed to delete task: %v", err)
+	}
+	if _, err := os.Stat(expectedMirrorDir); !os.IsNotExist(err) {
+		t.Errorf("expected mirror directory to be cleaned up after task deletion")
+	}
+}
+
+func TestDispatchWorkspaceInvalid(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	setupTestProfile(t, "dev")
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	_, err := taskMgr.Dispatch(DispatchOptions{
+		ID:        "task-invalid-ws",
+		Profile:   "dev",
+		RepoPath:  repoDir,
+		Workspace: "invalid_mode",
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid workspace mode") {
+		t.Errorf("expected invalid workspace mode error, got %v", err)
+	}
+}

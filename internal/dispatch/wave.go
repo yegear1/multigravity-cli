@@ -28,6 +28,7 @@ type WaveTaskSpec struct {
 	Model    string   `json:"model,omitempty"`
 	Role     string   `json:"role,omitempty"`
 	ReadOnly bool     `json:"read_only,omitempty"`
+	Workspace string  `json:"workspace,omitempty"`
 }
 
 // WaveSpec represents a collection of tasks belonging to the same wave tag.
@@ -45,6 +46,7 @@ type WaveOptions struct {
 	DefaultModel string        `json:"default_model,omitempty"`
 	Role         string        `json:"role,omitempty"`
 	ReadOnly     bool          `json:"read_only,omitempty"`
+	Workspace    string        `json:"workspace,omitempty"`
 	NoRetry      bool          `json:"no_retry,omitempty"`
 	Probe        bool          `json:"probe,omitempty"`
 }
@@ -193,6 +195,8 @@ func ParseTaskWave(taskFilePath, waveTag string) (*WaveSpec, error) {
 					currentTask.Model = cleanBackticksAndSpaces(bulletContent)
 				} else if matchField(&bulletContent, lower, "role:") {
 					currentTask.Role = cleanBackticksAndSpaces(bulletContent)
+				} else if matchField(&bulletContent, lower, "workspace:") {
+					currentTask.Workspace = cleanBackticksAndSpaces(bulletContent)
 				} else if matchField(&bulletContent, lower, "read-only:") || matchField(&bulletContent, lower, "readonly:") {
 					val := strings.ToLower(cleanBackticksAndSpaces(bulletContent))
 					currentTask.ReadOnly = (val == "true" || val == "1" || val == "yes")
@@ -295,6 +299,15 @@ func LintTaskWave(waveSpec *WaveSpec) []string {
 		if strings.TrimSpace(t.Verify) == "" {
 			violations = append(violations, fmt.Sprintf("task [%s]: missing Verify command", t.ID))
 		}
+
+		if t.Workspace != "" {
+			wsMode := strings.ToLower(strings.TrimSpace(t.Workspace))
+			switch WorkspaceMode(wsMode) {
+			case WorkspaceWorktree, WorkspaceMirror, WorkspaceInherit:
+			default:
+				violations = append(violations, fmt.Sprintf("task [%s]: invalid workspace mode %q (must be worktree, mirror, or inherit)", t.ID, t.Workspace))
+			}
+		}
 	}
 
 	return violations
@@ -368,6 +381,10 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 			taskRole = opts.Role
 		}
 		taskReadOnly := t.ReadOnly || opts.ReadOnly
+		taskWorkspace := t.Workspace
+		if taskWorkspace == "" {
+			taskWorkspace = opts.Workspace
+		}
 		subtasks[i] = SubtaskSpec{
 			ID:            t.ID,
 			Profile:       "auto",
@@ -378,6 +395,7 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 			Model:         t.Model,
 			Role:          taskRole,
 			ReadOnly:      taskReadOnly,
+			Workspace:     taskWorkspace,
 			CommitMessage: fmt.Sprintf("feat(%s): %s", t.ID, t.Title),
 		}
 	}
@@ -389,6 +407,7 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 		Workers:      len(subtasks),
 		Subtasks:     subtasks,
 		DefaultModel: opts.DefaultModel,
+		Workspace:    opts.Workspace,
 		ApplyAtomic:  true,
 		OmitDiff:     true,
 		InlineRead:   true,
@@ -476,6 +495,10 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 				retryRole = opts.Role
 			}
 			retryReadOnly := t.ReadOnly || opts.ReadOnly
+			retryWorkspace := t.Workspace
+			if retryWorkspace == "" {
+				retryWorkspace = opts.Workspace
+			}
 
 			retrySubtask := SubtaskSpec{
 				ID:            t.ID,
@@ -487,6 +510,7 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 				Model:         retryModel,
 				Role:          retryRole,
 				ReadOnly:      retryReadOnly,
+				Workspace:     retryWorkspace,
 				CommitMessage: fmt.Sprintf("feat(%s): %s", t.ID, t.Title),
 			}
 
@@ -496,6 +520,7 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 				Timeout:      timeoutStr,
 				Workers:      1,
 				Subtasks:     []SubtaskSpec{retrySubtask},
+				Workspace:    retryWorkspace,
 				ApplyAtomic:  true,
 				OmitDiff:     true,
 				InlineRead:   true,

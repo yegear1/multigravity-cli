@@ -24,6 +24,7 @@ var (
 	dpWaveProbe   bool
 	dpWaveRole    string
 	dpWaveReadOnly bool
+	dpWaveWorkspace string
 )
 
 func newDispatchWaveCmd() *cobra.Command {
@@ -45,6 +46,7 @@ and execute them in parallel or sequence with automatic profile and quota routin
 	waveSubCmd.Flags().BoolVar(&dpWaveProbe, "probe", false, "Probe and wake inactive secondary profile language servers during pre-flight")
 	waveSubCmd.Flags().StringVar(&dpWaveRole, "role", "", "Execution role boundary for wave tasks (e.g. developer, researcher, verifier)")
 	waveSubCmd.Flags().BoolVar(&dpWaveReadOnly, "read-only", false, "Enforce strict read-only execution across wave tasks")
+	waveSubCmd.Flags().StringVar(&dpWaveWorkspace, "workspace", "", "Workspace isolation mode for wave tasks (worktree, mirror, inherit)")
 	return waveSubCmd
 }
 
@@ -60,6 +62,7 @@ func runDispatchWave(cmd *cobra.Command, args []string) error {
 		dpWaveProbe = false
 		dpWaveRole = ""
 		dpWaveReadOnly = false
+		dpWaveWorkspace = ""
 		dpJSON = false
 	}()
 
@@ -124,14 +127,15 @@ func runDispatchWave(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := dispatch.WaveOptions{
-		RepoRoot: dpWaveRepo,
-		TaskFile: dpWaveFile,
-		WaveTag:  dpWaveTag,
-		Timeout:  timeoutDur,
-		NoRetry:  dpWaveNoRetry,
-		Probe:    dpWaveProbe,
-		Role:     dpWaveRole,
-		ReadOnly: dpWaveReadOnly,
+		RepoRoot:  dpWaveRepo,
+		TaskFile:  dpWaveFile,
+		WaveTag:   dpWaveTag,
+		Timeout:   timeoutDur,
+		NoRetry:   dpWaveNoRetry,
+		Probe:     dpWaveProbe,
+		Role:      dpWaveRole,
+		ReadOnly:  dpWaveReadOnly,
+		Workspace: dpWaveWorkspace,
 	}
 
 	out := cmd.OutOrStdout()

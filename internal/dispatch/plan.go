@@ -47,6 +47,7 @@ type SubtaskSpec struct {
 	Role          string            `json:"role,omitempty"`
 	ReadOnly      bool              `json:"read_only,omitempty"`
 	Sandbox       bool              `json:"sandbox,omitempty"`
+	Workspace     string            `json:"workspace,omitempty"`
 }
 
 // PlanRequest defines the input payload for dispatching a batch of subtasks concurrently across worktrees.
@@ -63,6 +64,7 @@ type PlanRequest struct {
 	Role         string        `json:"role,omitempty"`
 	ReadOnly     bool          `json:"read_only,omitempty"`
 	Sandbox      bool          `json:"sandbox,omitempty"`
+	Workspace    string        `json:"workspace,omitempty"`
 	ApplyAtomic  bool          `json:"apply_atomic,omitempty"`
 	OmitDiff     bool          `json:"omit_diff,omitempty"`
 	InlineRead   bool          `json:"inline_read,omitempty"`
@@ -97,6 +99,7 @@ type SubtaskResult struct {
 	TokensUsed           int             `json:"tokens_used,omitempty"`
 	Role                 string          `json:"role,omitempty"`
 	ReadOnly             bool            `json:"read_only,omitempty"`
+	Workspace            string          `json:"workspace,omitempty"`
 }
 
 // UnifiedDiffSummary aggregates diff statistics, affected files, and scope collision analysis.
@@ -410,7 +413,26 @@ func ValidatePlan(req *PlanRequest) error {
 		return errors.New("subtasks are required: at least one subtask must be specified")
 	}
 
+	if req.Workspace != "" {
+		ws := strings.ToLower(strings.TrimSpace(req.Workspace))
+		switch WorkspaceMode(ws) {
+		case WorkspaceWorktree, WorkspaceMirror, WorkspaceInherit:
+		default:
+			return fmt.Errorf("invalid plan workspace mode %q: must be one of %q, %q, %q",
+				req.Workspace, WorkspaceWorktree, WorkspaceMirror, WorkspaceInherit)
+		}
+	}
+
 	for i, st := range subtasks {
+		if st.Workspace != "" {
+			ws := strings.ToLower(strings.TrimSpace(st.Workspace))
+			switch WorkspaceMode(ws) {
+			case WorkspaceWorktree, WorkspaceMirror, WorkspaceInherit:
+			default:
+				return fmt.Errorf("subtask [%d]: invalid workspace mode %q: must be one of %q, %q, %q",
+					i, st.Workspace, WorkspaceWorktree, WorkspaceMirror, WorkspaceInherit)
+			}
+		}
 		prof := strings.TrimSpace(st.Profile)
 		if prof != "" && prof != "auto" {
 			if err := config.ValidateProfileName(prof); err != nil {
@@ -749,6 +771,18 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					}
 				}
 
+				effectiveWorkspace := strings.ToLower(strings.TrimSpace(st.Workspace))
+				if effectiveWorkspace == "" {
+					effectiveWorkspace = strings.ToLower(strings.TrimSpace(req.Workspace))
+				}
+				if effectiveWorkspace == "" {
+					if effectiveReadOnly || agent.IsReadOnlyRole(effectiveRole) {
+						effectiveWorkspace = string(WorkspaceInherit)
+					} else {
+						effectiveWorkspace = string(WorkspaceWorktree)
+					}
+				}
+
 				dOpts := DispatchOptions{
 					ID:          taskID,
 					Profile:     effectiveProfile,
@@ -760,7 +794,8 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					Sandbox:     effectiveSandbox,
 					Role:        effectiveRole,
 					ReadOnly:    effectiveReadOnly,
-					NewWorktree: true,
+					Workspace:   effectiveWorkspace,
+					NewWorktree: effectiveWorkspace == string(WorkspaceWorktree),
 					Branch:      branch,
 					BaseCommit:  baseCommit,
 					Cwd:         st.Cwd,
@@ -783,6 +818,7 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					continue
 				}
 
+				res.Workspace = effectiveWorkspace
 				res.WorktreeID = dispatchedTask.WorktreeID
 				res.WorktreePath = dispatchedTask.WorktreePath
 
@@ -916,12 +952,12 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					}
 				}
 
-				if !effectiveReadOnly && len(st.Paths) > 0 && strings.TrimSpace(res.Diff) == "" && res.Status == StatusCompleted {
+				if !effectiveReadOnly && effectiveWorkspace != string(WorkspaceInherit) && len(st.Paths) > 0 && strings.TrimSpace(res.Diff) == "" && res.Status == StatusCompleted {
 					res.Status = StatusAuditFailed
 					res.Error = "empty_diff: subtask exited without modifying any allowed paths"
 				}
 
-				if !effectiveReadOnly && req.ApplyAtomic && res.Status == StatusCompleted && res.Diff != "" {
+				if !effectiveReadOnly && effectiveWorkspace != string(WorkspaceInherit) && req.ApplyAtomic && res.Status == StatusCompleted && res.Diff != "" {
 					if err := worktree.GitApply(repoRoot, res.Diff, false, false); err != nil {
 						res.Status = StatusFailed
 						res.Error = fmt.Sprintf("apply diff error: %v", err)
@@ -955,12 +991,16 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 								if sha, err := revCmd.Output(); err == nil {
 									res.Commit = strings.TrimSpace(string(sha))
 								}
-								// Clean up ephemeral worktree and branch upon successful atomic commit
+								// Clean up ephemeral worktree or mirror upon successful atomic commit
 								if res.WorktreeID != "" {
-									_ = worktree.RemoveWorktree(repoRoot, res.WorktreeID, worktree.RemoveOptions{
-										Force:        true,
-										DeleteBranch: true,
-									})
+									if effectiveWorkspace == string(WorkspaceMirror) {
+										_ = cleanupMirrorWorkspace(repoRoot, res.WorktreeID)
+									} else {
+										_ = worktree.RemoveWorktree(repoRoot, res.WorktreeID, worktree.RemoveOptions{
+											Force:        true,
+											DeleteBranch: true,
+										})
+									}
 								}
 							}
 						}
@@ -1102,10 +1142,14 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 	if req.ApplyAtomic || overallStatus != "completed" {
 		for _, res := range subtaskResults {
 			if res.WorktreeID != "" {
-				_ = worktree.RemoveWorktree(repoRoot, res.WorktreeID, worktree.RemoveOptions{
-					Force:        true,
-					DeleteBranch: true,
-				})
+				if res.Workspace == string(WorkspaceMirror) {
+					_ = cleanupMirrorWorkspace(repoRoot, res.WorktreeID)
+				} else {
+					_ = worktree.RemoveWorktree(repoRoot, res.WorktreeID, worktree.RemoveOptions{
+						Force:        true,
+						DeleteBranch: true,
+					})
+				}
 			}
 		}
 		_ = worktree.PruneWorktrees(repoRoot)
