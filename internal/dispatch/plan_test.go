@@ -602,6 +602,56 @@ func TestSynthesizeSubtaskPromptWithRepoSizeBounds(t *testing.T) {
 	}
 }
 
+func TestSynthesizeSubtaskPromptWithRepoASTOutline(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a large Go file with > 150 lines and struct/method declarations
+	var sb strings.Builder
+	sb.WriteString("package bigservice\n\nimport \"fmt\"\n\n")
+	sb.WriteString("type Config struct {\n\tPort int\n\tHost string\n}\n\n")
+	sb.WriteString("type Service interface {\n\tStart() error\n\tStop()\n}\n\n")
+
+	for i := 1; i <= 60; i++ {
+		sb.WriteString(fmt.Sprintf("func Method%02d(val int) (int, error) {\n", i))
+		sb.WriteString(fmt.Sprintf("\tfmt.Println(\"large body statement %d\")\n", i))
+		sb.WriteString("\treturn val * 2, nil\n}\n\n")
+	}
+
+	goFilePath := filepath.Join(tmpDir, "service.go")
+	if err := os.WriteFile(goFilePath, []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := SubtaskSpec{
+		Prompt: "implement new endpoint",
+		Read:   []string{"service.go"},
+	}
+
+	prompt, _ := SynthesizeSubtaskPromptWithRepo(st, "", tmpDir, true)
+
+	// Check outline header and interface/struct presence
+	if !strings.Contains(prompt, "--- service.go (AST Outline) ---") {
+		t.Errorf("expected prompt to contain AST outline header for large Go file")
+	}
+	if !strings.Contains(prompt, "type Config struct") {
+		t.Errorf("expected prompt to contain 'type Config struct'")
+	}
+	if !strings.Contains(prompt, "type Service interface") {
+		t.Errorf("expected prompt to contain 'type Service interface'")
+	}
+	if !strings.Contains(prompt, "func Method01(val int) (int, error)") {
+		t.Errorf("expected prompt to contain method signature 'func Method01(val int) (int, error)'")
+	}
+	if !strings.Contains(prompt, "func Method60(val int) (int, error)") {
+		t.Errorf("expected prompt to contain method signature 'func Method60(val int) (int, error)'")
+	}
+
+	// Inner body statements should be stripped
+	if strings.Contains(prompt, "large body statement") {
+		t.Errorf("prompt should not contain stripped body statements")
+	}
+}
+
 func TestExecutePlanTokensUsed(t *testing.T) {
 	repoDir := setupTestGitRepo(t)
 	setupTestProfile(t, "dev1")

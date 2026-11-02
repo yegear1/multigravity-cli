@@ -242,38 +242,62 @@ func SynthesizeSubtaskPromptWithRepo(st SubtaskSpec, defaultModel, repoRoot stri
 			}
 
 			fullPath := filepath.Join(repoRoot, filePath)
-			f, err := os.Open(fullPath)
-			if err != nil {
-				continue
+
+			var content string
+			var snippet string
+			usedOutline := false
+
+			// Check for AST outline extraction when whole file exceeds single-file budget
+			if startLine == 0 && endLine == 0 {
+				if rawBytes, readErr := os.ReadFile(fullPath); readErr == nil {
+					lineCount := strings.Count(string(rawBytes), "\n") + 1
+					if lineCount > maxNonRangedLines || len(rawBytes) > maxNonRangedBytes {
+						if outline, oErr := ExtractASTOutline(filePath, rawBytes); oErr == nil && len(outline) > 0 {
+							content = outline
+							if len(content) > maxNonRangedBytes {
+								content = content[:maxNonRangedBytes]
+							}
+							snippet = fmt.Sprintf("\n--- %s (AST Outline) ---\n%s\n", entry, content)
+							usedOutline = true
+						}
+					}
+				}
 			}
 
-			scanner := bufio.NewScanner(f)
-			currentLine := 0
-			var lines []string
-			for scanner.Scan() {
-				currentLine++
-				if startLine > 0 && currentLine < startLine {
+			if !usedOutline {
+				f, err := os.Open(fullPath)
+				if err != nil {
 					continue
 				}
-				if endLine > 0 && currentLine > endLine {
-					break
-				}
-				if startLine == 0 && endLine == 0 && currentLine > maxNonRangedLines {
-					break
-				}
-				lines = append(lines, scanner.Text())
-			}
-			f.Close()
 
-			if len(lines) == 0 {
-				continue
-			}
+				scanner := bufio.NewScanner(f)
+				currentLine := 0
+				var lines []string
+				for scanner.Scan() {
+					currentLine++
+					if startLine > 0 && currentLine < startLine {
+						continue
+					}
+					if endLine > 0 && currentLine > endLine {
+						break
+					}
+					if startLine == 0 && endLine == 0 && currentLine > maxNonRangedLines {
+						break
+					}
+					lines = append(lines, scanner.Text())
+				}
+				f.Close()
 
-			content := strings.Join(lines, "\n")
-			if startLine == 0 && endLine == 0 && len(content) > maxNonRangedBytes {
-				content = content[:maxNonRangedBytes]
+				if len(lines) == 0 {
+					continue
+				}
+
+				content = strings.Join(lines, "\n")
+				if startLine == 0 && endLine == 0 && len(content) > maxNonRangedBytes {
+					content = content[:maxNonRangedBytes]
+				}
+				snippet = fmt.Sprintf("\n--- %s ---\n%s\n", entry, content)
 			}
-			snippet := fmt.Sprintf("\n--- %s ---\n%s\n", entry, content)
 			if totalBytes+len(snippet) > maxBudget {
 				remaining := maxBudget - totalBytes
 				if remaining > 0 {
