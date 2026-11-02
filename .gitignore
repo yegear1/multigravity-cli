@@ -13,6 +13,7 @@ test.sh
 
 # OS and Editor metadata
 .DS_Store
+.multigravity/
 Thumbs.db
 
 # Build artifacts
