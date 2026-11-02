@@ -440,3 +440,91 @@ func TestRunAgentPrompt_Timeout(t *testing.T) {
 	}
 }
 
+func TestEnsureRunning_Lifecycle(t *testing.T) {
+	_, cleanupEnv := setupTestEnvironment(t)
+	defer cleanupEnv()
+
+	profName := "ensure-prof"
+	if err := profile.CreateProfile(profile.CreateOptions{Name: profName}); err != nil {
+		t.Fatalf("failed to create test profile: %v", err)
+	}
+
+	mgr := NewManager()
+
+	fakePID := 65432
+	fakePort := 43210
+	fakeCSRF := "ensure-csrf-token"
+
+	aliveMap := map[int]bool{fakePID: true}
+	startCount := 0
+
+	restoreHooks := SetTestHooks(
+		func() (string, error) {
+			return "/fake/bin/language_server", nil
+		},
+		func(port int, csrf string) error {
+			if port == fakePort && csrf == fakeCSRF {
+				return nil
+			}
+			return fmt.Errorf("probe failed: port=%d", port)
+		},
+		func(pid int) bool {
+			return aliveMap[pid]
+		},
+		func(pid int) error {
+			delete(aliveMap, pid)
+			return nil
+		},
+		func(cmd *exec.Cmd, logFile string, portChan chan int, errChan chan error) (*InstanceInfo, error) {
+			startCount++
+			info := &InstanceInfo{
+				PID:       fakePID,
+				Port:      fakePort,
+				CSRFToken: fakeCSRF,
+				Status:    StateRunning,
+				StartedAt: time.Now().UTC(),
+				Profile:   profName,
+				LogFile:   logFile,
+			}
+			portChan <- fakePort
+			return info, nil
+		},
+	)
+	defer restoreHooks()
+
+	// 1. Initial call should launch server
+	inst1, err := mgr.EnsureRunning(profName, 5*time.Second)
+	if err != nil {
+		t.Fatalf("EnsureRunning failed: %v", err)
+	}
+	if inst1.Status != StateRunning || inst1.PID != fakePID {
+		t.Fatalf("unexpected instance info: %+v", inst1)
+	}
+	if startCount != 1 {
+		t.Errorf("expected 1 start call, got %d", startCount)
+	}
+
+	// 2. Second call should reuse active instance
+	inst2, err := mgr.EnsureRunning(profName, 5*time.Second)
+	if err != nil {
+		t.Fatalf("EnsureRunning second call failed: %v", err)
+	}
+	if inst2.PID != fakePID {
+		t.Errorf("expected reused PID %d, got %d", fakePID, inst2.PID)
+	}
+	if startCount != 1 {
+		t.Errorf("expected still 1 start call, got %d", startCount)
+	}
+
+	// 3. Test IsProfileActive reports true
+	if !mgr.IsProfileActive(profName) {
+		t.Errorf("expected IsProfileActive(%q) to be true", profName)
+	}
+
+	// 4. Terminate instance, IsProfileActive should report false
+	aliveMap[fakePID] = false
+	if mgr.IsProfileActive(profName) {
+		t.Errorf("expected IsProfileActive(%q) to be false after termination", profName)
+	}
+}
+

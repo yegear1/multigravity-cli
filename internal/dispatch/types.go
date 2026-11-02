@@ -75,8 +75,10 @@ type DispatchOptions struct {
 	Env         map[string]string `json:"env,omitempty"`
 	GatewayURL  string            `json:"gateway_url,omitempty"`
 	GatewayKey  string            `json:"gateway_key,omitempty"`
-	Detached    bool              `json:"detached,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Detached          bool              `json:"detached,omitempty"`
+	AutoSpawnHeadless bool              `json:"auto_spawn_headless,omitempty"`
+	Headless          bool              `json:"headless,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
 }
 
 // TaskFilter defines criteria for querying and listing tasks.

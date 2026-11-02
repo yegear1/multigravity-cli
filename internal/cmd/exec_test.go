@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/headless"
@@ -200,6 +201,7 @@ func TestExecCLI_PartialReportOnFailure(t *testing.T) {
 		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
 			p := filepath.Base(dir)
 			if p == "cli-run-fail" {
+				time.Sleep(10 * time.Millisecond)
 				return []byte(`{"response":"boom"}`), 1, fmt.Errorf("process exploded")
 			}
 			return []byte(`{"response":"worked","usage":{"total_tokens":8}}`), 0, nil

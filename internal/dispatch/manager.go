@@ -195,83 +195,7 @@ func buildCodexArgs(args []string, prompt, cwd string) []string {
 const AgentAgy = "agy"
 
 func normalizeAgyArgs(args []string) []string {
-	modelIdx := -1
-	isModelCombined := false
-	modelVal := ""
-
-	effortIdx := -1
-	isEffortCombined := false
-	effortVal := ""
-
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--model" && i+1 < len(args) {
-			modelIdx = i
-			isModelCombined = false
-			modelVal = args[i+1]
-			i++
-		} else if strings.HasPrefix(a, "--model=") {
-			modelIdx = i
-			isModelCombined = true
-			modelVal = strings.TrimPrefix(a, "--model=")
-		} else if a == "--effort" && i+1 < len(args) {
-			effortIdx = i
-			isEffortCombined = false
-			effortVal = args[i+1]
-			i++
-		} else if strings.HasPrefix(a, "--effort=") {
-			effortIdx = i
-			isEffortCombined = true
-			effortVal = strings.TrimPrefix(a, "--effort=")
-		}
-	}
-
-	if modelIdx == -1 || effortIdx == -1 {
-		return args
-	}
-
-	var suffix string
-	switch {
-	case strings.HasSuffix(modelVal, "-low"):
-		suffix = "-low"
-	case strings.HasSuffix(modelVal, "-medium"):
-		suffix = "-medium"
-	case strings.HasSuffix(modelVal, "-high"):
-		suffix = "-high"
-	case strings.HasSuffix(modelVal, "-tiered"):
-		suffix = "-tiered"
-	default:
-		return args
-	}
-
-	effortLower := strings.ToLower(effortVal)
-	if effortLower != "low" && effortLower != "medium" && effortLower != "high" {
-		return args
-	}
-
-	newModelVal := strings.TrimSuffix(modelVal, suffix) + "-" + effortLower
-
-	res := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		if i == effortIdx {
-			if !isEffortCombined {
-				i++ // skip value
-			}
-			continue
-		}
-		if i == modelIdx {
-			if isModelCombined {
-				res = append(res, "--model="+newModelVal)
-			} else {
-				res = append(res, "--model", newModelVal)
-				i++ // skip old value
-			}
-			continue
-		}
-		res = append(res, args[i])
-	}
-
-	return res
+	return agent.NormalizeAgyArgs(args)
 }
 
 // ResolveAgentCommand infers the executable command and arguments given an agent type and prompt.
@@ -475,6 +399,11 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 	}
 	if !profile.ProfileExists(opts.Profile) {
 		return nil, fmt.Errorf("profile %q does not exist", opts.Profile)
+	}
+
+	// Ensure inactive profiles are awakened with on-demand headless server if requested
+	if (opts.AutoSpawnHeadless || opts.Headless) && opts.Profile != "host" {
+		_ = agent.EnsureProfileReady(opts.Profile)
 	}
 
 	taskID := strings.TrimSpace(opts.ID)

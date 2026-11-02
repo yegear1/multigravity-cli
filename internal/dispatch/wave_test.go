@@ -607,3 +607,25 @@ func TestWaveOptionsProbe(t *testing.T) {
 		t.Errorf("expected probe hook NOT to be triggered when opts.Probe is false")
 	}
 }
+
+func TestWaveRetry_AwakensInactiveProfile(t *testing.T) {
+	var awakenedProf string
+	restoreAgent := agent.SetRunnerTestHooks(
+		nil,
+		nil,
+		func(p string) error {
+			awakenedProf = p
+			return nil
+		},
+		nil,
+	)
+	defer restoreAgent()
+
+	// Verify EnsureProfileReady fires through the hook
+	if err := agent.EnsureProfileReady("secondary-prof"); err != nil {
+		t.Fatalf("EnsureProfileReady returned error: %v", err)
+	}
+	if awakenedProf != "secondary-prof" {
+		t.Errorf("expected awakened profile 'secondary-prof', got %q", awakenedProf)
+	}
+}

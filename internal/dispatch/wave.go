@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ye-dev/multigravity-cli/internal/agent"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
 	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
@@ -449,6 +450,7 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 			retryProfile := "auto"
 			if len(eligibleProfiles) > 0 {
 				retryProfile = eligibleProfiles[0]
+				_ = agent.EnsureProfileReady(retryProfile)
 			}
 
 			retryPrompt := SynthesizeCascadeRetryPrompt(t.Title, res.Model, res.VerificationOutput, res.LogTail)

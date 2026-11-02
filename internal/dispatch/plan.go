@@ -743,9 +743,10 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 					Env:         st.Env,
 					GatewayURL:  st.GatewayURL,
 					GatewayKey:  st.GatewayKey,
-					Verify:      st.Verify,
-					Detached:    true,
-					Metadata:    st.Metadata,
+					Verify:            st.Verify,
+					Detached:          true,
+					AutoSpawnHeadless: isAgy,
+					Metadata:          st.Metadata,
 				}
 
 				dispatchedTask, err := m.Dispatch(dOpts)

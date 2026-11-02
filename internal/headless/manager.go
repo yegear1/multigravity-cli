@@ -215,6 +215,41 @@ func (m *Manager) GetStatus(profileName string) (*InstanceInfo, error) {
 	return info, nil
 }
 
+// EnsureRunning verifies that a background headless server is running and responsive for profileName.
+// If already running and healthy, it returns the instance info immediately.
+// If inactive, dead, or unhealthy, it launches or restarts the headless server.
+func (m *Manager) EnsureRunning(profileName string, timeout time.Duration) (*InstanceInfo, error) {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	return m.Start(profileName, StartOptions{
+		Profile: profileName,
+		Timeout: timeout,
+	})
+}
+
+// EnsureRunning ensures a headless server is running for profileName using the default manager.
+func EnsureRunning(profileName string, timeout time.Duration) (*InstanceInfo, error) {
+	return GetDefaultManager().EnsureRunning(profileName, timeout)
+}
+
+// IsProfileActive returns true if the profile is currently active either via desktop IDE or a live headless server.
+func (m *Manager) IsProfileActive(profileName string) bool {
+	if profile.IsProfileRunning(profileName) {
+		return true
+	}
+	info, err := m.GetStatus(profileName)
+	if err == nil && info != nil && info.Status == StateRunning {
+		return true
+	}
+	return false
+}
+
+// IsProfileActive is a package-level helper that queries the default manager.
+func IsProfileActive(profileName string) bool {
+	return GetDefaultManager().IsProfileActive(profileName)
+}
+
 // Start launches a new background headless server for the specified profile.
 func (m *Manager) Start(profileName string, opts StartOptions) (*InstanceInfo, error) {
 	m.mu.Lock()

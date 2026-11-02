@@ -22,6 +22,22 @@
 - **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
 - **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts, `--model` vs `--effort` flag conflict rules (`gemini-3.8-flash-low/medium/high` already encode effort), and single-grep escape hatch + line-ranged `Read: file:start-end` pre-injection, (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult` (including on `empty_diff`) and rejecting Go `testing: warning: no tests to run` false-positives, (5) diffing worktrees strictly against `HEAD` (`git diff HEAD -- <paths>`) / immutable SHA `BaseCommit` rather than moving `main` during multi-task wave commits, and (6) model-aware bucket routing (`gemini`/`argon`/`3p`) with failed-profile retry exclusion and native `.agent/TASK.md` wave execution (`multigravity dispatch wave`).
 
+### 2026-11-02 [Task 08.3] On-Demand Headless Agent Runner for Inactive Profiles
+
+- **Context:** Automated wave execution and multi-account quota routing previously failed or skipped secondary profiles when inactive (not running in the desktop UI), and invocations specifying `agy --headless` failed with unrecognized flag errors (`flags provided but not defined: -headless`).
+- **Active Contracts:**
+  - `internal/headless/manager.go`:
+    - `EnsureRunning(profileName string, timeout time.Duration) (*InstanceInfo, error)`: verifies a background headless server is responsive, returning existing healthy instances or starting a new managed server with strict environment and credential isolation.
+    - `IsProfileActive(profileName string) bool`: returns true if either the desktop IDE process (`profile.IsProfileRunning`) or a live headless server is active.
+  - `internal/agent/runner.go`:
+    - `EnsureProfileReady(profileName string) error`: on-demand awakens inactive profiles via `headless.EnsureRunning` when not active.
+    - `NormalizeAgyArgs(args []string) []string`: strips `--headless` and `--headless=true` variants while preserving valid flags and resolving model/effort conflicts.
+    - `RunHeadlessSubagent(ctx context.Context, opts HeadlessSubagentOptions) (*HeadlessSubagentResult, error)`: executes subagents using `agy` in print mode (`-p`) or cleanly falls back to headless Language Server Cascade RPC if `agy` is not installed, recording tokens and Bayesian calibrator heuristics.
+  - `internal/dispatch/`:
+    - `manager.go`: `normalizeAgyArgs` delegates to `agent.NormalizeAgyArgs`. `Dispatch` awakens inactive profiles when `opts.AutoSpawnHeadless` or `opts.Headless` is set.
+    - `plan.go`: `ExecutePlan` sets `AutoSpawnHeadless: isAgy` on dispatched subtasks.
+    - `wave.go`: `ExecuteTaskWave` ensures explicit and retry target profiles are awakened on-demand via `agent.EnsureProfileReady`.
+
 ### 2026-11-02 [Task 08.2] Build Isolation & Compiler Cache Strategy for Concurrent Worktrees
 
 - **Context:** Parallel subtasks in ephemeral git worktrees previously experienced `.cargo-lock` file contention and intermediate build artifact corruption when multiple workers ran `cargo build` or `cargo test` concurrently against a shared symlinked `target` directory from the repository root.
