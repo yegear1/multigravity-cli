@@ -62,18 +62,19 @@ The agent MUST optimize context loading using the following progressive disclosu
 
 ## Fail-Stop Protocol & Escalation Hierarchy
 
-If an automated validation command (test, build, lint) fails **2 consecutive times** with the same root cause:
+If an automated validation command (test, build, lint) fails **3 consecutive times** with the same root cause:
 1. The agent MUST STOP execution immediately.
 2. The agent MUST NOT alter additional legacy files attempting speculative workarounds.
 3. The agent MUST escalate to the user with a structured diagnostic block:
    ```yaml
    failure_stage: "test | lint | build"
    error_signature: "exact error message or trace"
-   consecutive_failures: 2
+   consecutive_failures: 3
    root_cause_analysis: "technical reason for legacy breakage"
    attempted_fixes:
      - "fix 1 description"
      - "fix 2 description"
+     - "fix 3 description"
    legacy_behavior_at_risk: "what legacy contract might be impacted"
    pending_decision: "question or proposed options for user"
    ```
@@ -127,7 +128,7 @@ Not restricted to phase `99.x`. When releasing `vX.Y.Z`:
 - Bash script syntax: `bash -n multigravity install.sh uninstall.sh`
 - Git cleanliness: `git diff --check`
 - Linters (when available): `golangci-lint run` and `shellcheck`
-- **Circuit breaker:** 2 consecutive failures with same root cause $\rightarrow$ STOP and escalate via diagnostic block.
+- **Circuit breaker:** 3 consecutive failures with same root cause $\rightarrow$ STOP and escalate via diagnostic block.
 
 ---
 
