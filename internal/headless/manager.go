@@ -482,7 +482,7 @@ func buildHeadlessEnv(profileDir string) ([]string, error) {
 	}
 
 	// 1. Identity & Filesystem Isolation
-	enrichedPATH := profile.BuildEnrichedPATH(realHome)
+	enrichedPATH := profile.BuildEnrichedPATHForProfile(os.Getenv("PATH"), realHome, filepath.Base(profileDir))
 	envMap["PATH"] = enrichedPATH
 	envMap["REAL_HOME"] = realHome
 	envMap["HOME"] = profileDir

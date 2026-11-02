@@ -56,7 +56,7 @@ func BuildLaunchCommand(name string, forwardArgs []string) (*exec.Cmd, error) {
 		realHome = userHome
 	}
 
-	enrichedPATH := BuildEnrichedPATH(realHome)
+	enrichedPATH := BuildEnrichedPATHForProfile(os.Getenv("PATH"), realHome, name)
 
 	var cmdName string
 	var cmdArgs []string

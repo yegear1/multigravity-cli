@@ -159,8 +159,10 @@ func (s *Server) handleGetResourceSharing(w http.ResponseWriter, r *http.Request
 		status, err = profile.GetGhStatus(name)
 	case "git", "dotfiles":
 		status, err = profile.GetGitStatus(name)
+	case "toolchain":
+		status, err = profile.GetToolchainStatus(name)
 	default:
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid resource %q: must be mcp, skills, config, gh, or git", resource))
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid resource %q: must be mcp, skills, config, gh, git, or toolchain", resource))
 		return
 	}
 

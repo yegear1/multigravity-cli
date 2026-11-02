@@ -6,16 +6,24 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/ye-dev/multigravity-cli/internal/config"
 )
 
 // BuildEnrichedPATH constructs an enriched PATH string containing host user binary directories.
 func BuildEnrichedPATH(hostHome string) string {
-	return BuildEnrichedPATHWithBase(os.Getenv("PATH"), hostHome)
+	return BuildEnrichedPATHForProfile(os.Getenv("PATH"), hostHome, "")
 }
 
 // BuildEnrichedPATHWithBase constructs an enriched PATH string given a base PATH and host home directory.
 // On Unix/WSL2, host tools and native Linux directories precede Windows mounts (/mnt/c/...).
 func BuildEnrichedPATHWithBase(basePath, hostHome string) string {
+	return BuildEnrichedPATHForProfile(basePath, hostHome, "")
+}
+
+// BuildEnrichedPATHForProfile constructs an enriched PATH string given a base PATH, host home directory,
+// and current profile name. It discovers host system tools and active peer profile toolchains (unless isolated).
+func BuildEnrichedPATHForProfile(basePath, hostHome, currentProfile string) string {
 	if hostHome == "" {
 		hostHome = os.Getenv("REAL_HOME")
 	}
@@ -28,12 +36,29 @@ func BuildEnrichedPATHWithBase(basePath, hostHome string) string {
 		hostBinDirs = []string{
 			filepath.Join(hostHome, ".cargo", "bin"),
 			filepath.Join(hostHome, ".local", "bin"),
+			filepath.Join(hostHome, "go", "bin"),
 			filepath.Join(hostHome, "AppData", "Local", "Programs", "Python"),
 			filepath.Join(hostHome, "AppData", "Local", "Microsoft", "WinGet", "Links"),
 			filepath.Join(hostHome, "AppData", "Local", "pnpm"),
 			filepath.Join(hostHome, ".volta", "bin"),
 			filepath.Join(hostHome, ".fnm", "current", "bin"),
+			filepath.Join(hostHome, ".pyenv", "pyenv-win", "bin"),
+			filepath.Join(hostHome, ".pyenv", "pyenv-win", "shims"),
 		}
+		if pnpmHome := os.Getenv("PNPM_HOME"); pnpmHome != "" {
+			hostBinDirs = append(hostBinDirs, pnpmHome)
+		}
+		// Windows Python versions and Scripts:
+		if matches, err := filepath.Glob(filepath.Join(hostHome, "AppData", "Local", "Programs", "Python", "Python*")); err == nil && len(matches) > 0 {
+			sort.Slice(matches, func(i, j int) bool {
+				return matches[i] > matches[j]
+			})
+			for _, m := range matches {
+				hostBinDirs = append(hostBinDirs, m, filepath.Join(m, "Scripts"))
+			}
+		}
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, ".rustup", "toolchains", "*", "bin"))
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, "sdk", "go*", "bin"))
 	} else {
 		hostBinDirs = []string{
 			filepath.Join(hostHome, ".local", "bin"),
@@ -41,25 +66,63 @@ func BuildEnrichedPATHWithBase(basePath, hostHome string) string {
 			filepath.Join(hostHome, ".bun", "bin"),
 			filepath.Join(hostHome, "go", "bin"),
 			filepath.Join(hostHome, ".local", "share", "pnpm"),
+			filepath.Join(hostHome, ".pnpm"),
 			filepath.Join(hostHome, ".fnm", "current", "bin"),
 			filepath.Join(hostHome, ".volta", "bin"),
+			filepath.Join(hostHome, ".nvm", "current", "bin"),
+			filepath.Join(hostHome, ".asdf", "shims"),
+			filepath.Join(hostHome, ".nodenv", "shims"),
+			filepath.Join(hostHome, ".pyenv", "shims"),
+			filepath.Join(hostHome, ".conda", "bin"),
+			filepath.Join(hostHome, "miniconda3", "bin"),
+			filepath.Join(hostHome, "anaconda3", "bin"),
+			filepath.Join(hostHome, "mambaforge", "bin"),
+			filepath.Join(hostHome, "miniforge3", "bin"),
+			"/usr/local/go/bin",
+			"/opt/go/bin",
+			filepath.Join(hostHome, ".local", "go", "bin"),
+			"/opt/homebrew/bin",
+			"/usr/local/bin",
+		}
+		if pnpmHome := os.Getenv("PNPM_HOME"); pnpmHome != "" {
+			hostBinDirs = append(hostBinDirs, pnpmHome)
 		}
 
 		// NVM node versions discovery: ~/.nvm/versions/node/*/bin
-		nvmPattern := filepath.Join(hostHome, ".nvm", "versions", "node", "*", "bin")
-		if matches, err := filepath.Glob(nvmPattern); err == nil && len(matches) > 0 {
-			sort.Slice(matches, func(i, j int) bool {
-				return matches[i] > matches[j]
-			})
-			hostBinDirs = append(hostBinDirs, matches...)
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, ".nvm", "versions", "node", "*", "bin"))
+		// asdf node versions: ~/.asdf/installs/nodejs/*/bin
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, ".asdf", "installs", "nodejs", "*", "bin"))
+		// nodenv node versions: ~/.nodenv/versions/*/bin
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, ".nodenv", "versions", "*", "bin"))
+		// Go SDKs: ~/sdk/go*/bin
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, "sdk", "go*", "bin"))
+		// Rustup toolchains: ~/.rustup/toolchains/*/bin
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, ".rustup", "toolchains", "*", "bin"))
+		// pyenv versions: ~/.pyenv/versions/*/bin
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, ".pyenv", "versions", "*", "bin"))
+		// asdf python versions: ~/.asdf/installs/python/*/bin
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, ".asdf", "installs", "python", "*", "bin"))
+		// uv python versions: ~/.local/share/uv/python/*/bin
+		appendGlobDirs(&hostBinDirs, filepath.Join(hostHome, ".local", "share", "uv", "python", "*", "bin"))
+	}
+
+	var peerBinDirs []string
+	isIsolated := false
+	if currentProfile != "" {
+		pDir := config.GetProfileDir(currentProfile)
+		if hasSentinel(pDir, config.SentinelIsolatedToolchain) {
+			isIsolated = true
 		}
+	}
+	if !isIsolated {
+		peerBinDirs = DiscoverPeerProfileToolchains(currentProfile)
 	}
 
 	pathSep := string(os.PathListSeparator)
 	seen := make(map[string]bool)
 	var candidateParts []string
 
-	for _, d := range hostBinDirs {
+	for _, d := range append(hostBinDirs, peerBinDirs...) {
 		if d == "" {
 			continue
 		}
@@ -108,6 +171,66 @@ func BuildEnrichedPATHWithBase(basePath, hostHome string) string {
 	}
 
 	return strings.Join(allParts, pathSep)
+}
+
+func appendGlobDirs(list *[]string, pattern string) {
+	if matches, err := filepath.Glob(pattern); err == nil && len(matches) > 0 {
+		sort.Slice(matches, func(i, j int) bool {
+			return matches[i] > matches[j]
+		})
+		*list = append(*list, matches...)
+	}
+}
+
+// DiscoverPeerProfileToolchains searches peer profiles in MULTIGRAVITY_HOME for local toolchains.
+// Excludes currentProfile and any profile with .isolated_toolchain.
+func DiscoverPeerProfileToolchains(currentProfile string) []string {
+	base := config.GetMultigravityHome()
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil
+	}
+
+	var peerDirs []string
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		pName := entry.Name()
+		if currentProfile != "" && pName == currentProfile {
+			continue
+		}
+		pDir := filepath.Join(base, pName)
+		if hasSentinel(pDir, config.SentinelIsolatedToolchain) {
+			continue
+		}
+
+		candidates := []string{
+			filepath.Join(pDir, ".cargo", "bin"),
+			filepath.Join(pDir, ".local", "bin"),
+			filepath.Join(pDir, "go", "bin"),
+			filepath.Join(pDir, ".bun", "bin"),
+			filepath.Join(pDir, ".local", "share", "pnpm"),
+		}
+		if runtime.GOOS == "windows" {
+			candidates = append(candidates,
+				filepath.Join(pDir, "AppData", "Local", "pnpm"),
+				filepath.Join(pDir, "AppData", "Local", "Programs", "Python"),
+			)
+			if pyMatches, err := filepath.Glob(filepath.Join(pDir, "AppData", "Local", "Programs", "Python", "Python*")); err == nil {
+				for _, match := range pyMatches {
+					candidates = append(candidates, match, filepath.Join(match, "Scripts"))
+				}
+			}
+		}
+
+		for _, cand := range candidates {
+			if fi, err := os.Stat(cand); err == nil && fi.IsDir() {
+				peerDirs = append(peerDirs, cand)
+			}
+		}
+	}
+	return peerDirs
 }
 
 func isWindowsMountPath(p string) bool {

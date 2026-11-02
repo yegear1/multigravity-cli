@@ -548,6 +548,7 @@ func isSentinelName(name string) bool {
 		config.SentinelIsolatedConfig,
 		config.SentinelIsolatedGH,
 		config.SentinelIsolatedDotfiles,
+		config.SentinelIsolatedToolchain,
 		config.SentinelShared,
 		config.SentinelAuthOnly:
 		return true

@@ -348,3 +348,96 @@ func TestPopulateWorktreeProjectEnv(t *testing.T) {
 		t.Errorf("PYTHONPATH with existing = %q; want %q", envExisting["PYTHONPATH"], expectedPrependedPy)
 	}
 }
+
+func TestBuildEnrichedPATH_CrossProfileAndToolchainDiscovery(t *testing.T) {
+	tempBase := t.TempDir()
+	tempHome := filepath.Join(tempBase, "home")
+	multigravityHome := filepath.Join(tempBase, "AntigravityProfiles")
+	_ = os.MkdirAll(tempHome, 0755)
+	_ = os.MkdirAll(multigravityHome, 0755)
+
+	t.Setenv("REAL_HOME", tempHome)
+	t.Setenv("MULTIGRAVITY_HOME", multigravityHome)
+
+	// 1. Create host toolchain dirs
+	hostUvPy := filepath.Join(tempHome, ".local", "share", "uv", "python", "cpython-3.12.0", "bin")
+	hostGoSdk := filepath.Join(tempHome, "sdk", "go1.23.0", "bin")
+	_ = os.MkdirAll(hostUvPy, 0755)
+	_ = os.MkdirAll(hostGoSdk, 0755)
+
+	// 2. Create peer profile dirs
+	peer1 := filepath.Join(multigravityHome, "peer-alpha")
+	peer1Cargo := filepath.Join(peer1, ".cargo", "bin")
+	_ = os.MkdirAll(peer1Cargo, 0755)
+
+	peer2 := filepath.Join(multigravityHome, "peer-beta")
+	peer2Local := filepath.Join(peer2, ".local", "bin")
+	_ = os.MkdirAll(peer2Local, 0755)
+
+	// Peer 3 is isolated
+	peer3 := filepath.Join(multigravityHome, "peer-isolated")
+	peer3Go := filepath.Join(peer3, "go", "bin")
+	_ = os.MkdirAll(peer3Go, 0755)
+	_ = os.WriteFile(filepath.Join(peer3, ".isolated_toolchain"), []byte("1"), 0644)
+
+	// Current profile
+	curr := filepath.Join(multigravityHome, "profile-current")
+	currBun := filepath.Join(curr, ".bun", "bin")
+	_ = os.MkdirAll(currBun, 0755)
+
+	// Test discovery from profile-current
+	enriched := BuildEnrichedPATHForProfile("/usr/bin", tempHome, "profile-current")
+	sep := string(os.PathListSeparator)
+	parts := strings.Split(enriched, sep)
+
+	hasDir := func(target string) bool {
+		clean := filepath.Clean(target)
+		for _, p := range parts {
+			if filepath.Clean(p) == clean {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !hasDir(hostUvPy) {
+		t.Errorf("expected host uv python dir %s in enriched PATH", hostUvPy)
+	}
+	if !hasDir(hostGoSdk) {
+		t.Errorf("expected host go sdk dir %s in enriched PATH", hostGoSdk)
+	}
+	if !hasDir(peer1Cargo) {
+		t.Errorf("expected peer1 cargo dir %s in enriched PATH", peer1Cargo)
+	}
+	if !hasDir(peer2Local) {
+		t.Errorf("expected peer2 local dir %s in enriched PATH", peer2Local)
+	}
+	if hasDir(peer3Go) {
+		t.Errorf("did not expect isolated peer3 go dir %s in enriched PATH", peer3Go)
+	}
+	if hasDir(currBun) {
+		t.Errorf("did not expect current profile's own dir %s in peer discovery", currBun)
+	}
+
+	// Now isolate profile-current
+	_ = os.WriteFile(filepath.Join(curr, ".isolated_toolchain"), []byte("1"), 0644)
+	enrichedIso := BuildEnrichedPATHForProfile("/usr/bin", tempHome, "profile-current")
+	partsIso := strings.Split(enrichedIso, sep)
+
+	hasIsoDir := func(target string) bool {
+		clean := filepath.Clean(target)
+		for _, p := range partsIso {
+			if filepath.Clean(p) == clean {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !hasIsoDir(hostUvPy) {
+		t.Errorf("expected host uv python dir %s in isolated profile PATH", hostUvPy)
+	}
+	if hasIsoDir(peer1Cargo) {
+		t.Errorf("did not expect peer1 cargo dir %s when current profile has .isolated_toolchain", peer1Cargo)
+	}
+}

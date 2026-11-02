@@ -11,6 +11,7 @@ import (
 
 	"github.com/ye-dev/multigravity-cli/internal/app"
 	"github.com/ye-dev/multigravity-cli/internal/config"
+	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/shortcut"
 )
 
@@ -257,8 +258,76 @@ func Diagnose() (*DiagnosticReport, error) {
 		})
 	}
 
+	// 8. Development Toolchains Check
+	realHome := os.Getenv("REAL_HOME")
+	if realHome == "" {
+		realHome, _ = os.UserHomeDir()
+	}
+	enrichedPath := profile.BuildEnrichedPATH(realHome)
+	toolCandidates := []string{"node", "pnpm", "go", "cargo", "rustc"}
+	var foundTools []string
+	var missingTools []string
+
+	for _, tool := range toolCandidates {
+		if path := lookInPath(tool, enrichedPath); path != "" {
+			foundTools = append(foundTools, tool)
+		} else {
+			missingTools = append(missingTools, tool)
+		}
+	}
+	pyFound := ""
+	if p := lookInPath("python3", enrichedPath); p != "" {
+		pyFound = "python3"
+	} else if p := lookInPath("python", enrichedPath); p != "" {
+		pyFound = "python"
+	}
+	if pyFound != "" {
+		foundTools = append(foundTools, pyFound)
+	} else {
+		missingTools = append(missingTools, "python")
+	}
+
+	if len(foundTools) > 0 {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name:    "Development Toolchains",
+			Status:  StatusOK,
+			Message: fmt.Sprintf("Development Toolchains: Detected %s", strings.Join(foundTools, ", ")),
+			Detail:  fmt.Sprintf("found: %s; missing: %s", strings.Join(foundTools, ", "), strings.Join(missingTools, ", ")),
+		})
+	} else {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name:    "Development Toolchains",
+			Status:  StatusWarning,
+			Message: "Development Toolchains: No compilers or runtimes detected (cargo, rustc, node, pnpm, go, python). Subagents may fail build tasks.",
+			Detail:  "missing: cargo, rustc, node, pnpm, go, python",
+		})
+		report.Warnings++
+	}
+
 	report.Healthy = report.Errors == 0
 	return report, nil
+}
+
+func lookInPath(file, pathList string) string {
+	exts := []string{""}
+	if runtime.GOOS == "windows" {
+		exts = []string{".exe", ".cmd", ".bat", ""}
+	}
+	for _, dir := range filepath.SplitList(pathList) {
+		if dir == "" {
+			continue
+		}
+		for _, ext := range exts {
+			target := filepath.Join(dir, file+ext)
+			if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
+				return target
+			}
+		}
+	}
+	if lp, err := exec.LookPath(file); err == nil {
+		return lp
+	}
+	return ""
 }
 
 // RunDoctor executes all environment diagnostic checks and writes output to w

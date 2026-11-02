@@ -22,6 +22,21 @@
 - **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
 - **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts, `--model` vs `--effort` flag conflict rules (`gemini-3.8-flash-low/medium/high` already encode effort), and single-grep escape hatch + line-ranged `Read: file:start-end` pre-injection, (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult` (including on `empty_diff`) and rejecting Go `testing: warning: no tests to run` false-positives, (5) diffing worktrees strictly against `HEAD` (`git diff HEAD -- <paths>`) / immutable SHA `BaseCommit` rather than moving `main` during multi-task wave commits, and (6) model-aware bucket routing (`gemini`/`argon`/`3p`) with failed-profile retry exclusion and native `.agent/TASK.md` wave execution (`multigravity dispatch wave`).
 
+### 2026-11-02 [Task 08.1] Cross-Profile Toolchain & PATH Discovery (`.isolated_toolchain` Sentinel & Doctor Audit)
+
+- **Context:** Subagents and isolated profile environments previously lacked automated discovery of host dev compilers (Python via `uv`/`pyenv`/`conda`, Go SDKs in `/usr/local/go/bin` or `~/sdk/go*/bin`, ASDF/nodenv shims, Windows `Python*/Scripts`) and peer profile toolchain installations under `MULTIGRAVITY_HOME`.
+- **Active Contracts:**
+  - `internal/config/config.go`:
+    - `SentinelIsolatedToolchain = ".isolated_toolchain"`: sentinel file opting a profile out of cross-profile toolchain discovery and sharing.
+  - `internal/profile/env.go`:
+    - `DiscoverPeerProfileToolchains(currentProfile string) []string`: scans peer profiles in `MULTIGRAVITY_HOME` (excluding `currentProfile` and profiles with `.isolated_toolchain`), returning verified `.cargo/bin`, `.local/bin`, `go/bin`, `.bun/bin`, `.local/share/pnpm`, and Windows Python dirs.
+    - `BuildEnrichedPATHForProfile(basePath, hostHome, currentProfile string) string`: expands candidate scanning for Python (`uv`, `pyenv`, `asdf`, `conda`), Go (`/usr/local/go/bin`, `/opt/go/bin`, `~/sdk/go*/bin`), Node (`asdf`, `nodenv`, `nvm`, `/opt/homebrew/bin`), Rust (`~/.rustup/toolchains/*/bin`), and injects discovered peer toolchains while strictly enforcing native Linux paths preceding Windows mounts (`/mnt/c/...`).
+    - `BuildEnrichedPATH(hostHome)` and `BuildEnrichedPATHWithBase(basePath, hostHome)` delegate backward-compatibly to `BuildEnrichedPATHForProfile`.
+  - `internal/profile/sharing.go`:
+    - `GetToolchainStatus`, `ToolchainStatus`, `ToolchainShare`, `ToolchainIsolate`: exposes toolchain sharing and isolation under resource `"toolchain"`, wired into `GetAllSharingStatus` (now reporting 6 resources) and `SetResourceSharing`.
+  - `internal/doctor/doctor.go`:
+    - Added `"Development Toolchains"` diagnostic check inspecting available compilers (`cargo`, `rustc`, `node`, `pnpm`, `go`, `python`) on the enriched PATH and reporting detected binaries.
+
 ### 2026-11-02 [Task 07.4] On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight)
 
 - **Context:** Automated multi-account wave distribution previously failed to route tasks to inactive secondary profiles whose language servers were offline (`quota_known: false`), restricting worker parallelism to the current active profile.

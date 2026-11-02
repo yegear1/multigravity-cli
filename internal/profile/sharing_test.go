@@ -476,13 +476,13 @@ func TestGitStatusShareIsolate(t *testing.T) {
 		t.Errorf("expected target %s, got %s", expectedTarget, target)
 	}
 
-	// GetAllSharingStatus should now contain 5 resources
+	// GetAllSharingStatus should now contain 6 resources
 	allStatuses, err := GetAllSharingStatus(profileName)
 	if err != nil {
 		t.Fatalf("failed to get all sharing status: %v", err)
 	}
-	if len(allStatuses) != 5 {
-		t.Errorf("expected 5 sharing statuses, got %d", len(allStatuses))
+	if len(allStatuses) != 6 {
+		t.Errorf("expected 6 sharing statuses, got %d", len(allStatuses))
 	}
 }
 
@@ -551,6 +551,23 @@ func TestSetResourceSharing(t *testing.T) {
 		t.Errorf("expected messages for config seed")
 	}
 
+	// Test toolchain sharing and isolation via SetResourceSharing
+	st, _, err = SetResourceSharing(profileName, "toolchain", "isolate")
+	if err != nil {
+		t.Fatalf("SetResourceSharing toolchain isolate failed: %v", err)
+	}
+	if st.Mode != "isolated" {
+		t.Errorf("expected mode isolated for toolchain, got %s", st.Mode)
+	}
+
+	st, _, err = SetResourceSharing(profileName, "toolchain", "share")
+	if err != nil {
+		t.Fatalf("SetResourceSharing toolchain share failed: %v", err)
+	}
+	if st.Mode != "shared" {
+		t.Errorf("expected mode shared for toolchain, got %s", st.Mode)
+	}
+
 	// Test invalid resource
 	_, _, err = SetResourceSharing(profileName, "invalid-resource", "share")
 	if err == nil {
@@ -561,5 +578,56 @@ func TestSetResourceSharing(t *testing.T) {
 	_, _, err = SetResourceSharing(profileName, "mcp", "invalid-action")
 	if err == nil {
 		t.Errorf("expected error for invalid action, got nil")
+	}
+}
+
+func TestToolchainSharingLifecycle(t *testing.T) {
+	setupTestSharingEnvironment(t)
+	profileName := "test-toolchain-profile"
+	if err := CreateProfile(CreateOptions{Name: profileName}); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	// Default status should be shared
+	st, err := GetToolchainStatus(profileName)
+	if err != nil {
+		t.Fatalf("GetToolchainStatus failed: %v", err)
+	}
+	if st.Mode != "shared" {
+		t.Errorf("expected initial mode shared, got %s", st.Mode)
+	}
+
+	// Isolate
+	msgs, err := ToolchainIsolate(profileName)
+	if err != nil {
+		t.Fatalf("ToolchainIsolate failed: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Errorf("expected messages from ToolchainIsolate")
+	}
+
+	st, err = GetToolchainStatus(profileName)
+	if err != nil {
+		t.Fatalf("GetToolchainStatus after isolate failed: %v", err)
+	}
+	if st.Mode != "isolated" {
+		t.Errorf("expected mode isolated, got %s", st.Mode)
+	}
+
+	// Share again
+	msgs, err = ToolchainShare(profileName)
+	if err != nil {
+		t.Fatalf("ToolchainShare failed: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Errorf("expected messages from ToolchainShare")
+	}
+
+	st, err = GetToolchainStatus(profileName)
+	if err != nil {
+		t.Fatalf("GetToolchainStatus after share failed: %v", err)
+	}
+	if st.Mode != "shared" {
+		t.Errorf("expected mode shared, got %s", st.Mode)
 	}
 }

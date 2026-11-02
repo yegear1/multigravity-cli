@@ -942,7 +942,7 @@ func TestSharingMutationEndpoints(t *testing.T) {
 		t.Fatalf("expected 201 for profile creation, got %d: %s", createProfRec.Code, createProfRec.Body.String())
 	}
 
-	// 1. GET all sharing should return 5 resources
+	// 1. GET all sharing should return 6 resources
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/profiles/share-prof/sharing", nil)
 	getRec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(getRec, getReq)
@@ -954,8 +954,16 @@ func TestSharingMutationEndpoints(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 	statuses, ok := allResp.Data.([]any)
-	if !ok || len(statuses) != 5 {
-		t.Fatalf("expected 5 sharing resources, got %v", allResp.Data)
+	if !ok || len(statuses) != 6 {
+		t.Fatalf("expected 6 sharing resources, got %v", allResp.Data)
+	}
+
+	// Test GET toolchain sharing
+	toolReq := httptest.NewRequest(http.MethodGet, "/api/v1/profiles/share-prof/sharing/toolchain", nil)
+	toolRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(toolRec, toolReq)
+	if toolRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for get toolchain sharing, got %d", toolRec.Code)
 	}
 
 	// 2. GET individual resource git and alias github

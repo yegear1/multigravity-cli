@@ -15,8 +15,9 @@ const (
 	SentinelIsolatedSkills   = ".isolated_skills"
 	SentinelIsolatedConfig   = ".isolated_config"
 	SentinelIsolatedGH       = ".isolated_gh"
-	SentinelIsolatedDotfiles = ".isolated_dotfiles"
-	SentinelShared           = ".shared"
+	SentinelIsolatedDotfiles  = ".isolated_dotfiles"
+	SentinelIsolatedToolchain = ".isolated_toolchain"
+	SentinelShared            = ".shared"
 	SentinelAuthOnly         = ".auth_only"
 )
 

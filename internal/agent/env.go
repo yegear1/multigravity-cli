@@ -68,7 +68,7 @@ func BuildAgentEnv(opts CreateSessionOptions) ([]string, error) {
 	}
 
 	// 1. Identity & Filesystem Isolation
-	enrichedPATH := profile.BuildEnrichedPATH(realHome)
+	enrichedPATH := profile.BuildEnrichedPATHForProfile(os.Getenv("PATH"), realHome, opts.Profile)
 	envMap["PATH"] = enrichedPATH
 	envMap["REAL_HOME"] = realHome
 	envMap["HOME"] = profileDir

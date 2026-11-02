@@ -165,3 +165,36 @@ func TestDoctorToolchainBleed_Warning(t *testing.T) {
 		t.Errorf("expected at least 1 warning for toolchain bleed, got %d", report.Warnings)
 	}
 }
+
+func TestDoctorDevelopmentToolchainsCheck(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("MULTIGRAVITY_HOME", tempHome)
+	t.Setenv("REAL_HOME", tempHome)
+
+	// Mock fake go and node binaries in a candidate dir
+	binDir := filepath.Join(tempHome, ".local", "bin")
+	_ = os.MkdirAll(binDir, 0755)
+	_ = os.WriteFile(filepath.Join(binDir, "go"), []byte("#!/bin/sh\n"), 0755)
+	_ = os.WriteFile(filepath.Join(binDir, "node"), []byte("#!/bin/sh\n"), 0755)
+
+	report, err := Diagnose()
+	if err != nil {
+		t.Fatalf("unexpected Diagnose error: %v", err)
+	}
+
+	found := false
+	for _, check := range report.Checks {
+		if check.Name == "Development Toolchains" {
+			found = true
+			if check.Status != StatusOK {
+				t.Errorf("expected StatusOK for Development Toolchains, got %s (detail: %s)", check.Status, check.Detail)
+			}
+			if !strings.Contains(check.Message, "go") || !strings.Contains(check.Message, "node") {
+				t.Errorf("expected go and node in message, got: %s", check.Message)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("Development Toolchains check missing from report")
+	}
+}

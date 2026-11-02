@@ -547,7 +547,7 @@ func GhStatus(profile string) (string, error) {
 	return st.Description, nil
 }
 
-// GetAllSharingStatus returns sharing status for all resources (mcp, skills, config, gh, git)
+// GetAllSharingStatus returns sharing status for all resources (mcp, skills, config, gh, git, toolchain)
 func GetAllSharingStatus(profile string) ([]SharingStatus, error) {
 	mcpSt, err := GetMcpStatus(profile)
 	if err != nil {
@@ -569,8 +569,12 @@ func GetAllSharingStatus(profile string) ([]SharingStatus, error) {
 	if err != nil {
 		return nil, err
 	}
+	toolchainSt, err := GetToolchainStatus(profile)
+	if err != nil {
+		return nil, err
+	}
 
-	return []SharingStatus{*mcpSt, *skillsSt, *configSt, *ghSt, *gitSt}, nil
+	return []SharingStatus{*mcpSt, *skillsSt, *configSt, *ghSt, *gitSt, *toolchainSt}, nil
 }
 
 
@@ -796,8 +800,70 @@ func GitIsolate(profile string) ([]string, error) {
 	return DotfilesIsolate(profile)
 }
 
+// --- Toolchain ---
+
+func GetToolchainStatus(profile string) (*SharingStatus, error) {
+	if err := config.ValidateProfileName(profile); err != nil {
+		return nil, err
+	}
+	profileDir := config.GetProfileDir(profile)
+	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("profile %q does not exist", profile)
+	}
+
+	if hasSentinel(profileDir, config.SentinelIsolatedToolchain) {
+		return &SharingStatus{
+			Profile:     profile,
+			Resource:    "toolchain",
+			Mode:        "isolated",
+			Description: fmt.Sprintf("Profile %q has isolated toolchains (--isolated-toolchain active).", profile),
+		}, nil
+	}
+
+	return &SharingStatus{
+		Profile:     profile,
+		Resource:    "toolchain",
+		Mode:        "shared",
+		Description: fmt.Sprintf("Profile %q shares host system and peer profile toolchains.", profile),
+	}, nil
+}
+
+func ToolchainStatus(profile string) (string, error) {
+	st, err := GetToolchainStatus(profile)
+	if err != nil {
+		return "", err
+	}
+	return st.Description, nil
+}
+
+func ToolchainShare(profile string) ([]string, error) {
+	if err := config.ValidateProfileName(profile); err != nil {
+		return nil, err
+	}
+	profileDir := config.GetProfileDir(profile)
+	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("profile %q does not exist", profile)
+	}
+
+	_ = os.Remove(filepath.Join(profileDir, config.SentinelIsolatedToolchain))
+	return []string{fmt.Sprintf("Profile %q is now sharing host system and peer profile toolchains.", profile)}, nil
+}
+
+func ToolchainIsolate(profile string) ([]string, error) {
+	if err := config.ValidateProfileName(profile); err != nil {
+		return nil, err
+	}
+	profileDir := config.GetProfileDir(profile)
+	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("profile %q does not exist", profile)
+	}
+
+	_ = touchFile(filepath.Join(profileDir, config.SentinelIsolatedToolchain))
+	return []string{fmt.Sprintf("Profile %q is now isolated from peer profile toolchains.", profile)}, nil
+}
+
 // SetResourceSharing mutates or toggles the sharing mode of a specific resource.
-// Accepted resources: "mcp", "skills", "config", "gh", "github", "git", "dotfiles".
+// Accepted resources: "mcp", "skills", "config", "gh", "github", "git", "dotfiles", "toolchain".
 // Accepted actions: "share", "shared", "isolate", "isolated", "toggle", "seed" (config only).
 func SetResourceSharing(profName, resource, action string) (*SharingStatus, []string, error) {
 	if err := config.ValidateProfileName(profName); err != nil {
@@ -838,8 +904,10 @@ func SetResourceSharing(profName, resource, action string) (*SharingStatus, []st
 			curStatus, err = GetGhStatus(profName)
 		case "git":
 			curStatus, err = GetGitStatus(profName)
+		case "toolchain":
+			curStatus, err = GetToolchainStatus(profName)
 		default:
-			return nil, nil, fmt.Errorf("invalid resource %q: must be mcp, skills, config, gh, or git", resource)
+			return nil, nil, fmt.Errorf("invalid resource %q: must be mcp, skills, config, gh, git, or toolchain", resource)
 		}
 		if err != nil {
 			return nil, nil, err
@@ -902,8 +970,17 @@ func SetResourceSharing(profName, resource, action string) (*SharingStatus, []st
 		default:
 			return nil, nil, fmt.Errorf("invalid action %q for git: must be share, isolate, or toggle", action)
 		}
+	case "toolchain":
+		switch normalizedAction {
+		case "share":
+			messages, err = ToolchainShare(profName)
+		case "isolate":
+			messages, err = ToolchainIsolate(profName)
+		default:
+			return nil, nil, fmt.Errorf("invalid action %q for toolchain: must be share, isolate, or toggle", action)
+		}
 	default:
-		return nil, nil, fmt.Errorf("invalid resource %q: must be mcp, skills, config, gh, or git", resource)
+		return nil, nil, fmt.Errorf("invalid resource %q: must be mcp, skills, config, gh, git, or toolchain", resource)
 	}
 
 	if err != nil {
@@ -922,6 +999,8 @@ func SetResourceSharing(profName, resource, action string) (*SharingStatus, []st
 		newStatus, err = GetGhStatus(profName)
 	case "git":
 		newStatus, err = GetGitStatus(profName)
+	case "toolchain":
+		newStatus, err = GetToolchainStatus(profName)
 	}
 	if err != nil {
 		return nil, nil, err
