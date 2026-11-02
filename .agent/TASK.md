@@ -18,7 +18,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
-| [07.4] | On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight) | `HEAD` | 2026-11-02 |
+| [07.4] | On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight) | `e0c7c23` | 2026-11-02 |
 | [07.3] | AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy) | `4ba66dc` | 2026-11-02 |
 | [07.2] | Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation) | `69992b2` | 2026-11-02 |
 | [07.1] | Worktree Ephemeral Branch Cleanup on Apply/Prune | `a1bae69` | 2026-11-02 |
