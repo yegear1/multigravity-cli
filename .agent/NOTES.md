@@ -22,6 +22,28 @@
 - **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
 - **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts, `--model` vs `--effort` flag conflict rules (`gemini-3.8-flash-low/medium/high` already encode effort), and single-grep escape hatch + line-ranged `Read: file:start-end` pre-injection, (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult` (including on `empty_diff`) and rejecting Go `testing: warning: no tests to run` false-positives, (5) diffing worktrees strictly against `HEAD` (`git diff HEAD -- <paths>`) / immutable SHA `BaseCommit` rather than moving `main` during multi-task wave commits, and (6) model-aware bucket routing (`gemini`/`argon`/`3p`) with failed-profile retry exclusion and native `.agent/TASK.md` wave execution (`multigravity dispatch wave`).
 
+### 2026-11-02 [Task 08.6] Hybrid Workspace Modes (Zero-I/O Read-Only Dispatch)
+
+- **Context:** Previously, subtask dispatch in `dispatch plan` and mutating runs incurred mandatory ephemeral git worktree creation (`git worktree add`, branch creation, lock contention) even for read-only or research tasks where modifying the codebase was prohibited.
+- **Active Contracts:**
+  - `internal/dispatch/types.go`:
+    - `WorkspaceMode` constants: `WorkspaceWorktree` ("worktree"), `WorkspaceMirror` ("mirror"), `WorkspaceInherit` ("inherit").
+    - `Task` and `DispatchOptions`: expanded with `Workspace string json:"workspace,omitempty"`.
+  - `internal/dispatch/manager.go`:
+    - Workspace mode resolution: when unset, defaults to `WorkspaceInherit` for read-only / researcher tasks or when `NewWorktree` is false, and `WorkspaceWorktree` when `NewWorktree` is true.
+    - `WorkspaceInherit`: executes directly in-place (`repoRoot` or `opts.Cwd`) without git worktree or branch overhead ("Zero-I/O"), enforcing `agent-guard` filesystem mutation guards (`Sandbox: true`) when in read-only / researcher persona.
+    - `WorkspaceMirror`: creates lightweight mirrored workspace (`.multigravity/mirrors/<taskID>`) with symlinked repository entries and `.git` without `git worktree add` overhead; cleaned up on task deletion or prune.
+    - `WorkspaceWorktree`: full git worktree creation with dedicated branch and build isolation.
+  - `internal/dispatch/plan.go`:
+    - `SubtaskSpec`, `PlanRequest`, and `SubtaskResult`: expanded with `Workspace string json:"workspace,omitempty"`.
+    - `ValidatePlan`: validates plan and subtask workspace modes (`worktree`, `mirror`, `inherit`).
+    - `ExecutePlan`: read-only subtasks auto-default to `inherit` (skipping worktree creation); exempt from `empty_diff` failures and atomic apply; cleans up mirrors on task completion.
+  - `internal/dispatch/wave.go`:
+    - `WaveTaskSpec` and `WaveOptions`: support `- Workspace:` in `.agent/TASK.md` and propagate across wave execution and retries.
+    - `LintTaskWave`: validates declared workspace modes.
+  - `internal/cmd/`:
+    - Added `--workspace` flag to `multigravity dispatch run`, `multigravity dispatch plan`, and `multigravity dispatch wave`.
+
 ### 2026-11-02 [Task 08.5] Dynamic Dispatch Roles & Execution Sandboxing
 
 - **Context:** Previously, task dispatch assumed full mutating developer privileges for all agent runners, lacking persona role boundaries (researcher, verifier) and strict read-only execution modes.
