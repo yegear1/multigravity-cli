@@ -217,12 +217,34 @@ func GitWorktreeList(repoRoot string) ([]RawWorktreeInfo, error) {
 
 // GitBranchDelete deletes the specified branch in the repository.
 func GitBranchDelete(repoRoot, branch string, force bool) error {
+	branch = strings.TrimPrefix(branch, "refs/heads/")
 	flag := "-d"
 	if force {
 		flag = "-D"
 	}
 	_, err := runGit(repoRoot, "branch", flag, branch)
 	return err
+}
+
+// GitListBranches returns all local branch names matching prefix (or all local branches if prefix is empty).
+func GitListBranches(repoRoot, prefix string) ([]string, error) {
+	prefix = strings.TrimPrefix(prefix, "refs/heads/")
+	refPattern := "refs/heads/" + prefix
+	out, err := runGit(repoRoot, "for-each-ref", "--format=%(refname:short)", refPattern)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	var branches []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
 }
 
 // GitStatusPorcelain checks whether the worktree is clean and lists modified and untracked files.

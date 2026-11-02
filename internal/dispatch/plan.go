@@ -890,6 +890,13 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 								if sha, err := revCmd.Output(); err == nil {
 									res.Commit = strings.TrimSpace(string(sha))
 								}
+								// Clean up ephemeral worktree and branch upon successful atomic commit
+								if res.WorktreeID != "" {
+									_ = worktree.RemoveWorktree(repoRoot, res.WorktreeID, worktree.RemoveOptions{
+										Force:        true,
+										DeleteBranch: true,
+									})
+								}
 							}
 						}
 					}
@@ -1024,6 +1031,19 @@ func (m *TaskManager) ExecutePlan(ctx context.Context, req PlanRequest) (*PlanRe
 		if data, err := json.MarshalIndent(planResult, "", "  "); err == nil {
 			_ = os.WriteFile(runFile, append(data, '\n'), 0644)
 		}
+	}
+
+	// Ensure worktree and branch cleanup when ApplyAtomic or on cancellation/failure
+	if req.ApplyAtomic || overallStatus != "completed" {
+		for _, res := range subtaskResults {
+			if res.WorktreeID != "" {
+				_ = worktree.RemoveWorktree(repoRoot, res.WorktreeID, worktree.RemoveOptions{
+					Force:        true,
+					DeleteBranch: true,
+				})
+			}
+		}
+		_ = worktree.PruneWorktrees(repoRoot)
 	}
 
 	return planResult, nil

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ye-dev/multigravity-cli/internal/agent"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
+	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
 
 func TestParseTaskWave(t *testing.T) {
@@ -219,6 +220,15 @@ esac
 	}
 	if !strings.Contains(stRes.Prompt, "verification failed: missing fixed token") {
 		t.Errorf("expected retry prompt to contain diagnostic verification output, got:\n%s", stRes.Prompt)
+	}
+
+	// Verify zero orphan multigravity/ branches remain after wave completion
+	branches, bErr := worktree.GitListBranches(repoDir, "multigravity/")
+	if bErr != nil {
+		t.Fatalf("GitListBranches failed: %v", bErr)
+	}
+	if len(branches) != 0 {
+		t.Errorf("expected 0 multigravity branches remaining after wave completion, got %v", branches)
 	}
 }
 

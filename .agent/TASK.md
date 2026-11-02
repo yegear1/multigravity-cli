@@ -7,15 +7,16 @@
 
 ## Active Task
 
-### [07.1] Worktree Ephemeral Branch Cleanup on Apply/Prune
-- Status: READY FOR PLANNING
+### [07.2] Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation)
+- Status: RUNNING
 - Priority: P1
-- Description: Automatically delete ephemeral git branches (`multigravity/wave-*`, `multigravity/retry-*`) created for dispatch tasks and waves when worktrees are pruned or applied, preventing local ref leakage in the host repository.
+- Description: Sanitize `ToCompact` output in `internal/dispatch/wave.go` and `internal/dispatch/plan.go` by clearing `Prompt` and `Diff`, omitting empty `StructuredDiff`, and bounding/truncating `LogTail` and `VerificationOutput` to prevent token bloat in JSON wave summaries.
 - Acceptance Criteria:
-  - [ ] `PruneWorktree` and `PruneAll` in `internal/worktree/manager.go` delete the associated local git branch (`git branch -D <branch>`) when `branch` is non-empty and starts with `multigravity/`.
-  - [ ] `dispatch wave` and `dispatch plan` ensure worktree cleanup removes both filesystem directories and git branch references upon task completion or failure.
-  - [ ] Characterization tests in `internal/worktree/` and `internal/dispatch/` verify git branches are pruned cleanly with zero orphan branches.
-  - [ ] `go test -v ./internal/worktree/... ./internal/dispatch/...` passes with exit code 0.
+  - [ ] `WaveExecutionResult.ToCompact` and `PlanResult.ToCompact` clear `Prompt` and `Diff`.
+  - [ ] `StructuredDiff` with 0 modified files is omitted (`nil`) in compact mode.
+  - [ ] `LogTail` and `VerificationOutput` exceeding 500 characters are bounded/truncated in compact mode with indicator.
+  - [ ] Characterization tests in `internal/dispatch/plan_test.go` and `wave_test.go` assert sanitization.
+  - [ ] `go test -v ./internal/dispatch/...` passes with exit code 0.
 
 ---
 
@@ -23,6 +24,7 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [07.1] | Worktree Ephemeral Branch Cleanup on Apply/Prune | `HEAD` | 2026-11-02 |
 | [90.1] | Componentize Server HTTP Handlers (internal/server/routes.go) | `8771e7d` | 2026-11-01 |
 | [90.2] | Modularize Dispatch CLI Subcommands (internal/cmd/dispatch.go) | `00362c7` | 2026-11-01 |
 
@@ -32,11 +34,11 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: Wx]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [ ] **[07.1]** `[PARALLEL: W1]` Worktree Ephemeral Branch Cleanup on Apply/Prune
+- [x] **[07.1]** `[APPROVED]` `[PARALLEL: W1]` Worktree Ephemeral Branch Cleanup on Apply/Prune
   - `Read:` `internal/worktree/manager.go, internal/worktree/git.go`
   - `Paths:` `internal/worktree/manager.go, internal/worktree/git.go, internal/worktree/manager_test.go`
   - `Verify:` `go test -v ./internal/worktree/...`
-- [ ] **[07.2]** `[PARALLEL: W1]` Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation)
+- [ ] **[07.2]** `[APPROVED]` `[PARALLEL: W1]` Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation)
   - `Read:` `internal/dispatch/wave.go, internal/dispatch/types.go`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
   - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Compact.*'`

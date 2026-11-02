@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/quota"
+	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
 
 // WaveTaskSpec represents a parsed task item from TASK.md belonging to a wave.
@@ -545,6 +546,17 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 			execRes.TaskFileCommit = strings.TrimSpace(string(sha))
 		}
 	}
+
+	// Ensure worktree and branch cleanup for all wave tasks
+	for _, st := range finalTasks {
+		if st.WorktreeID != "" {
+			_ = worktree.RemoveWorktree(repoRoot, st.WorktreeID, worktree.RemoveOptions{
+				Force:        true,
+				DeleteBranch: true,
+			})
+		}
+	}
+	_ = worktree.PruneWorktrees(repoRoot)
 
 	return execRes, nil
 }

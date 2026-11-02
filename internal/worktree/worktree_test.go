@@ -503,3 +503,64 @@ func TestWorktreeAutoLink(t *testing.T) {
 		t.Errorf("expected node_modules to be symlinked without conflict")
 	}
 }
+
+func TestPruneWorktreeAndPruneAllDeletesBranch(t *testing.T) {
+	repoDir := initTestRepo(t)
+
+	// 1. Create worktree with ephemeral multigravity/ branch
+	wt1, err := CreateWorktree(CreateOptions{
+		ID:       "ephemeral-wt-1",
+		RepoPath: repoDir,
+		Branch:   "multigravity/ephemeral-wt-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+
+	if !BranchExists(repoDir, "multigravity/ephemeral-wt-1") {
+		t.Fatalf("expected branch multigravity/ephemeral-wt-1 to exist")
+	}
+
+	// 2. PruneWorktree should remove worktree and delete the multigravity/ branch
+	if err := PruneWorktree(repoDir, wt1.ID); err != nil {
+		t.Fatalf("PruneWorktree failed: %v", err)
+	}
+
+	if BranchExists(repoDir, "multigravity/ephemeral-wt-1") {
+		t.Errorf("expected branch multigravity/ephemeral-wt-1 to be deleted after PruneWorktree")
+	}
+
+	// 3. Create another worktree and simulate missing directory
+	wt2, err := CreateWorktree(CreateOptions{
+		ID:       "ephemeral-wt-2",
+		RepoPath: repoDir,
+		Branch:   "multigravity/ephemeral-wt-2",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+
+	if !BranchExists(repoDir, "multigravity/ephemeral-wt-2") {
+		t.Fatalf("expected branch multigravity/ephemeral-wt-2 to exist")
+	}
+
+	// Remove worktree directory on disk directly
+	_ = os.RemoveAll(wt2.Path)
+
+	// PruneAll should prune stale worktrees and delete orphaned multigravity/ branches
+	if err := PruneAll(repoDir); err != nil {
+		t.Fatalf("PruneAll failed: %v", err)
+	}
+
+	if BranchExists(repoDir, "multigravity/ephemeral-wt-2") {
+		t.Errorf("expected branch multigravity/ephemeral-wt-2 to be deleted after PruneAll")
+	}
+
+	branches, err := GitListBranches(repoDir, "multigravity/")
+	if err != nil {
+		t.Fatalf("GitListBranches failed: %v", err)
+	}
+	if len(branches) != 0 {
+		t.Errorf("expected 0 multigravity branches remaining, got %v", branches)
+	}
+}

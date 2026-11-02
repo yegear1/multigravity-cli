@@ -344,9 +344,10 @@ func RemoveWorktree(repoPath, id string, opts RemoveOptions) error {
 		_ = os.RemoveAll(wt.Path)
 	}
 
-	// Delete branch if requested
-	if opts.DeleteBranch && wt.Branch != "" {
-		_ = GitBranchDelete(repoRoot, wt.Branch, opts.Force)
+	// Delete branch if requested or if it starts with multigravity/
+	cleanBranch := strings.TrimPrefix(wt.Branch, "refs/heads/")
+	if (opts.DeleteBranch || strings.HasPrefix(cleanBranch, "multigravity/")) && cleanBranch != "" {
+		_ = GitBranchDelete(repoRoot, cleanBranch, true)
 	}
 
 	manifestMu.Lock()
@@ -362,7 +363,21 @@ func RemoveWorktree(repoPath, id string, opts RemoveOptions) error {
 	return nil
 }
 
-// PruneWorktrees removes stale worktree entries from git and cleans the manifest.
+// PruneWorktree removes a specific worktree by ID and deletes its local git branch if it starts with multigravity/.
+func PruneWorktree(repoPath, id string) error {
+	return RemoveWorktree(repoPath, id, RemoveOptions{
+		Force:        true,
+		DeleteBranch: true,
+	})
+}
+
+// PruneAll prunes all stale/missing worktrees and removes associated ephemeral git branches.
+func PruneAll(repoPath string) error {
+	return PruneWorktrees(repoPath)
+}
+
+// PruneWorktrees removes stale worktree entries from git, cleans the manifest,
+// and deletes associated local git branches starting with multigravity/ when their worktree is missing or pruned.
 func PruneWorktrees(repoPath string) error {
 	if repoPath == "" {
 		cwd, err := os.Getwd()
@@ -377,10 +392,6 @@ func PruneWorktrees(repoPath string) error {
 		return err
 	}
 
-	if err := GitWorktreePrune(repoRoot); err != nil {
-		return err
-	}
-
 	manifestMu.Lock()
 	defer manifestMu.Unlock()
 
@@ -392,14 +403,50 @@ func PruneWorktrees(repoPath string) error {
 	modified := false
 	for id, wt := range manifest.Worktrees {
 		if _, err := os.Stat(wt.Path); os.IsNotExist(err) {
+			cleanBranch := strings.TrimPrefix(wt.Branch, "refs/heads/")
+			if cleanBranch != "" && strings.HasPrefix(cleanBranch, "multigravity/") {
+				_ = GitBranchDelete(repoRoot, cleanBranch, true)
+			}
 			delete(manifest.Worktrees, id)
 			modified = true
 		}
 	}
 
 	if modified {
-		return saveManifest(repoRoot, manifest)
+		if err := saveManifest(repoRoot, manifest); err != nil {
+			return err
+		}
 	}
+
+	if err := GitWorktreePrune(repoRoot); err != nil {
+		return err
+	}
+
+	// Also check for any orphaned multigravity/* branches not attached to any active git worktree
+	rawList, err := GitWorktreeList(repoRoot)
+	if err == nil {
+		activeBranches := make(map[string]bool)
+		for _, rw := range rawList {
+			if rw.Branch != "" {
+				activeBranches[strings.TrimPrefix(rw.Branch, "refs/heads/")] = true
+			}
+		}
+		for _, wt := range manifest.Worktrees {
+			if wt.Branch != "" {
+				activeBranches[strings.TrimPrefix(wt.Branch, "refs/heads/")] = true
+			}
+		}
+
+		if branches, bErr := GitListBranches(repoRoot, "multigravity/"); bErr == nil {
+			for _, b := range branches {
+				cleanB := strings.TrimPrefix(b, "refs/heads/")
+				if strings.HasPrefix(cleanB, "multigravity/") && !activeBranches[cleanB] {
+					_ = GitBranchDelete(repoRoot, cleanB, true)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
