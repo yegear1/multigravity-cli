@@ -540,3 +540,70 @@ func TestLintTaskWaveDefaultModel(t *testing.T) {
 		t.Fatalf("expected 2 violations (Read and Verify) for un-modelled task, got %d: %v", len(badViolations), badViolations)
 	}
 }
+
+func TestWaveOptionsProbe(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+	taskFile := filepath.Join(repoDir, ".agent", "TASK.md")
+	content := `# TASK.md
+## Active Task
+### [01.1] Sample Task
+- Status: READY FOR PLANNING
+
+## Backlog
+- [ ] **[01.1]** [APPROVED] [PARALLEL: W1] Probing Task
+  - Read: none
+  - Paths: none
+  - Verify: true
+`
+	_ = os.MkdirAll(filepath.Dir(taskFile), 0755)
+	if err := os.WriteFile(taskFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	probed := false
+	cleanupProbe := quota.SetProbeTestHook(func(prof string) (*quota.ActiveServer, error) {
+		probed = true
+		cancel() // cancel immediately once probe hook is invoked
+		return &quota.ActiveServer{Profile: prof, QuotaKnown: true}, nil
+	})
+	defer cleanupProbe()
+
+	cleanupServers := quota.SetTestHooks(func(target string) ([]quota.ActiveServer, error) {
+		return nil, nil
+	})
+	defer cleanupServers()
+
+	agentMgr := agent.NewManager()
+	taskMgr := NewTaskManager(agentMgr)
+
+	opts := WaveOptions{
+		RepoRoot: repoDir,
+		TaskFile: taskFile,
+		WaveTag:  "W1",
+		Timeout:  200 * time.Millisecond,
+		Probe:    true,
+	}
+
+	_, _ = taskMgr.ExecuteTaskWave(ctx, opts)
+	if !probed {
+		t.Errorf("expected probe hook to be triggered when opts.Probe is true")
+	}
+
+	// Verify Probe: false does not trigger probe
+	probed = false
+	ctxFalse, cancelFalse := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancelFalse()
+
+	optsFalse := WaveOptions{
+		RepoRoot: repoDir,
+		TaskFile: taskFile,
+		WaveTag:  "W1",
+		Timeout:  50 * time.Millisecond,
+		Probe:    false,
+	}
+	_, _ = taskMgr.ExecuteTaskWave(ctxFalse, optsFalse)
+	if probed {
+		t.Errorf("expected probe hook NOT to be triggered when opts.Probe is false")
+	}
+}

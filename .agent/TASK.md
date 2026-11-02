@@ -7,15 +7,10 @@
 
 ## Active Task
 
-### [07.4] On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight)
-- Status: RUNNING
-- Priority: P2
-- Description: Automatically probe and wake inactive secondary profile language servers during wave pre-flight (`--probe` flag in `multigravity dispatch wave` and preflight routines) to refresh live quota metrics without manual priming, enabling multi-account wave distribution.
-- Acceptance Criteria:
-  - [ ] Implement on-demand probing in `internal/quota/routing.go` (`ProbeInactiveProfiles(profiles []string) error` or similar) leveraging headless / quota status helpers.
-  - [ ] Add `--probe` flag to `multigravity dispatch wave` in `internal/cmd/dispatch_wave.go` and wire into `WaveOptions` / `ExecuteTaskWave`.
-  - [ ] Verify profile quota discovery and error handling with characterization tests in `internal/quota` and `internal/dispatch`.
-  - [ ] `go test -v ./internal/quota/... ./internal/dispatch/...` passes with exit code 0.
+### Queue Empty — Awaiting Next Ideation
+- Status: READY FOR PLANNING
+- Priority: P3
+- Description: All planned tasks across Epic 07 waves W1 and W2 are complete. Awaiting user instructions or next milestone ideation.
 
 ---
 
@@ -23,7 +18,8 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
-| [07.3] | AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy) | `HEAD` | 2026-11-02 |
+| [07.4] | On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight) | `HEAD` | 2026-11-02 |
+| [07.3] | AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy) | `4ba66dc` | 2026-11-02 |
 | [07.2] | Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation) | `69992b2` | 2026-11-02 |
 | [07.1] | Worktree Ephemeral Branch Cleanup on Apply/Prune | `a1bae69` | 2026-11-02 |
 | [90.1] | Componentize Server HTTP Handlers (internal/server/routes.go) | `8771e7d` | 2026-11-01 |
@@ -43,11 +39,11 @@
   - `Read:` `internal/dispatch/wave.go, internal/dispatch/types.go`
   - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
   - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Compact.*'`
-- [x] **[07.3]** `[APPROVED]` `[PARALLEL: W2]` AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy)
+- [x] **[07.3]** `[APPROVED]` `[PARALLEL: W2]` AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy) (4ba66dc)
   - `Read:` `internal/dispatch/plan.go`
   - `Paths:` `internal/dispatch/plan.go, internal/dispatch/outline.go, internal/dispatch/plan_test.go`
   - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Outline.*'`
-- [ ] **[07.4]** `[APPROVED]` `[PARALLEL: W2]` On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight)
+- [x] **[07.4]** `[APPROVED]` `[PARALLEL: W2]` On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight)
   - `Read:` `internal/quota/routing.go, internal/dispatch/wave.go`
   - `Paths:` `internal/quota/routing.go, internal/dispatch/wave.go, internal/cmd/dispatch_wave.go`
   - `Verify:` `go test -v ./internal/quota/... ./internal/dispatch/...`

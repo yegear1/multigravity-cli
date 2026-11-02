@@ -21,6 +21,7 @@ var (
 	dpWaveNoRetry bool
 	dpWaveLint    bool
 	dpWaveFull    bool
+	dpWaveProbe   bool
 )
 
 func newDispatchWaveCmd() *cobra.Command {
@@ -39,6 +40,7 @@ and execute them in parallel or sequence with automatic profile and quota routin
 	waveSubCmd.Flags().BoolVar(&dpWaveNoRetry, "no-retry", false, "Disable automatic retry of failed subtasks")
 	waveSubCmd.Flags().BoolVar(&dpWaveLint, "lint", false, "Validate task wave specifications against governance lint rules without executing")
 	waveSubCmd.Flags().BoolVar(&dpWaveFull, "full", false, "Output full verbose wave execution result including subtask prompts and diffs")
+	waveSubCmd.Flags().BoolVar(&dpWaveProbe, "probe", false, "Probe and wake inactive secondary profile language servers during pre-flight")
 	return waveSubCmd
 }
 
@@ -51,6 +53,7 @@ func runDispatchWave(cmd *cobra.Command, args []string) error {
 		dpWaveNoRetry = false
 		dpWaveLint = false
 		dpWaveFull = false
+		dpWaveProbe = false
 		dpJSON = false
 	}()
 
@@ -120,6 +123,7 @@ func runDispatchWave(cmd *cobra.Command, args []string) error {
 		WaveTag:  dpWaveTag,
 		Timeout:  timeoutDur,
 		NoRetry:  dpWaveNoRetry,
+		Probe:    dpWaveProbe,
 	}
 
 	out := cmd.OutOrStdout()

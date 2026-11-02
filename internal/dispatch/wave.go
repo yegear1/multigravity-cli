@@ -41,6 +41,7 @@ type WaveOptions struct {
 	Timeout      time.Duration `json:"timeout,omitempty"`
 	DefaultModel string        `json:"default_model,omitempty"`
 	NoRetry      bool          `json:"no_retry,omitempty"`
+	Probe        bool          `json:"probe,omitempty"`
 }
 
 // WaveExecutionResult encapsulates the outcome of executing a wave of tasks.
@@ -337,6 +338,11 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 	waveSpec, err := ParseTaskWave(taskFile, opts.WaveTag)
 	if err != nil {
 		return nil, err
+	}
+
+	if opts.Probe {
+		// Probe inactive profiles before planning to refresh quota metrics and awaken secondary accounts
+		_, _ = quota.ProbeInactiveProfiles(nil)
 	}
 
 	timeoutStr := "4m"

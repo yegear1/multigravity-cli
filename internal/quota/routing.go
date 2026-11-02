@@ -1,11 +1,17 @@
 package quota
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ye-dev/multigravity-cli/internal/config"
+	"github.com/ye-dev/multigravity-cli/internal/profile"
 )
 
 // RouteWeight represents the task complexity level for quota routing
@@ -934,4 +940,93 @@ func PreflightProfilesForModelFromCandidates(candidates []RouteCandidate, count 
 		return nil, fmt.Errorf("no eligible profiles meet preflight threshold %.2f for model %s", minFraction, model)
 	}
 	return combined, nil
+}
+
+var (
+	probeServerFn func(profileName string) (*ActiveServer, error)
+	probeMu       sync.Mutex
+)
+
+// SetProbeTestHook overrides the server probing function for hermetic unit testing.
+func SetProbeTestHook(fn func(profileName string) (*ActiveServer, error)) func() {
+	probeMu.Lock()
+	defer probeMu.Unlock()
+	old := probeServerFn
+	probeServerFn = fn
+	return func() {
+		probeMu.Lock()
+		defer probeMu.Unlock()
+		probeServerFn = old
+	}
+}
+
+// ProbeInactiveProfiles discovers which target profiles (or all existing profiles if profiles is empty)
+// lack an active language server, attempts to start/probe their language server to refresh quota metrics,
+// and returns the names of successfully awakened profiles.
+func ProbeInactiveProfiles(profiles []string) ([]string, error) {
+	probeMu.Lock()
+	pFn := probeServerFn
+	probeMu.Unlock()
+
+	var targets []string
+	if len(profiles) > 0 {
+		targets = profiles
+	} else {
+		profs, err := profile.ListProfiles()
+		if err != nil {
+			return nil, fmt.Errorf("listing profiles for probing: %w", err)
+		}
+		targets = profs
+	}
+
+	live, err := FindActiveServers("")
+	activeSet := make(map[string]bool)
+	if err == nil {
+		for _, s := range live {
+			if s.QuotaKnown && s.Profile != "" {
+				activeSet[s.Profile] = true
+			}
+		}
+	}
+
+	var probed []string
+	for _, p := range targets {
+		if activeSet[p] {
+			continue
+		}
+
+		if pFn != nil {
+			srv, pErr := pFn(p)
+			if pErr == nil && srv != nil {
+				probed = append(probed, p)
+			}
+			continue
+		}
+
+		// Default on-demand probing: start headless server and retrieve quota
+		inst, startErr := StartHeadlessServer(p)
+		if startErr != nil {
+			continue
+		}
+
+		statePath := filepath.Join(config.GetProfileDir(p), ".multigravity", "headless.json")
+		if err := os.MkdirAll(filepath.Dir(statePath), 0755); err == nil {
+			data, _ := json.Marshal(map[string]interface{}{
+				"pid":        inst.PID,
+				"port":       inst.Port,
+				"csrf_token": inst.CSRF,
+				"profile":    p,
+				"started_at": time.Now().UTC().Format(time.RFC3339),
+				"status":     "running",
+			})
+			_ = os.WriteFile(statePath, data, 0644)
+		}
+
+		client := NewClient(2 * time.Second)
+		if res, qErr := client.RetrieveUserQuotaSummary(inst.Port, inst.CSRF); qErr == nil && res != nil {
+			probed = append(probed, p)
+		}
+	}
+
+	return probed, nil
 }
