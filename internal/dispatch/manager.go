@@ -240,6 +240,18 @@ func ResolveAgentCommandWithCwd(agentType, command string, args []string, prompt
 	resArgs := args
 	resolvedType := strings.ToLower(strings.TrimSpace(agentType))
 
+	if strings.Contains(cmdStr, " ") {
+		parts := strings.Fields(cmdStr)
+		if len(parts) > 0 {
+			first := strings.ToLower(filepath.Base(parts[0]))
+			first = strings.TrimSuffix(first, ".exe")
+			if first == "agy" || first == "claude" || first == "aider" || first == "opencode" || first == "codex" {
+				cmdStr = parts[0]
+				resArgs = append(parts[1:], resArgs...)
+			}
+		}
+	}
+
 	if cmdStr == "" && resolvedType == "" {
 		resolvedType = DiscoverInstalledAgent()
 	}
@@ -280,16 +292,32 @@ func ResolveAgentCommandWithCwd(agentType, command string, args []string, prompt
 		base = strings.TrimSuffix(base, ".exe")
 		if base == "codex" || resolvedType == "codex" {
 			resArgs = buildCodexArgs(resArgs, prompt, cwd)
-		} else if prompt != "" && len(resArgs) == 0 {
+		} else if prompt != "" {
 			switch base {
 			case "claude":
-				resArgs = []string{"-p", prompt}
+				if len(resArgs) == 0 {
+					resArgs = []string{"-p", prompt}
+				} else if len(resArgs) > 0 && resArgs[len(resArgs)-1] == "-p" {
+					resArgs = append(resArgs, prompt)
+				}
 			case "aider":
-				resArgs = []string{"--message", prompt}
+				if len(resArgs) == 0 {
+					resArgs = []string{"--message", prompt}
+				} else if len(resArgs) > 0 && (resArgs[len(resArgs)-1] == "--message" || resArgs[len(resArgs)-1] == "-m") {
+					resArgs = append(resArgs, prompt)
+				}
 			case "agy":
-				resArgs = []string{"-p", prompt}
+				if len(resArgs) == 0 {
+					resArgs = []string{"-p", prompt}
+				} else if len(resArgs) > 0 && resArgs[len(resArgs)-1] == "-p" {
+					resArgs = append(resArgs, prompt)
+				}
 			case "opencode":
-				resArgs = []string{"run", prompt}
+				if len(resArgs) == 0 {
+					resArgs = []string{"run", prompt}
+				} else if len(resArgs) > 0 && resArgs[len(resArgs)-1] == "run" {
+					resArgs = append(resArgs, prompt)
+				}
 			}
 		}
 	}
@@ -579,6 +607,10 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 	agentType := opts.AgentType
 	if agentType == "" {
 		agentType = agent.DetectAgentType(cmdStr)
+	}
+
+	if (opts.AutoSpawnHeadless || opts.Headless || agentType == "agy" || cmdStr == "agy") && opts.Profile != "host" {
+		_ = agent.EnsureProfileReady(opts.Profile)
 	}
 
 	effectiveRole := opts.Role

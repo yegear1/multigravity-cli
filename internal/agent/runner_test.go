@@ -244,3 +244,64 @@ func TestRunHeadlessSubagent_CascadeFallback(t *testing.T) {
 		t.Errorf("unexpected cascade response: %s", res.Response)
 	}
 }
+
+func TestRunHeadlessSubagent_AutoFailover(t *testing.T) {
+	_, cleanupEnv := setupAgentTestEnv(t)
+	defer cleanupEnv()
+
+	profPrimary := "prof-primary"
+	profSecondary := "prof-secondary"
+	if err := profile.CreateProfile(profile.CreateOptions{Name: profPrimary}); err != nil {
+		t.Fatalf("failed to create primary profile: %v", err)
+	}
+	if err := profile.CreateProfile(profile.CreateOptions{Name: profSecondary}); err != nil {
+		t.Fatalf("failed to create secondary profile: %v", err)
+	}
+
+	callCount := 0
+	restore := SetRunnerTestHooks(
+		func() (string, error) {
+			return "/fake/bin/agy", nil
+		},
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			callCount++
+			if callCount == 1 {
+				// Primary fails with rate limit / quota exhaustion
+				return []byte("Error: 429 RESOURCE_EXHAUSTED. Quota exceeded for gemini-3.8-flash, resets in 30s"), 1, errors.New("exit status 1")
+			}
+			// Secondary succeeds
+			return []byte(`{"response": "Failover succeeded on secondary profile", "usage": {"total_tokens": 120}}`), 0, nil
+		},
+		func(p string) error { return nil },
+		nil,
+	)
+	defer restore()
+
+	res, err := RunHeadlessSubagent(context.Background(), HeadlessSubagentOptions{
+		Profile:           profPrimary,
+		CandidateProfiles: []string{profPrimary, profSecondary},
+		Prompt:            "test failover task",
+		Model:             "gemini-3.8-flash",
+		AutoFailover:      true,
+	})
+	if err != nil {
+		t.Fatalf("RunHeadlessSubagent failed: %v", err)
+	}
+
+	if res.Profile != profSecondary {
+		t.Errorf("expected failover to %s, got %s", profSecondary, res.Profile)
+	}
+	if res.FailoverCount != 1 {
+		t.Errorf("expected failover count 1, got %d", res.FailoverCount)
+	}
+	expectedAttempts := []string{profPrimary, profSecondary}
+	if !reflect.DeepEqual(res.Attempts, expectedAttempts) {
+		t.Errorf("expected attempts %v, got %v", expectedAttempts, res.Attempts)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", res.ExitCode)
+	}
+	if !strings.Contains(res.Response, "Failover succeeded") {
+		t.Errorf("unexpected response: %s", res.Response)
+	}
+}

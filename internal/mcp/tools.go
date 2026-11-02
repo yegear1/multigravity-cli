@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ye-dev/multigravity-cli/internal/agent"
 	"github.com/ye-dev/multigravity-cli/internal/alert"
 	"github.com/ye-dev/multigravity-cli/internal/config"
 	"github.com/ye-dev/multigravity-cli/internal/dispatch"
@@ -188,6 +189,26 @@ func RegisterDefaultTools(s *Server) {
 					Type:        "string",
 					Description: "Distributed trace identifier (or MAESTRI_TRACE_ID) for VictoriaLogs token delta correlation.",
 				},
+				"role": {
+					Type:        "string",
+					Description: "Agent execution role persona: 'developer', 'researcher', 'verifier', 'reviewer', or 'auditor'.",
+				},
+				"read_only": {
+					Type:        "boolean",
+					Description: "Enforce strict read-only execution guard preventing file modifications.",
+				},
+				"workspace": {
+					Type:        "string",
+					Description: "Workspace isolation mode: 'worktree' (isolated Git worktree), 'mirror' (lightweight mirror), or 'inherit' (zero-I/O in-place).",
+				},
+				"headless": {
+					Type:        "boolean",
+					Description: "Execute task in headless agent mode.",
+				},
+				"auto_spawn_headless": {
+					Type:        "boolean",
+					Description: "Automatically awaken inactive profiles with on-demand headless server if needed.",
+				},
 			},
 			Required: []string{"command", "profile"},
 		},
@@ -272,21 +293,26 @@ func RegisterDefaultTools(s *Server) {
 		newWorktree := (wtID == "" && branch != "")
 
 		opts := dispatch.DispatchOptions{
-			Command:      cmdStr,
-			Args:         getStringSlice(args, "args"),
-			Prompt:       getString(args, "prompt"),
-			Profile:      prof,
-			RepoPath:     repo,
-			Branch:       branch,
-			WorktreeID:   wtID,
-			NewWorktree:  newWorktree,
-			AgentType:    getString(args, "agent_type"),
-			Detached:     getBool(args, "background"),
-			Env:          getStringMap(args, "env"),
-			Verify:       getString(args, "verify"),
-			Retry:        getInt(args, "retry", 0),
-			TraceID:      getString(args, "trace_id"),
-			NoGovernance: !getBool(args, "governance"),
+			Command:           cmdStr,
+			Args:              getStringSlice(args, "args"),
+			Prompt:            getString(args, "prompt"),
+			Profile:           prof,
+			RepoPath:          repo,
+			Branch:            branch,
+			WorktreeID:        wtID,
+			NewWorktree:       newWorktree,
+			AgentType:         getString(args, "agent_type"),
+			Detached:          getBool(args, "background"),
+			Env:               getStringMap(args, "env"),
+			Verify:            getString(args, "verify"),
+			Retry:             getInt(args, "retry", 0),
+			TraceID:           getString(args, "trace_id"),
+			NoGovernance:      !getBool(args, "governance"),
+			Role:              getString(args, "role"),
+			ReadOnly:          getBool(args, "read_only"),
+			Workspace:         getString(args, "workspace"),
+			Headless:          getBool(args, "headless"),
+			AutoSpawnHeadless: getBool(args, "auto_spawn_headless"),
 		}
 
 		mgr := dispatch.GetDefaultTaskManager()
@@ -306,6 +332,127 @@ func RegisterDefaultTools(s *Server) {
 		}
 
 		return toJSONText(task)
+	})
+
+	s.RegisterTool(Tool{
+		Name:        "dispatch_subagent",
+		Description: "Delegate an autonomous subagent prompt directly to an Antigravity worker using headless CLI invocation (agy -p / cascade) with quota-aware multi-profile routing and automatic failover.",
+		InputSchema: ToolInputSchema{
+			Type: "object",
+			Properties: map[string]PropertySchema{
+				"prompt": {
+					Type:        "string",
+					Description: "Subagent task prompt or instruction to execute autonomously.",
+				},
+				"profile": {
+					Type:        "string",
+					Description: "Antigravity profile name for execution, or 'auto' for dynamic quota-aware routing (default 'auto').",
+				},
+				"model": {
+					Type:        "string",
+					Description: "Target model for execution and quota routing (e.g. 'gemini-3.8-flash', 'gemini-3.8-pro', 'claude-3-7-sonnet').",
+				},
+				"effort": {
+					Type:        "string",
+					Description: "Reasoning effort level for the model: 'low', 'medium', or 'high'.",
+				},
+				"weight": {
+					Type:        "string",
+					Description: "Task weight for quota threshold evaluation: 'light', 'medium', or 'heavy' (default 'medium').",
+				},
+				"auto_failover": {
+					Type:        "boolean",
+					Description: "Automatically fail over to secondary candidate profiles if the primary hits rate limits or quota exhaustion (default true).",
+				},
+				"max_failovers": {
+					Type:        "integer",
+					Description: "Maximum number of secondary profile failovers to attempt (default 3).",
+				},
+				"timeout": {
+					Type:        "integer",
+					Description: "Execution timeout in seconds (default 120).",
+				},
+				"cwd": {
+					Type:        "string",
+					Description: "Working directory for subagent execution.",
+				},
+				"repo": {
+					Type:        "string",
+					Description: "Repository path for subagent execution.",
+				},
+				"dangerously_skip_permissions": {
+					Type:        "boolean",
+					Description: "Bypass interactive confirmation prompts in headless mode (default true).",
+				},
+				"disable_slash_commands": {
+					Type:        "boolean",
+					Description: "Disable interactive slash commands in headless execution (default true).",
+				},
+				"trace_id": {
+					Type:        "string",
+					Description: "Distributed trace identifier for log and token correlation.",
+				},
+				"env": {
+					Type:        "object",
+					Description: "Custom environment variables to pass to the subagent session.",
+				},
+			},
+			Required: []string{"prompt"},
+		},
+	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
+		prompt := getString(args, "prompt")
+		if prompt == "" {
+			return nil, fmt.Errorf("prompt is required")
+		}
+
+		prof := getString(args, "profile")
+		if prof == "" {
+			prof = "auto"
+		}
+
+		model := getString(args, "model")
+		if model == "" {
+			model = "gemini-3.8-flash"
+		}
+
+		timeoutSec := getInt(args, "timeout", 120)
+		autoFailover := true
+		if val, ok := args["auto_failover"]; ok && val != nil {
+			autoFailover = getBool(args, "auto_failover")
+		}
+
+		dangerouslySkipPermissions := true
+		if val, ok := args["dangerously_skip_permissions"]; ok && val != nil {
+			dangerouslySkipPermissions = getBool(args, "dangerously_skip_permissions")
+		}
+
+		disableSlashCommands := true
+		if val, ok := args["disable_slash_commands"]; ok && val != nil {
+			disableSlashCommands = getBool(args, "disable_slash_commands")
+		}
+
+		subOpts := agent.HeadlessSubagentOptions{
+			Profile:                    prof,
+			Prompt:                     prompt,
+			Model:                      model,
+			Effort:                     getString(args, "effort"),
+			Weight:                     getString(args, "weight"),
+			Timeout:                    time.Duration(timeoutSec) * time.Second,
+			Cwd:                        getString(args, "cwd"),
+			RepoPath:                   getString(args, "repo"),
+			DangerouslySkipPermissions: dangerouslySkipPermissions,
+			DisableSlashCommands:       disableSlashCommands,
+			TraceID:                    getString(args, "trace_id"),
+			Env:                        getStringMap(args, "env"),
+			AutoFailover:               autoFailover,
+			MaxFailovers:               getInt(args, "max_failovers", 3),
+		}
+
+		res, err := agent.RunHeadlessSubagent(ctx, subOpts)
+		if err != nil {
+			return nil, fmt.Errorf("subagent execution failed: %w", err)
+		}
+		return toJSONText(res)
 	})
 
 	s.RegisterTool(Tool{

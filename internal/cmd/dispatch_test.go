@@ -942,6 +942,7 @@ func TestDispatchCLISandbox(t *testing.T) {
 	if taskReadOnly.Command != "agent-guard" {
 		t.Errorf("expected command 'agent-guard', got %q", taskReadOnly.Command)
 	}
+	time.Sleep(250 * time.Millisecond)
 }
 
 func TestDispatchCLIRunVerify(t *testing.T) {

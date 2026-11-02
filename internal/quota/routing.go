@@ -764,6 +764,73 @@ func SelectEligibleProfilesForModel(count int, model string, weight RouteWeight,
 	return selected, nil
 }
 
+// IsQuotaExhaustionError returns true if an error or process output text indicates
+// rate-limiting (HTTP 429), quota exhaustion, or temporary capacity starvation.
+func IsQuotaExhaustionError(err error, output string) bool {
+	combined := strings.ToLower(output)
+	if err != nil {
+		combined += " " + strings.ToLower(err.Error())
+	}
+	if strings.Contains(combined, "429") ||
+		strings.Contains(combined, "resource_exhausted") ||
+		strings.Contains(combined, "quota exceeded") ||
+		strings.Contains(combined, "quota_exceeded") ||
+		strings.Contains(combined, "quota exhausted") ||
+		strings.Contains(combined, "rate limit") ||
+		strings.Contains(combined, "rate_limit") ||
+		strings.Contains(combined, "too many requests") ||
+		strings.Contains(combined, "resets in ") ||
+		strings.Contains(combined, "capacity exceeded") ||
+		strings.Contains(combined, "overloaded") {
+		return true
+	}
+	return false
+}
+
+// GetFailoverCandidates returns an ordered list of candidate profile names suitable for
+// running a task with the given model and weight, avoiding profiles on cooldown.
+// If primaryProfile is specified and eligible, it is prioritized first.
+func GetFailoverCandidates(model string, weight RouteWeight, primaryProfile string, excludeProfiles ...string) []string {
+	normWeight := NormalizeWeight(weight)
+	excluded := make(map[string]bool)
+	for _, p := range excludeProfiles {
+		excluded[strings.TrimSpace(p)] = true
+	}
+
+	candidates := make([]string, 0)
+	prim := strings.TrimSpace(primaryProfile)
+	if prim != "" && prim != "auto" && !excluded[prim] {
+		if profile.ProfileExists(prim) && !IsProfileOnCooldown(prim) {
+			candidates = append(candidates, prim)
+			excluded[prim] = true
+		}
+	}
+
+	// Fetch eligible profiles for model
+	if eligible, err := SelectEligibleProfilesForModel(0, model, normWeight); err == nil {
+		for _, p := range eligible {
+			if !excluded[p] && profile.ProfileExists(p) && !IsProfileOnCooldown(p) {
+				candidates = append(candidates, p)
+				excluded[p] = true
+			}
+		}
+	}
+
+	// Fallback to any known profiles not on cooldown
+	if len(candidates) == 0 {
+		if allProfs, err := profile.ListProfiles(); err == nil {
+			for _, p := range allProfs {
+				if !excluded[p] && profile.ProfileExists(p) && !IsProfileOnCooldown(p) {
+					candidates = append(candidates, p)
+					excluded[p] = true
+				}
+			}
+		}
+	}
+
+	return candidates
+}
+
 var (
 	profileCooldownMu sync.RWMutex
 	profileCooldowns  = make(map[string]time.Time)

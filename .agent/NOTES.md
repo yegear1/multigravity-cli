@@ -22,6 +22,25 @@
 - **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
 - **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts, `--model` vs `--effort` flag conflict rules (`gemini-3.8-flash-low/medium/high` already encode effort), and single-grep escape hatch + line-ranged `Read: file:start-end` pre-injection, (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult` (including on `empty_diff`) and rejecting Go `testing: warning: no tests to run` false-positives, (5) diffing worktrees strictly against `HEAD` (`git diff HEAD -- <paths>`) / immutable SHA `BaseCommit` rather than moving `main` during multi-task wave commits, and (6) model-aware bucket routing (`gemini`/`argon`/`3p`) with failed-profile retry exclusion and native `.agent/TASK.md` wave execution (`multigravity dispatch wave`).
 
+### 2026-11-02 [Task 08.7] Native Antigravity Subagent Orchestration Bridge
+
+- **Context:** External callers, MCP clients, and orchestrators required a bridge to delegate autonomous subagent tasks directly to Antigravity workers (`agy -p` / cascade RPC fallback) with quota-aware profile failover and seamless argument ingestion for headless CLI calls (`agy --headless -p`).
+- **Active Contracts:**
+  - `internal/quota/routing.go`:
+    - `IsQuotaExhaustionError(err error, output string) bool`: detects rate-limit indicators (HTTP 429, `RESOURCE_EXHAUSTED`, `quota exceeded`, `rate limit`, `too many requests`, `capacity exceeded`).
+    - `GetFailoverCandidates(model string, weight RouteWeight, primaryProfile string, excludeProfiles ...string) []string`: computes ordered candidate profiles with quota headroom, prioritizing `primaryProfile` if eligible, followed by health-ranked secondary profiles.
+  - `internal/agent/runner.go`:
+    - `NormalizeAgyArgs(args []string) []string`: strips `--headless`, `-headless`, and their `=<val>` variants to prevent `agy` exit code 2 errors.
+    - `HeadlessSubagentOptions`: expanded with `AutoFailover`, `MaxFailovers`, `Weight`, and `CandidateProfiles`.
+    - `HeadlessSubagentResult`: expanded with `Attempts` and `FailoverCount`.
+    - `RunHeadlessSubagent(ctx, opts)`: executes with quota-aware candidate discovery and automatic multi-profile failover loop, recording cooldowns on failed profiles.
+  - `internal/dispatch/manager.go`:
+    - `ResolveAgentCommandWithCwd`: handles composite commands starting with `agy --headless`, extracting `agy` and routing flags into normalization.
+    - `Dispatch`: awakens inactive profiles via `agent.EnsureProfileReady` when `cmdStr == "agy"` or `agentType == "agy"`.
+  - `internal/mcp/tools.go`:
+    - Registered `dispatch_subagent` tool: direct autonomous subagent prompt delegation via MCP with quota-aware auto-failover across profiles.
+    - `dispatch_task`: updated with `role`, `read_only`, `workspace`, `headless`, and `auto_spawn_headless` parameters.
+
 ### 2026-11-02 [Task 08.6] Hybrid Workspace Modes (Zero-I/O Read-Only Dispatch)
 
 - **Context:** Previously, subtask dispatch in `dispatch plan` and mutating runs incurred mandatory ephemeral git worktree creation (`git worktree add`, branch creation, lock contention) even for read-only or research tasks where modifying the codebase was prohibited.

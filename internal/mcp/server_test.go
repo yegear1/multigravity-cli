@@ -99,6 +99,7 @@ func TestToolsList(t *testing.T) {
 
 	expectedTools := []string{
 		"dispatch_task",
+		"dispatch_subagent",
 		"dispatch_plan",
 		"dispatch_list",
 		"dispatch_status",
@@ -721,4 +722,67 @@ func TestDispatchTask_ArgsAndPrompt(t *testing.T) {
 			t.Errorf("expected task.Status 'completed' when wait=true, got %q", task.Status)
 		}
 	})
+}
+
+func TestDispatchSubagent_ToolCall(t *testing.T) {
+	srv, _ := setupTestEnvironment(t)
+
+	// Create test profile
+	if err := profile.CreateProfile(profile.CreateOptions{Name: "subagent-mcp-prof"}); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	restore := agent.SetRunnerTestHooks(
+		func() (string, error) {
+			return "/fake/bin/agy", nil
+		},
+		func(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
+			respJSON := `{"response": "Subagent executed via MCP bridge", "usage": {"total_tokens": 88}}`
+			return []byte(respJSON), 0, nil
+		},
+		func(p string) error { return nil },
+		nil,
+	)
+	defer restore()
+
+	// 1. Missing prompt
+	reqErr := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      201,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"dispatch_subagent","arguments":{}}`),
+	}
+	respErr := srv.HandleRequest(context.Background(), reqErr)
+	if respErr == nil {
+		t.Fatalf("expected response for missing prompt")
+	}
+	resErr, ok := respErr.Result.(*CallToolResult)
+	if !ok || !resErr.IsError {
+		t.Fatalf("expected isError: true for missing prompt, got %+v", resErr)
+	}
+
+	// 2. Successful dispatch_subagent call
+	reqSub := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      202,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"dispatch_subagent","arguments":{"prompt":"audit code","profile":"subagent-mcp-prof","model":"gemini-3.8-flash"}}`),
+	}
+	respSub := srv.HandleRequest(context.Background(), reqSub)
+	if respSub == nil || respSub.Error != nil {
+		t.Fatalf("unexpected error response: %v", respSub)
+	}
+	resSub, ok := respSub.Result.(*CallToolResult)
+	if !ok || resSub.IsError {
+		t.Fatalf("expected successful call, got %+v", resSub)
+	}
+	if len(resSub.Content) == 0 {
+		t.Fatalf("expected content in result")
+	}
+	if !strings.Contains(resSub.Content[0].Text, "Subagent executed via MCP bridge") {
+		t.Errorf("unexpected content text: %s", resSub.Content[0].Text)
+	}
+	if !strings.Contains(resSub.Content[0].Text, "subagent-mcp-prof") {
+		t.Errorf("expected profile in response JSON: %s", resSub.Content[0].Text)
+	}
 }

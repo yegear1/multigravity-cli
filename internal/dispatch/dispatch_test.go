@@ -169,6 +169,28 @@ func TestResolveAgentCommand(t *testing.T) {
 		t.Errorf("unexpected unmodified agy args: %s %v", cmd, args)
 	}
 
+	// agy --headless -p command normalization
+	cmd, args = ResolveAgentCommand("", "agy --headless -p", nil, "fix headless bug")
+	if cmd != "agy" {
+		t.Errorf("expected cmd 'agy', got %q", cmd)
+	}
+	hasHeadless := false
+	hasPrompt := false
+	for _, a := range args {
+		if a == "--headless" || a == "-headless" {
+			hasHeadless = true
+		}
+		if a == "fix headless bug" {
+			hasPrompt = true
+		}
+	}
+	if hasHeadless {
+		t.Errorf("expected --headless to be stripped from agy args: %v", args)
+	}
+	if !hasPrompt {
+		t.Errorf("expected prompt 'fix headless bug' in agy args: %v", args)
+	}
+
 	// Auto-discovery skips uninstalled runners and selects the first installed binary in PATH
 	tmpBin := t.TempDir()
 	fakeAgy := filepath.Join(tmpBin, "agy")

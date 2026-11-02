@@ -64,13 +64,13 @@ func SetRunnerTestHooks(
 }
 
 // NormalizeAgyArgs cleans and normalizes argument lists intended for agy CLI.
-// It removes unsupported flags like --headless or --headless=true (which cause exit code 2),
+// It removes unsupported flags like --headless, -headless, or --headless=true (which cause exit code 2),
 // and merges conflicting --model and --effort flags if present.
 func NormalizeAgyArgs(args []string) []string {
-	// First pass: strip --headless variants
+	// First pass: strip --headless and -headless variants
 	filtered := make([]string, 0, len(args))
 	for _, a := range args {
-		if a == "--headless" || strings.HasPrefix(a, "--headless=") {
+		if a == "--headless" || strings.HasPrefix(a, "--headless=") || a == "-headless" || strings.HasPrefix(a, "-headless=") {
 			continue
 		}
 		filtered = append(filtered, a)
@@ -200,6 +200,7 @@ type HeadlessSubagentOptions struct {
 	Prompt                     string            `json:"prompt"`
 	Model                      string            `json:"model,omitempty"`
 	Effort                     string            `json:"effort,omitempty"`
+	Weight                     string            `json:"weight,omitempty"`
 	Timeout                    time.Duration     `json:"timeout,omitempty"`
 	Cwd                        string            `json:"cwd,omitempty"`
 	RepoPath                   string            `json:"repo_path,omitempty"`
@@ -208,18 +209,23 @@ type HeadlessSubagentOptions struct {
 	DisableSlashCommands       bool              `json:"disable_slash_commands,omitempty"`
 	TraceID                    string            `json:"trace_id,omitempty"`
 	Env                        map[string]string `json:"env,omitempty"`
+	AutoFailover               bool              `json:"auto_failover,omitempty"`
+	MaxFailovers               int               `json:"max_failovers,omitempty"`
+	CandidateProfiles          []string          `json:"candidate_profiles,omitempty"`
 }
 
 // HeadlessSubagentResult captures the execution output and telemetry of a subagent run.
 type HeadlessSubagentResult struct {
-	Profile         string  `json:"profile"`
-	Prompt          string  `json:"prompt"`
-	Response        string  `json:"response"`
-	TotalTokens     int     `json:"total_tokens"`
-	DurationSeconds float64 `json:"duration_seconds"`
-	ExitCode        int     `json:"exit_code"`
-	Error           string  `json:"error,omitempty"`
-	UsedFallback    bool    `json:"used_fallback,omitempty"`
+	Profile         string   `json:"profile"`
+	Prompt          string   `json:"prompt"`
+	Response        string   `json:"response"`
+	TotalTokens     int      `json:"total_tokens"`
+	DurationSeconds float64  `json:"duration_seconds"`
+	ExitCode        int      `json:"exit_code"`
+	Error           string   `json:"error,omitempty"`
+	UsedFallback    bool     `json:"used_fallback,omitempty"`
+	Attempts        []string `json:"attempts,omitempty"`
+	FailoverCount   int      `json:"failover_count,omitempty"`
 }
 
 func defaultRunAgyCmd(ctx context.Context, bin string, args []string, env []string, dir string) ([]byte, int, error) {
@@ -263,20 +269,12 @@ func defaultRunCascadeRPC(ctx context.Context, profileName, prompt, model string
 	return "Message dispatched successfully to cascade session " + cascadeID, 0, nil
 }
 
-// RunHeadlessSubagent executes an autonomous subagent task against the target profile.
+// RunHeadlessSubagent executes an autonomous subagent task against the target profile,
+// with automatic quota-aware candidate routing and multi-profile failover support.
 // If the profile is inactive, it automatically awakens it via EnsureProfileReady.
 // It prioritizes the agy CLI (with normalized arguments), falling back cleanly to the
 // headless Language Server Cascade RPC if agy is not installed.
 func RunHeadlessSubagent(ctx context.Context, opts HeadlessSubagentOptions) (*HeadlessSubagentResult, error) {
-	if err := config.ValidateProfileName(opts.Profile); err != nil {
-		return nil, err
-	}
-
-	// 1. Ensure target profile environment is awakened and ready
-	if err := EnsureProfileReady(opts.Profile); err != nil {
-		return nil, err
-	}
-
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = 120 * time.Second
@@ -289,9 +287,103 @@ func RunHeadlessSubagent(ctx context.Context, opts HeadlessSubagentOptions) (*He
 		defer cancel()
 	}
 
+	// 1. Resolve candidate profiles
+	var candidates []string
+	if len(opts.CandidateProfiles) > 0 {
+		candidates = append([]string(nil), opts.CandidateProfiles...)
+	} else {
+		weight := quota.NormalizeWeight(quota.RouteWeight(opts.Weight))
+		prim := strings.TrimSpace(opts.Profile)
+		if prim == "" || strings.EqualFold(prim, "auto") {
+			candidates = quota.GetFailoverCandidates(opts.Model, weight, "")
+		} else if opts.AutoFailover {
+			candidates = quota.GetFailoverCandidates(opts.Model, weight, prim)
+		} else {
+			candidates = []string{prim}
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, errors.New("no eligible profiles available for subagent execution")
+	}
+
+	maxFailovers := opts.MaxFailovers
+	if maxFailovers <= 0 {
+		maxFailovers = len(candidates) - 1
+	}
+	if !opts.AutoFailover && !strings.EqualFold(opts.Profile, "auto") && opts.Profile != "" && len(opts.CandidateProfiles) == 0 {
+		maxFailovers = 0
+	}
+
+	attempts := make([]string, 0, len(candidates))
+	var lastRes *HeadlessSubagentResult
+	var lastErr error
+	failoverCount := 0
+
+	for i, cand := range candidates {
+		attempts = append(attempts, cand)
+
+		res, err := runSingleProfileSubagent(subCtx, cand, opts, timeout)
+		lastRes = res
+		lastErr = err
+
+		if lastRes != nil {
+			lastRes.Attempts = append([]string(nil), attempts...)
+			lastRes.FailoverCount = failoverCount
+		}
+
+		// Check if execution was successful
+		if err == nil && lastRes != nil && lastRes.ExitCode == 0 && lastRes.Error == "" {
+			return lastRes, nil
+		}
+
+		// If this is the last candidate or we exceeded max failovers, stop
+		if i == len(candidates)-1 || failoverCount >= maxFailovers {
+			break
+		}
+
+		// Check if failure is eligible for failover (quota exhaustion, rate limit, or auto-failover enabled)
+		outputToCheck := ""
+		if lastRes != nil {
+			outputToCheck = lastRes.Response + " " + lastRes.Error
+		}
+		isQuotaErr := quota.IsQuotaExhaustionError(err, outputToCheck)
+
+		if isQuotaErr {
+			resetDur := quota.ParseQuotaResetDuration(outputToCheck, 5*time.Minute)
+			quota.RecordProfileCooldown(cand, resetDur)
+		}
+
+		if isQuotaErr || opts.AutoFailover || strings.EqualFold(opts.Profile, "auto") {
+			failoverCount++
+			continue
+		}
+
+		break
+	}
+
+	if lastRes != nil {
+		return lastRes, lastErr
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("subagent execution failed on profile %q", candidates[0])
+}
+
+func runSingleProfileSubagent(ctx context.Context, targetProfile string, opts HeadlessSubagentOptions, timeout time.Duration) (*HeadlessSubagentResult, error) {
+	if err := config.ValidateProfileName(targetProfile); err != nil {
+		return nil, err
+	}
+
+	// 1. Ensure target profile environment is awakened and ready
+	if err := EnsureProfileReady(targetProfile); err != nil {
+		return nil, err
+	}
+
 	start := time.Now()
 
-	profileDir := config.GetProfileDir(opts.Profile)
+	profileDir := config.GetProfileDir(targetProfile)
 	execDir := opts.Cwd
 	if execDir == "" {
 		execDir = opts.RepoPath
@@ -330,7 +422,7 @@ func RunHeadlessSubagent(ctx context.Context, opts HeadlessSubagentOptions) (*He
 		args = NormalizeAgyArgs(args)
 
 		sessOpts := CreateSessionOptions{
-			Profile:    opts.Profile,
+			Profile:    targetProfile,
 			AgentType:  "agy",
 			Command:    agyBin,
 			Args:       args,
@@ -345,11 +437,11 @@ func RunHeadlessSubagent(ctx context.Context, opts HeadlessSubagentOptions) (*He
 			return nil, fmt.Errorf("failed to build subagent environment: %w", err)
 		}
 
-		out, exitCode, cmdErr := runAgy(subCtx, agyBin, args, env, execDir)
+		out, exitCode, cmdErr := runAgy(ctx, agyBin, args, env, execDir)
 		duration := time.Since(start).Seconds()
 
 		res := &HeadlessSubagentResult{
-			Profile:         opts.Profile,
+			Profile:         targetProfile,
 			Prompt:          opts.Prompt,
 			DurationSeconds: duration,
 			ExitCode:        exitCode,
@@ -374,7 +466,7 @@ func RunHeadlessSubagent(ctx context.Context, opts HeadlessSubagentOptions) (*He
 		}
 
 		if cmdErr != nil {
-			if subCtx.Err() == context.DeadlineExceeded {
+			if ctx.Err() == context.DeadlineExceeded {
 				res.Error = fmt.Sprintf("execution timed out after %s (context deadline exceeded)", timeout)
 			} else {
 				res.Error = cmdErr.Error()
@@ -386,11 +478,11 @@ func RunHeadlessSubagent(ctx context.Context, opts HeadlessSubagentOptions) (*He
 	}
 
 	// 3. Fallback: Language Server Cascade RPC
-	cascadeResp, exitCode, cErr := runCascade(subCtx, opts.Profile, opts.Prompt, opts.Model, timeout)
+	cascadeResp, exitCode, cErr := runCascade(ctx, targetProfile, opts.Prompt, opts.Model, timeout)
 	duration := time.Since(start).Seconds()
 
 	res := &HeadlessSubagentResult{
-		Profile:         opts.Profile,
+		Profile:         targetProfile,
 		Prompt:          opts.Prompt,
 		Response:        cascadeResp,
 		DurationSeconds: duration,
