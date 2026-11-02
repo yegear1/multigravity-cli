@@ -7,10 +7,16 @@
 
 ## Active Task
 
-### [01.1] Next Milestone Planning & Triage
-- Status: READY FOR PLANNING
-- Priority: P2
-- Description: Triage next roadmap milestone or features for multigravity-cli.
+### [90.1] Componentize Server HTTP Handlers (internal/server/routes.go)
+- Status: RUNNING
+- Priority: P1
+- Description: Partition the monolithic `internal/server/routes.go` (2.795 LOC, 97 handlers) into domain-specific files (`routes_profile.go`, `routes_dispatch.go`, `routes_gateway.go`, `routes_quota.go`, `routes_system.go`) within package `server` while keeping exact API contracts, HTTP endpoints, and full test parity.
+- Acceptance Criteria:
+  - [ ] `internal/server/routes.go` reduced to router registration (`setupRoutes`), middleware (`corsMiddleware`), and response helpers (`writeJSON`, `writeError`).
+  - [ ] Handlers extracted to domain files in package `server` without circular dependencies or signature changes.
+  - [ ] All HTTP routes, methods, and JSON payloads remain 100% backward-compatible.
+  - [ ] `go test -v ./internal/server/...` passes with exit code 0.
+  - [ ] `golangci-lint run` / `git diff --check` passes cleanly.
 
 ---
 
@@ -25,7 +31,16 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [ ] *(Queue empty — awaiting next milestone planning)*
+- [ ] **[90.1]** `[APPROVED]` `[PARALLEL: W1]` Componentize Server HTTP Handlers (internal/server/routes.go)
+  - `Read:` `internal/server/server.go, internal/server/routes.go`
+  - `Paths:` `internal/server/routes.go, internal/server/routes_profile.go, internal/server/routes_dispatch.go, internal/server/routes_gateway.go, internal/server/routes_system.go`
+  - `Verify:` `go test -v ./internal/server/...`
+- [ ] **[90.2]** `[APPROVED]` `[PARALLEL: W1]` Modularize Dispatch CLI Subcommands (internal/cmd/dispatch.go)
+  - `Read:` `internal/cmd/root.go, internal/cmd/dispatch.go`
+  - `Paths:` `internal/cmd/dispatch.go, internal/cmd/dispatch_run.go, internal/cmd/dispatch_wave.go, internal/cmd/dispatch_plan.go, internal/cmd/dispatch_apply.go, internal/cmd/dispatch_ops.go`
+  - `Verify:` `go test -v ./internal/cmd/...`
+
+---
 
 ---
 
