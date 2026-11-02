@@ -7,10 +7,15 @@
 
 ## Active Task
 
-### Queue Empty — Awaiting Next Ideation
+### [07.1] Worktree Ephemeral Branch Cleanup on Apply/Prune
 - Status: READY FOR PLANNING
-- Priority: P2
-- Description: All pre-approved wave tasks completed with 100% test pass. Awaiting next roadmap milestone or ideation.
+- Priority: P1
+- Description: Automatically delete ephemeral git branches (`multigravity/wave-*`, `multigravity/retry-*`) created for dispatch tasks and waves when worktrees are pruned or applied, preventing local ref leakage in the host repository.
+- Acceptance Criteria:
+  - [ ] `PruneWorktree` and `PruneAll` in `internal/worktree/manager.go` delete the associated local git branch (`git branch -D <branch>`) when `branch` is non-empty and starts with `multigravity/`.
+  - [ ] `dispatch wave` and `dispatch plan` ensure worktree cleanup removes both filesystem directories and git branch references upon task completion or failure.
+  - [ ] Characterization tests in `internal/worktree/` and `internal/dispatch/` verify git branches are pruned cleanly with zero orphan branches.
+  - [ ] `go test -v ./internal/worktree/... ./internal/dispatch/...` passes with exit code 0.
 
 ---
 
@@ -25,16 +30,24 @@
 
 ## Backlog (Upcoming, in priority order)
 
-> Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
+> Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: Wx]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [x] **[90.1]** `[APPROVED]` `[PARALLEL: W1]` Componentize Server HTTP Handlers (internal/server/routes.go) (8771e7d)
-  - `Read:` `internal/server/server.go, internal/server/routes.go`
-  - `Paths:` `internal/server/routes.go, internal/server/routes_profile.go, internal/server/routes_dispatch.go, internal/server/routes_gateway.go, internal/server/routes_system.go`
-  - `Verify:` `go test -v ./internal/server/...`
-- [x] **[90.2]** `[APPROVED]` `[PARALLEL: W1]` Modularize Dispatch CLI Subcommands (internal/cmd/dispatch.go) (00362c7)
-  - `Read:` `internal/cmd/root.go, internal/cmd/dispatch.go`
-  - `Paths:` `internal/cmd/dispatch.go, internal/cmd/dispatch_run.go, internal/cmd/dispatch_wave.go, internal/cmd/dispatch_plan.go, internal/cmd/dispatch_apply.go, internal/cmd/dispatch_ops.go`
-  - `Verify:` `go test -v ./internal/cmd/...`
+- [ ] **[07.1]** `[PARALLEL: W1]` Worktree Ephemeral Branch Cleanup on Apply/Prune
+  - `Read:` `internal/worktree/manager.go, internal/worktree/git.go`
+  - `Paths:` `internal/worktree/manager.go, internal/worktree/git.go, internal/worktree/manager_test.go`
+  - `Verify:` `go test -v ./internal/worktree/...`
+- [ ] **[07.2]** `[PARALLEL: W1]` Compact JSON Wave Output Sanitization (`ToCompact` & Diff/Log Truncation)
+  - `Read:` `internal/dispatch/wave.go, internal/dispatch/types.go`
+  - `Paths:` `internal/dispatch/wave.go, internal/dispatch/wave_test.go`
+  - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Compact.*'`
+- [ ] **[07.3]** `[PARALLEL: W2]` AST Outline Extraction for Large Files in Subtask Pre-Injection (Token Economy)
+  - `Read:` `internal/dispatch/plan.go`
+  - `Paths:` `internal/dispatch/plan.go, internal/dispatch/outline.go, internal/dispatch/plan_test.go`
+  - `Verify:` `go test -v ./internal/dispatch/... -run 'Test.*Outline.*'`
+- [ ] **[07.4]** `[PARALLEL: W2]` On-Demand Secondary Profile Quota Probing (`--probe` / Wave Pre-Flight)
+  - `Read:` `internal/quota/routing.go, internal/dispatch/wave.go`
+  - `Paths:` `internal/quota/routing.go, internal/dispatch/wave.go, internal/cmd/dispatch_wave.go`
+  - `Verify:` `go test -v ./internal/quota/... ./internal/dispatch/...`
 
 ---
 
