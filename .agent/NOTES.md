@@ -22,6 +22,25 @@
 - **Pre-Approved Tasks (`APPROVED`), Parallel Waves (`[PARALLEL: Wx]`) & `task-queue` Skill:** Tasks finalized during interactive planning use `Status: APPROVED` in `.agent/TASK.md` (with independent disjoint-file tasks tagged `[PARALLEL: Wx]` + `Paths:`), allowing fresh sessions (`proceed`) or isolated worker subagents and multi-account quota failover (`task-queue` skill on `proceed queue`) to transition directly to `RUNNING` without a redundant `PLANNING` pause, halting only when ambiguities, unapproved dependencies, or blockers require human intervention.
 - **Ephemeral Worktree Subagent Execution Gotchas (`k-002`):** See [`.agent/knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md`](knowledge/k-002-dispatch-plan-worktree-orphan-and-venv-isolation.md) for root causes and approved fixes covering (1) `agy -p` 20k thinking token timeouts, `--model` vs `--effort` flag conflict rules (`gemini-3.8-flash-low/medium/high` already encode effort), and single-grep escape hatch + line-ranged `Read: file:start-end` pre-injection, (2) orphaned detached child processes surviving `ExecutePlan` deadline and cross-process `CancelTask`, (3) `.venv` editable-install (`.pth`) shadowing in ephemeral worktrees without `PYTHONPATH` precedence, (4) bounded `verification_output`/`log_tail` diagnostics in `SubtaskResult` (including on `empty_diff`) and rejecting Go `testing: warning: no tests to run` false-positives, (5) diffing worktrees strictly against `HEAD` (`git diff HEAD -- <paths>`) / immutable SHA `BaseCommit` rather than moving `main` during multi-task wave commits, and (6) model-aware bucket routing (`gemini`/`argon`/`3p`) with failed-profile retry exclusion and native `.agent/TASK.md` wave execution (`multigravity dispatch wave`).
 
+### 2026-11-01 [Tasks 90.1 & 90.2] Componentization of Server Routes & Modularization of Dispatch CLI Subcommands
+
+- **Context:** Parallel refactoring wave W1 componentized monolithic legacy files into focused domain-specific files while preserving exact API and CLI surface contracts with 100% test pass.
+- **Active Contracts:**
+  - `internal/server/`:
+    - `routes.go`: retained router registration (`setupRoutes`), middleware (`corsMiddleware`), and response helpers (`writeJSON`, `writeError`).
+    - `routes_profile.go`: profile CRUD, stats, share, prime, shortcuts, and exec endpoints.
+    - `routes_dispatch.go`: dispatch run, wave, plan, tasks, worktree, agent sessions, and workspaces endpoints.
+    - `routes_gateway.go`: gateway chat completions, messages, models, quota, history, and router endpoints.
+    - `routes_system.go`: health, doctor, alerts, catalog, idelog, snapshot, and MCP endpoints.
+  - `internal/cmd/`:
+    - `dispatch.go`: root `dispatchCmd` command definition, global/shared flags, and subcommand registration.
+    - `dispatch_run.go`: `runSubCmd` and execution flags (`--profile`, `--verify`, `--retry`, `--model`, etc.).
+    - `dispatch_ops.go`: operational subcommands (`list`, `status`, `logs`, `diff`, `dashboard`, `cancel`, `delete`, `prune`).
+    - `dispatch_plan.go`: `planSubCmd` (`multigravity dispatch plan`).
+    - `dispatch_wave.go`: `waveSubCmd` (`multigravity dispatch wave`).
+    - `dispatch_apply.go`: `applySubCmd` (`multigravity dispatch apply`).
+
+
 ### 2026-11-01 [Tasks 06.1–06.6] Orchestration Resiliency, Token Economy, Verify-on-Timeout, Profile-Aware Concurrency Throttling & InlineRead Bounds
 
 - **Context:** Parallel plan execution and wave orchestration (`multigravity dispatch wave` / `ExecutePlan`) required compact artifact outputs, build cache dependency symlinks in ephemeral worktrees, verify-on-timeout recovery, default model fallback in wave linting, profile-aware concurrency throttling to prevent single-profile starvation, and line/size bounds on non-ranged `Read:` entries in pre-loaded context.

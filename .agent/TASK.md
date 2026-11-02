@@ -9,14 +9,8 @@
 
 ### Queue Empty — Awaiting Next Ideation
 - Status: READY FOR PLANNING
-- Priority: P1
-- Description: Partition the monolithic `internal/server/routes.go` (2.795 LOC, 97 handlers) into domain-specific files (`routes_profile.go`, `routes_dispatch.go`, `routes_gateway.go`, `routes_quota.go`, `routes_system.go`) within package `server` while keeping exact API contracts, HTTP endpoints, and full test parity.
-- Acceptance Criteria:
-  - [ ] `internal/server/routes.go` reduced to router registration (`setupRoutes`), middleware (`corsMiddleware`), and response helpers (`writeJSON`, `writeError`).
-  - [ ] Handlers extracted to domain files in package `server` without circular dependencies or signature changes.
-  - [ ] All HTTP routes, methods, and JSON payloads remain 100% backward-compatible.
-  - [ ] `go test -v ./internal/server/...` passes with exit code 0.
-  - [ ] `golangci-lint run` / `git diff --check` passes cleanly.
+- Priority: P2
+- Description: All pre-approved wave tasks completed with 100% test pass. Awaiting next roadmap milestone or ideation.
 
 ---
 
