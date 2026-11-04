@@ -7,7 +7,7 @@
 
 ## Active Task
 
-### [01.1] Next Milestone Planning & Triage
+### [01.2] Next Milestone Planning & Triage
 - Status: READY FOR PLANNING
 - Priority: P2
 - Description: Triage next roadmap milestone or features for multigravity-cli.
@@ -18,6 +18,10 @@
 
 | Task | Title | Commit(s) | Date |
 |---|---|---|---|
+| [90.3] | Modularize Dispatch Workspace & Filesystem Isolation | a8e8dd2 | 2026-11-04 |
+| [90.2] | Generic HTTP Request Binding & Error Helpers | c3d7a8d | 2026-11-04 |
+| [90.1] | Typed MCP Tool Registration & Generic Args Decoder | 23aeed6 | 2026-11-04 |
+| [01.1] | Milestone Planning & Architectural Triage | — | 2026-11-02 |
 
 ---
 
@@ -25,7 +29,7 @@
 
 > Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
 
-- [ ] *(Backlog empty — awaiting next planning cycle)*
+- [ ] *(Queue empty — awaiting next planning cycle)*
 
 ---
 
