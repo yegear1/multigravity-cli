@@ -2365,3 +2365,74 @@ func TestQuotaEndpoints_OmitsCSRF(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestBindingAndQueryHelpers(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	type testPayload struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+
+	// 1. bindJSON with valid payload
+	reqValid := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{"name":"agent-x","count":42}`))
+	recValid := httptest.NewRecorder()
+	val, ok := bindJSON[testPayload](srv, recValid, reqValid)
+	if !ok || val == nil {
+		t.Fatalf("expected bindJSON to succeed, got ok=%v", ok)
+	}
+	if val.Name != "agent-x" || val.Count != 42 {
+		t.Errorf("unexpected decoded values: %+v", val)
+	}
+
+	// 2. bindJSON with nil body
+	reqNil := httptest.NewRequest(http.MethodPost, "/test", nil)
+	recNil := httptest.NewRecorder()
+	valNil, okNil := bindJSON[testPayload](srv, recNil, reqNil)
+	if okNil || valNil != nil {
+		t.Errorf("expected bindJSON to fail on nil body")
+	}
+	if recNil.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for nil body, got %d", recNil.Code)
+	}
+
+	// 3. bindJSON with invalid json
+	reqBad := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{invalid`))
+	recBad := httptest.NewRecorder()
+	valBad, okBad := bindJSON[testPayload](srv, recBad, reqBad)
+	if okBad || valBad != nil {
+		t.Errorf("expected bindJSON to fail on malformed json")
+	}
+	if recBad.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for malformed json, got %d", recBad.Code)
+	}
+
+	// 4. bindOptionalJSON with empty body
+	reqOptEmpty := httptest.NewRequest(http.MethodPost, "/test", nil)
+	recOptEmpty := httptest.NewRecorder()
+	valOptEmpty, okOptEmpty := bindOptionalJSON[testPayload](srv, recOptEmpty, reqOptEmpty)
+	if !okOptEmpty || valOptEmpty == nil {
+		t.Fatalf("expected bindOptionalJSON to succeed on empty body, got ok=%v", okOptEmpty)
+	}
+	if valOptEmpty.Name != "" || valOptEmpty.Count != 0 {
+		t.Errorf("expected zero struct on empty body, got %+v", valOptEmpty)
+	}
+
+	// 5. queryBool, queryInt, queryString helpers
+	reqQuery := httptest.NewRequest(http.MethodGet, "/test?force=true&limit=25&branch=feature-x", nil)
+	if !queryBool(reqQuery, "force") {
+		t.Errorf("expected queryBool to find force=true")
+	}
+	if queryBool(reqQuery, "missing", "absent") {
+		t.Errorf("expected queryBool to be false for missing keys")
+	}
+	if n := queryInt(reqQuery, "limit", 10); n != 25 {
+		t.Errorf("expected queryInt to parse limit=25, got %d", n)
+	}
+	if n := queryInt(reqQuery, "missing", 10); n != 10 {
+		t.Errorf("expected queryInt fallback to 10, got %d", n)
+	}
+	if s := queryString(reqQuery, "missing", "branch"); s != "feature-x" {
+		t.Errorf("expected queryString to find branch=feature-x, got %q", s)
+	}
+}

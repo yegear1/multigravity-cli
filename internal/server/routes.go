@@ -2,7 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 // APIResponse standardizes the JSON response payload
@@ -28,6 +33,79 @@ func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
 		Success: false,
 		Error:   msg,
 	})
+}
+
+// bindJSON decodes the JSON request body into a newly allocated instance of T.
+// If the body is nil, empty (EOF), or contains invalid JSON, it writes a 400 Bad Request
+// response via s.writeError and returns (nil, false).
+func bindJSON[T any](s *Server, w http.ResponseWriter, r *http.Request) (*T, bool) {
+	if r.Body == nil || r.Body == http.NoBody {
+		s.writeError(w, http.StatusBadRequest, "request body is required")
+		return nil, false
+	}
+	var target T
+	if err := json.NewDecoder(r.Body).Decode(&target); err != nil {
+		if errors.Is(err, io.EOF) {
+			s.writeError(w, http.StatusBadRequest, "request body is required")
+			return nil, false
+		}
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+		return nil, false
+	}
+	return &target, true
+}
+
+// bindOptionalJSON decodes the JSON request body into a newly allocated instance of T.
+// If the body is nil, http.NoBody, ContentLength == 0, or empty (EOF), it returns a zeroed instance of T and true.
+// If a body is present but malformed, it writes a 400 Bad Request response and returns (nil, false).
+func bindOptionalJSON[T any](s *Server, w http.ResponseWriter, r *http.Request) (*T, bool) {
+	var target T
+	if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
+		return &target, true
+	}
+	if err := json.NewDecoder(r.Body).Decode(&target); err != nil {
+		if errors.Is(err, io.EOF) {
+			return &target, true
+		}
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+		return nil, false
+	}
+	return &target, true
+}
+
+// queryBool checks whether any of the query parameter keys equal "true" or "1".
+func queryBool(r *http.Request, keys ...string) bool {
+	q := r.URL.Query()
+	for _, k := range keys {
+		val := strings.ToLower(strings.TrimSpace(q.Get(k)))
+		if val == "true" || val == "1" {
+			return true
+		}
+	}
+	return false
+}
+
+// queryInt parses the query parameter key as an integer, returning fallback if absent or invalid.
+func queryInt(r *http.Request, key string, fallback int) int {
+	val := r.URL.Query().Get(key)
+	if val == "" {
+		return fallback
+	}
+	if n, err := strconv.Atoi(val); err == nil {
+		return n
+	}
+	return fallback
+}
+
+// queryString returns the first non-empty query parameter matching any of keys.
+func queryString(r *http.Request, keys ...string) string {
+	q := r.URL.Query()
+	for _, k := range keys {
+		if val := q.Get(k); val != "" {
+			return val
+		}
+	}
+	return ""
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {

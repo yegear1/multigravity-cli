@@ -60,6 +60,11 @@ type SetSharingRequest struct {
 }
 
 // PrimeRequest defines parameters for triggering prime on a single profile
+type CreateSnapshotRequest struct {
+	Note string `json:"note"`
+}
+
+// PrimeRequest defines parameters for triggering prime on a single profile
 type PrimeRequest struct {
 	Force        bool    `json:"force"`
 	Check        bool    `json:"check"`
@@ -182,12 +187,9 @@ func (s *Server) handleSetResourceSharing(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var req SetSharingRequest
-	if r.Body != nil && r.ContentLength > 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
-			return
-		}
+	req, ok := bindOptionalJSON[SetSharingRequest](s, w, r)
+	if !ok {
+		return
 	}
 
 	action := req.Action
@@ -250,15 +252,14 @@ func (s *Server) handleBatchSharing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var raw json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+	raw, ok := bindJSON[json.RawMessage](s, w, r)
+	if !ok {
 		return
 	}
 
 	// Try decoding as array of SetSharingRequest
 	var items []SetSharingRequest
-	if err := json.Unmarshal(raw, &items); err == nil && len(items) > 0 {
+	if err := json.Unmarshal(*raw, &items); err == nil && len(items) > 0 {
 		var results []map[string]any
 		for _, item := range items {
 			if item.Resource == "" {
@@ -310,7 +311,7 @@ func (s *Server) handleBatchSharing(w http.ResponseWriter, r *http.Request) {
 
 	// Try decoding as map[string]any
 	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err == nil {
+	if err := json.Unmarshal(*raw, &obj); err == nil {
 		targetMap := obj
 		if resMap, ok := obj["resources"].(map[string]any); ok {
 			targetMap = resMap
@@ -569,25 +570,24 @@ func (s *Server) handlePostProfilePrime(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req PrimeRequest
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+	req, ok := bindOptionalJSON[PrimeRequest](s, w, r)
+	if !ok {
+		return
 	}
 
-	q := r.URL.Query()
-	if q.Get("force") == "true" {
+	if queryBool(r, "force") {
 		req.Force = true
 	}
-	if q.Get("check") == "true" {
+	if queryBool(r, "check") {
 		req.Check = true
 	}
-	if q.Get("5h") == "true" || q.Get("include_5h") == "true" {
+	if queryBool(r, "5h", "include_5h") {
 		req.Include5h = true
 	}
-	if q.Get("warm_5h") == "true" || q.Get("warm-5h") == "true" {
+	if queryBool(r, "warm_5h", "warm-5h") {
 		req.Warm5h = true
 	}
-	if q.Get("no_jitter") == "true" {
+	if queryBool(r, "no_jitter") {
 		req.NoJitter = true
 	}
 
@@ -635,25 +635,24 @@ func (s *Server) handlePostProfilePrime(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handlePostAllPrime(w http.ResponseWriter, r *http.Request) {
-	var req BatchPrimeRequest
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+	req, ok := bindOptionalJSON[BatchPrimeRequest](s, w, r)
+	if !ok {
+		return
 	}
 
-	q := r.URL.Query()
-	if q.Get("force") == "true" {
+	if queryBool(r, "force") {
 		req.Force = true
 	}
-	if q.Get("check") == "true" {
+	if queryBool(r, "check") {
 		req.Check = true
 	}
-	if q.Get("5h") == "true" || q.Get("include_5h") == "true" {
+	if queryBool(r, "5h", "include_5h") {
 		req.Include5h = true
 	}
-	if q.Get("warm_5h") == "true" || q.Get("warm-5h") == "true" {
+	if queryBool(r, "warm_5h", "warm-5h") {
 		req.Warm5h = true
 	}
-	if q.Get("no_jitter") == "true" {
+	if queryBool(r, "no_jitter") {
 		req.NoJitter = true
 	}
 
@@ -724,9 +723,9 @@ func (s *Server) handlePostAllPrime(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStopProfile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	var req StopRequest
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+	req, ok := bindOptionalJSON[StopRequest](s, w, r)
+	if !ok {
+		return
 	}
 
 	if !profile.ProfileExists(name) {
@@ -805,13 +804,8 @@ func (s *Server) handleCleanProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
-	var req CreateProfileRequest
-	if r.Body == nil {
-		s.writeError(w, http.StatusBadRequest, "request body is required")
-		return
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+	req, ok := bindJSON[CreateProfileRequest](s, w, r)
+	if !ok {
 		return
 	}
 
@@ -892,12 +886,11 @@ func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	force := r.URL.Query().Get("force") == "true" || r.URL.Query().Get("force") == "1"
-	if r.Body != nil && r.ContentLength > 0 {
-		var req DeleteProfileRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.Force {
-			force = true
-		}
+	force := queryBool(r, "force")
+	if req, ok := bindOptionalJSON[DeleteProfileRequest](s, w, r); !ok {
+		return
+	} else if req.Force {
+		force = true
 	}
 
 	if profile.IsProfileRunning(name) && !force {
@@ -941,9 +934,9 @@ func (s *Server) handleLaunchProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req LaunchProfileRequest
-	if r.Body != nil && r.ContentLength > 0 {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+	req, ok := bindOptionalJSON[LaunchProfileRequest](s, w, r)
+	if !ok {
+		return
 	}
 
 	if err := profile.LaunchProfile(name, req.Args); err != nil {
@@ -978,9 +971,9 @@ func (s *Server) handleRestartProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req LaunchProfileRequest
-	if r.Body != nil && r.ContentLength > 0 {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+	req, ok := bindOptionalJSON[LaunchProfileRequest](s, w, r)
+	if !ok {
+		return
 	}
 
 	if err := profile.RestartProfile(name, req.Args); err != nil {
@@ -1015,13 +1008,8 @@ func (s *Server) handleRenameProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req RenameProfileRequest
-	if r.Body == nil {
-		s.writeError(w, http.StatusBadRequest, "request body is required")
-		return
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+	req, ok := bindJSON[RenameProfileRequest](s, w, r)
+	if !ok {
 		return
 	}
 
@@ -1109,14 +1097,9 @@ func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	var req struct {
-		Note string `json:"note"`
-	}
-	if r.Body != nil && r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			s.writeError(w, http.StatusBadRequest, "invalid JSON body")
-			return
-		}
+	req, ok := bindOptionalJSON[CreateSnapshotRequest](s, w, r)
+	if !ok {
+		return
 	}
 	snap, err := profile.CreateSnapshot(name, req.Note)
 	if err != nil {

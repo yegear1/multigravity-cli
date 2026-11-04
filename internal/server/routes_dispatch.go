@@ -53,9 +53,8 @@ func (s *Server) handleListWorktrees(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
-	var req CreateWorktreeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid json body: %v", err))
+	req, ok := bindJSON[CreateWorktreeRequest](s, w, r)
+	if !ok {
 		return
 	}
 
@@ -107,22 +106,21 @@ func (s *Server) handleGetWorktree(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	repo := r.URL.Query().Get("repo")
-	force := r.URL.Query().Get("force") == "true"
-	deleteBranch := r.URL.Query().Get("delete_branch") == "true" || r.URL.Query().Get("delete-branch") == "true"
+	repo := queryString(r, "repo")
+	force := queryBool(r, "force")
+	deleteBranch := queryBool(r, "delete_branch", "delete-branch")
 
-	if r.Header.Get("Content-Type") == "application/json" && r.ContentLength > 0 {
-		var req DeleteWorktreeRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
-			if req.Repo != "" {
-				repo = req.Repo
-			}
-			if req.Force {
-				force = true
-			}
-			if req.DeleteBranch {
-				deleteBranch = true
-			}
+	if req, ok := bindOptionalJSON[DeleteWorktreeRequest](s, w, r); !ok {
+		return
+	} else {
+		if req.Repo != "" {
+			repo = req.Repo
+		}
+		if req.Force {
+			force = true
+		}
+		if req.DeleteBranch {
+			deleteBranch = true
 		}
 	}
 
@@ -229,9 +227,8 @@ func (s *Server) handleListAgentSessions(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request) {
-	var opts agent.CreateSessionOptions
-	if err := json.NewDecoder(r.Body).Decode(&opts); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid request payload: %v", err))
+	opts, ok := bindJSON[agent.CreateSessionOptions](s, w, r)
+	if !ok {
 		return
 	}
 
@@ -239,7 +236,7 @@ func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request
 		opts.GatewayURL = fmt.Sprintf("http://%s/v1", r.Host)
 	}
 
-	inst, err := agent.GetDefaultManager().StartSession(opts)
+	inst, err := agent.GetDefaultManager().StartSession(*opts)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -393,9 +390,8 @@ func (s *Server) handleStreamAgentSessionOutput(w http.ResponseWriter, r *http.R
 
 func (s *Server) handleSendAgentSessionInput(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var req agent.SendInputRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid input payload: %v", err))
+	req, ok := bindJSON[agent.SendInputRequest](s, w, r)
+	if !ok {
 		return
 	}
 
@@ -412,9 +408,8 @@ func (s *Server) handleSendAgentSessionInput(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleResizeAgentSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var req agent.ResizeOptions
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid resize payload: %v", err))
+	req, ok := bindJSON[agent.ResizeOptions](s, w, r)
+	if !ok {
 		return
 	}
 
@@ -452,9 +447,8 @@ func (s *Server) handleListDispatchedTasks(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleCreateDispatchedTask(w http.ResponseWriter, r *http.Request) {
-	var opts dispatch.DispatchOptions
-	if err := json.NewDecoder(r.Body).Decode(&opts); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid task payload: %v", err))
+	opts, ok := bindJSON[dispatch.DispatchOptions](s, w, r)
+	if !ok {
 		return
 	}
 
@@ -463,7 +457,7 @@ func (s *Server) handleCreateDispatchedTask(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	task, err := dispatch.GetDefaultTaskManager().Dispatch(opts)
+	task, err := dispatch.GetDefaultTaskManager().Dispatch(*opts)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -699,21 +693,20 @@ func (s *Server) handleGetDispatchedDashboard(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleDispatchPlan(w http.ResponseWriter, r *http.Request) {
-	var req dispatch.PlanRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid plan payload: %v", err))
+	req, ok := bindJSON[dispatch.PlanRequest](s, w, r)
+	if !ok {
 		return
 	}
 
 	// Override timeout or repo from query param if provided and empty in body
-	if qRepo := r.URL.Query().Get("repo"); qRepo != "" && req.RepoPath == "" {
+	if qRepo := queryString(r, "repo"); qRepo != "" && req.RepoPath == "" {
 		req.RepoPath = qRepo
 	}
-	if qTimeout := r.URL.Query().Get("timeout"); qTimeout != "" && req.Timeout == "" {
+	if qTimeout := queryString(r, "timeout"); qTimeout != "" && req.Timeout == "" {
 		req.Timeout = qTimeout
 	}
 
-	result, err := dispatch.GetDefaultTaskManager().ExecutePlan(r.Context(), req)
+	result, err := dispatch.GetDefaultTaskManager().ExecutePlan(r.Context(), *req)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -968,12 +961,9 @@ func (s *Server) handleStartHeadless(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req startHeadlessRequest
-	if r.ContentLength > 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
-			return
-		}
+	req, ok := bindOptionalJSON[startHeadlessRequest](s, w, r)
+	if !ok {
+		return
 	}
 
 	timeout := 10 * time.Second
@@ -1048,9 +1038,9 @@ func (s *Server) handleRestartHeadless(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req startHeadlessRequest
-	if r.ContentLength > 0 {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+	req, ok := bindOptionalJSON[startHeadlessRequest](s, w, r)
+	if !ok {
+		return
 	}
 
 	timeout := 10 * time.Second
@@ -1093,9 +1083,8 @@ func (s *Server) handleRunHeadlessPrompt(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var req runHeadlessRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+	req, ok := bindJSON[runHeadlessRequest](s, w, r)
+	if !ok {
 		return
 	}
 	if req.Prompt == "" {
@@ -1138,9 +1127,8 @@ type execPromptsRequest struct {
 }
 
 func (s *Server) handleExecPrompts(w http.ResponseWriter, r *http.Request) {
-	var req execPromptsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+	req, ok := bindJSON[execPromptsRequest](s, w, r)
+	if !ok {
 		return
 	}
 	if strings.TrimSpace(req.Prompt) == "" {

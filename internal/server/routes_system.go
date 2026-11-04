@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +45,7 @@ func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
-		name = r.URL.Query().Get("profile")
+		name = queryString(r, "profile")
 	}
 	rep, err := catalog.Inspect(name)
 	if err != nil {
@@ -113,13 +112,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetIDELogs(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	tail := 100
-	if tStr := r.URL.Query().Get("tail"); tStr != "" {
-		if t, err := strconv.Atoi(tStr); err == nil && t >= 0 {
-			tail = t
-		}
+	tail := queryInt(r, "tail", 100)
+	if tail < 0 {
+		tail = 100
 	}
-	follow := r.URL.Query().Get("follow") == "true" || r.URL.Query().Get("follow") == "1"
+	follow := queryBool(r, "follow")
 	if !follow {
 		snap, err := idelog.Read(name, tail)
 		if err != nil {
