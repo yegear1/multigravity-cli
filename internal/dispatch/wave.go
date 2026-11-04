@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ye-dev/multigravity-cli/internal/agent"
+	"github.com/ye-dev/multigravity-cli/internal/profile"
 	"github.com/ye-dev/multigravity-cli/internal/quota"
 	"github.com/ye-dev/multigravity-cli/internal/worktree"
 )
@@ -467,7 +468,7 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 			threshold := quota.SafetyThresholdForModel(retryModel, quota.WeightMedium)
 			if candidates, qErr := quota.PreflightProfilesForModel(100, retryModel, quota.WeightMedium, threshold, failedProfile); qErr == nil {
 				for _, c := range candidates {
-					if c.Profile != failedProfile {
+					if c.Profile != failedProfile && profile.ProfileExists(c.Profile) {
 						eligibleProfiles = append(eligibleProfiles, c.Profile)
 					}
 				}
@@ -475,7 +476,7 @@ func (m *TaskManager) ExecuteTaskWave(ctx context.Context, opts WaveOptions) (*W
 			if len(eligibleProfiles) == 0 && threshold > quota.DefaultSafetyQuotaThreshold {
 				if fallbackCandidates, fbErr := quota.PreflightProfilesForModel(100, retryModel, quota.WeightMedium, quota.DefaultSafetyQuotaThreshold, failedProfile); fbErr == nil {
 					for _, c := range fallbackCandidates {
-						if c.Profile != failedProfile {
+						if c.Profile != failedProfile && profile.ProfileExists(c.Profile) {
 							eligibleProfiles = append(eligibleProfiles, c.Profile)
 						}
 					}
