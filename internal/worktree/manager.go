@@ -100,7 +100,15 @@ func CleanWorktreeIndexLock(worktreePath string) {
 		if !filepath.IsAbs(gitDir) {
 			gitDir = filepath.Join(worktreePath, gitDir)
 		}
-		_ = os.Remove(filepath.Join(gitDir, "index.lock"))
+		lockPath := filepath.Join(gitDir, "index.lock")
+		for i := 0; i < 5; i++ {
+			if _, err := os.Stat(lockPath); err == nil {
+				_ = os.Remove(lockPath)
+				time.Sleep(5 * time.Millisecond)
+			} else {
+				break
+			}
+		}
 	}
 }
 

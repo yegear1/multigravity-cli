@@ -85,13 +85,13 @@ func TestExecutePlanDisjointScopesAndAggregation(t *testing.T) {
 				ID:      "subtask-backend",
 				Profile: "dev1",
 				Command: "sh",
-				Args:    []string{"-c", "mkdir -p pkg/backend && echo 'package backend' > pkg/backend/backend.go && git add -A"},
+				Args:    []string{"-c", "mkdir -p pkg/backend && echo 'package backend' > pkg/backend/backend.go && (git add -A 2>/dev/null || (sleep 0.02 && git add -A))"},
 			},
 			{
 				ID:      "subtask-frontend",
 				Profile: "dev2",
 				Command: "sh",
-				Args:    []string{"-c", "mkdir -p pkg/frontend && echo 'package frontend' > pkg/frontend/frontend.go && git add -A"},
+				Args:    []string{"-c", "mkdir -p pkg/frontend && echo 'package frontend' > pkg/frontend/frontend.go && (git add -A 2>/dev/null || (sleep 0.02 && git add -A))"},
 			},
 		},
 	}

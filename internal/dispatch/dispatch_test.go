@@ -1465,3 +1465,45 @@ func TestDispatchWorkspaceInvalid(t *testing.T) {
 		t.Errorf("expected invalid workspace mode error, got %v", err)
 	}
 }
+
+func TestTaskWorkspaceUnit(t *testing.T) {
+	repoDir := setupTestGitRepo(t)
+
+	// 1. Inherit mode
+	wsInherit, err := setupTaskWorkspace(repoDir, "task-unit-inherit", DispatchOptions{
+		Workspace: "inherit",
+	})
+	if err != nil {
+		t.Fatalf("setupTaskWorkspace(inherit) failed: %v", err)
+	}
+	if wsInherit.Mode != WorkspaceInherit || wsInherit.ExecDir != repoDir {
+		t.Errorf("unexpected inherit workspace: %+v", wsInherit)
+	}
+
+	// 2. Mirror mode
+	wsMirror, err := setupTaskWorkspace(repoDir, "task-unit-mirror", DispatchOptions{
+		Workspace: "mirror",
+	})
+	if err != nil {
+		t.Fatalf("setupTaskWorkspace(mirror) failed: %v", err)
+	}
+	if wsMirror.Mode != WorkspaceMirror {
+		t.Errorf("unexpected mirror mode: %s", wsMirror.Mode)
+	}
+	if _, err := os.Stat(wsMirror.ExecDir); os.IsNotExist(err) {
+		t.Errorf("expected mirror dir to exist at %s", wsMirror.ExecDir)
+	}
+
+	// 3. Cleanup mirror
+	task := &Task{
+		ID:         "task-unit-mirror",
+		WorktreeID: "task-unit-mirror",
+		Workspace:  string(WorkspaceMirror),
+	}
+	if err := cleanupTaskWorkspace(repoDir, task, false); err != nil {
+		t.Errorf("cleanupTaskWorkspace failed: %v", err)
+	}
+	if _, err := os.Stat(wsMirror.ExecDir); !os.IsNotExist(err) {
+		t.Errorf("expected mirror dir to be removed")
+	}
+}

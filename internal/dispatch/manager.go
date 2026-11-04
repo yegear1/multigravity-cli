@@ -458,112 +458,16 @@ func (m *TaskManager) Dispatch(opts DispatchOptions) (*Task, error) {
 		}
 	}
 
-	var wtID, wtPath, branch, baseCommit string
-	execDir := opts.Cwd
-
-	workspaceMode := strings.ToLower(strings.TrimSpace(opts.Workspace))
-	if workspaceMode == "" {
-		if opts.NewWorktree {
-			workspaceMode = string(WorkspaceWorktree)
-		} else if opts.WorktreeID != "" {
-			workspaceMode = string(WorkspaceWorktree)
-		} else if opts.ReadOnly || agent.IsReadOnlyRole(opts.Role) {
-			workspaceMode = string(WorkspaceInherit)
-		} else {
-			workspaceMode = string(WorkspaceInherit)
-		}
+	ws, err := setupTaskWorkspace(repoRoot, taskID, opts)
+	if err != nil {
+		return nil, err
 	}
-
-	switch WorkspaceMode(workspaceMode) {
-	case WorkspaceWorktree, WorkspaceMirror, WorkspaceInherit:
-	default:
-		return nil, fmt.Errorf("invalid workspace mode %q: must be one of %q, %q, %q",
-			opts.Workspace, WorkspaceWorktree, WorkspaceMirror, WorkspaceInherit)
-	}
-
-	// Workspace setup
-	if workspaceMode == string(WorkspaceWorktree) {
-		if opts.WorktreeID != "" {
-			if repoRoot == "" {
-				return nil, errors.New("cannot associate worktree: not in a git repository")
-			}
-			wt, err := worktree.GetWorktree(repoRoot, opts.WorktreeID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get worktree %q: %w", opts.WorktreeID, err)
-			}
-			wtID = wt.ID
-			wtPath = wt.Path
-			branch = wt.Branch
-			baseCommit = wt.BaseCommit
-			if execDir == "" {
-				execDir = wt.Path
-			}
-		} else if opts.NewWorktree || opts.Workspace == string(WorkspaceWorktree) {
-			if repoRoot == "" {
-				return nil, errors.New("cannot create worktree: working directory is not inside a git repository")
-			}
-			wtBranch := opts.Branch
-			if wtBranch == "" {
-				wtBranch = "multigravity/" + taskID
-			}
-
-			wt, err := worktree.CreateWorktree(worktree.CreateOptions{
-				ID:         taskID,
-				RepoPath:   repoRoot,
-				Branch:     wtBranch,
-				BaseCommit: opts.BaseCommit,
-				Profile:    opts.Profile,
-				TaskID:     taskID,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to create worktree for task: %w", err)
-			}
-
-			wtID = wt.ID
-			wtPath = wt.Path
-			branch = wt.Branch
-			baseCommit = wt.BaseCommit
-			execDir = wt.Path
-		} else if execDir == "" {
-			if repoRoot != "" {
-				execDir = repoRoot
-			} else {
-				cwd, _ := os.Getwd()
-				execDir = cwd
-			}
-		}
-	} else if workspaceMode == string(WorkspaceMirror) {
-		if repoRoot == "" {
-			return nil, errors.New("cannot create mirror workspace: working directory is not inside a git repository")
-		}
-		mirrorPath, err := createMirrorWorkspace(repoRoot, taskID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create mirror workspace: %w", err)
-		}
-		wtID = taskID
-		wtPath = mirrorPath
-		execDir = mirrorPath
-	} else {
-		// WorkspaceInherit
-		// Zero-I/O in-place execution in repoRoot (or opts.Cwd)
-		wtID = ""
-		wtPath = ""
-		branch = ""
-		baseCommit = ""
-		if execDir == "" {
-			if repoRoot != "" {
-				execDir = repoRoot
-			} else {
-				cwd, _ := os.Getwd()
-				execDir = cwd
-			}
-		}
-	}
-
-	// Exclude .multigravity/ from git if inside a repo
-	if repoRoot != "" {
-		_ = worktree.EnsureGitExclude(repoRoot, ".multigravity/")
-	}
+	wtID := ws.WorktreeID
+	wtPath := ws.Path
+	branch := ws.Branch
+	baseCommit := ws.BaseCommit
+	execDir := ws.ExecDir
+	workspaceMode := string(ws.Mode)
 
 	promptToRun := opts.Prompt
 	taskEnv := opts.Env
@@ -1403,15 +1307,7 @@ func (m *TaskManager) ApplyTask(repoPath, id string, opts ApplyOptions) (*ApplyR
 	// 6. Prune and remove the ephemeral worktree or mirror if !opts.NoPrune
 	pruned := false
 	if !opts.NoPrune && task.WorktreeID != "" {
-		if task.Workspace == string(WorkspaceMirror) {
-			_ = cleanupMirrorWorkspace(repoRoot, task.WorktreeID)
-		} else {
-			_ = worktree.RemoveWorktree(repoRoot, task.WorktreeID, worktree.RemoveOptions{
-				Force:        true,
-				DeleteBranch: true,
-			})
-			_ = worktree.PruneWorktrees(repoRoot)
-		}
+		_ = cleanupTaskWorkspace(repoRoot, task, true)
 		pruned = true
 	}
 
@@ -1567,58 +1463,9 @@ func (m *TaskManager) DeleteTask(repoPath, id string, removeWorktree bool) error
 	_ = os.RemoveAll(taskDir)
 
 	if removeWorktree && task.WorktreeID != "" && repoRoot != "" {
-		if task.Workspace == string(WorkspaceMirror) {
-			_ = cleanupMirrorWorkspace(repoRoot, task.WorktreeID)
-		} else {
-			_ = worktree.RemoveWorktree(repoRoot, task.WorktreeID, worktree.RemoveOptions{
-				Force:        true,
-				DeleteBranch: true,
-			})
-		}
+		_ = cleanupTaskWorkspace(repoRoot, task, false)
 	}
 
 	m.emitEvent("deleted", task)
 	return nil
-}
-
-func createMirrorWorkspace(repoRoot, taskID string) (string, error) {
-	mirrorDir := filepath.Join(repoRoot, ".multigravity", "mirrors", taskID)
-	if err := os.MkdirAll(mirrorDir, 0755); err != nil {
-		return "", err
-	}
-	_ = worktree.EnsureGitExclude(repoRoot, ".multigravity/")
-
-	entries, err := os.ReadDir(repoRoot)
-	if err != nil {
-		_ = os.RemoveAll(mirrorDir)
-		return "", fmt.Errorf("failed to read repo root for mirror: %w", err)
-	}
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if name == ".git" || name == ".multigravity" {
-			continue
-		}
-		src := filepath.Join(repoRoot, name)
-		dst := filepath.Join(mirrorDir, name)
-		_ = os.Symlink(src, dst)
-	}
-
-	// Symlink .git so git status and git queries work inside mirror
-	gitSrc := filepath.Join(repoRoot, ".git")
-	if _, err := os.Stat(gitSrc); err == nil {
-		gitDst := filepath.Join(mirrorDir, ".git")
-		_ = os.Symlink(gitSrc, gitDst)
-	}
-
-	_ = worktree.AutoLinkDependencies(repoRoot, mirrorDir)
-	_ = worktree.IsolateWorktreeBuildArtifacts(repoRoot, mirrorDir)
-	_ = worktree.LinkGlobalCompilerCache(repoRoot, mirrorDir)
-
-	return mirrorDir, nil
-}
-
-func cleanupMirrorWorkspace(repoRoot, taskID string) error {
-	mirrorDir := filepath.Join(repoRoot, ".multigravity", "mirrors", taskID)
-	return os.RemoveAll(mirrorDir)
 }
