@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/ye-dev/multigravity-cli/internal/config"
@@ -211,4 +214,172 @@ func (s *Server) HandleRequest(ctx context.Context, req *JSONRPCRequest) *JSONRP
 			},
 		}
 	}
+}
+
+// RegisterTypedTool registers a tool whose input schema is derived from the
+// struct tags of T and whose arguments are decoded into T before invoking handler.
+//
+// Supported field tags: `json:"name"` (required; "-" skips), `description:"..."`,
+// `required:"true"` and `enum:"a,b"`. Supported field kinds: string, bool, int,
+// []string, map[string]string, structs and slices of structs, and pointers to
+// the scalar kinds (nil means the argument was absent, enabling defaults).
+// Decoding coerces loosely-typed values exactly like the legacy getString,
+// getBool, getInt, getStringSlice and getStringMap helpers.
+func RegisterTypedTool[T any](s *Server, name, description string, handler func(ctx context.Context, params T) (*CallToolResult, error)) {
+	var zero T
+	schema := ToolInputSchema{Type: "object"}
+	obj := schemaForStruct(reflect.TypeOf(zero))
+	schema.Properties = obj.Properties
+	schema.Required = obj.Required
+	s.RegisterTool(Tool{Name: name, Description: description, InputSchema: schema}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
+		var params T
+		decodeArgs(reflect.ValueOf(&params).Elem(), args)
+		return handler(ctx, params)
+	})
+}
+
+func jsonFieldName(f reflect.StructField) (string, bool) {
+	if !f.IsExported() {
+		return "", false
+	}
+	name := strings.Split(f.Tag.Get("json"), ",")[0]
+	if name == "" || name == "-" {
+		return "", false
+	}
+	return name, true
+}
+
+func schemaForStruct(t reflect.Type) PropertySchema {
+	ps := PropertySchema{Type: "object", Properties: map[string]PropertySchema{}}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name, ok := jsonFieldName(f)
+		if !ok {
+			continue
+		}
+		prop := schemaForType(f.Type)
+		prop.Description = f.Tag.Get("description")
+		if e := f.Tag.Get("enum"); e != "" {
+			prop.Enum = strings.Split(e, ",")
+		}
+		ps.Properties[name] = prop
+		if f.Tag.Get("required") == "true" {
+			ps.Required = append(ps.Required, name)
+		}
+	}
+	return ps
+}
+
+func schemaForType(t reflect.Type) PropertySchema {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.String:
+		return PropertySchema{Type: "string"}
+	case reflect.Bool:
+		return PropertySchema{Type: "boolean"}
+	case reflect.Int, reflect.Int64:
+		return PropertySchema{Type: "integer"}
+	case reflect.Slice:
+		item := schemaForType(t.Elem())
+		return PropertySchema{Type: "array", Items: &item}
+	case reflect.Map:
+		return PropertySchema{Type: "object"}
+	case reflect.Struct:
+		return schemaForStruct(t)
+	}
+	return PropertySchema{Type: "string"}
+}
+
+func decodeArgs(dst reflect.Value, args map[string]any) {
+	t := dst.Type()
+	for i := 0; i < t.NumField(); i++ {
+		name, ok := jsonFieldName(t.Field(i))
+		if !ok {
+			continue
+		}
+		decodeValue(dst.Field(i), args[name])
+	}
+}
+
+func decodeValue(dst reflect.Value, val any) {
+	if dst.Kind() == reflect.Ptr {
+		if val == nil {
+			return
+		}
+		dst.Set(reflect.New(dst.Type().Elem()))
+		decodeValue(dst.Elem(), val)
+		return
+	}
+	switch dst.Kind() {
+	case reflect.String:
+		if val == nil {
+			return
+		}
+		if s, ok := val.(string); ok {
+			dst.SetString(strings.TrimSpace(s))
+		} else {
+			dst.SetString(fmt.Sprintf("%v", val))
+		}
+	case reflect.Bool:
+		switch v := val.(type) {
+		case bool:
+			dst.SetBool(v)
+		case string:
+			b, _ := strconv.ParseBool(v)
+			dst.SetBool(b)
+		}
+	case reflect.Int, reflect.Int64:
+		switch v := val.(type) {
+		case float64:
+			dst.SetInt(int64(v))
+		case int:
+			dst.SetInt(int64(v))
+		case int64:
+			dst.SetInt(v)
+		case string:
+			if parsed, err := strconv.Atoi(v); err == nil {
+				dst.SetInt(int64(parsed))
+			}
+		}
+	case reflect.Map:
+		res := reflect.MakeMap(dst.Type())
+		if m, ok := val.(map[string]any); ok {
+			for k, v := range m {
+				res.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(fmt.Sprintf("%v", v)))
+			}
+		}
+		dst.Set(res)
+	case reflect.Slice:
+		items, ok := val.([]any)
+		if !ok {
+			if ss, isSS := val.([]string); isSS && dst.Type().Elem().Kind() == reflect.String {
+				dst.Set(reflect.ValueOf(ss))
+			}
+			return
+		}
+		out := reflect.MakeSlice(dst.Type(), 0, len(items))
+		for _, item := range items {
+			if item == nil {
+				continue
+			}
+			elem := reflect.New(dst.Type().Elem()).Elem()
+			decodeValue(elem, item)
+			out = reflect.Append(out, elem)
+		}
+		dst.Set(out)
+	case reflect.Struct:
+		if m, ok := val.(map[string]any); ok {
+			decodeArgs(dst, m)
+		}
+	}
+}
+
+// intOr returns *p, or def when the argument was absent.
+func intOr(p *int, def int) int {
+	if p == nil {
+		return def
+	}
+	return *p
 }

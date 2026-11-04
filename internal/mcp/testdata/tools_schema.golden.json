@@ -1,0 +1,554 @@
+[
+  {
+    "name": "alerts_list",
+    "description": "Evaluate and report active system alerts including critical quota thresholds (\u003c=5%), sudden quota drops, and dead headless processes.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Optional profile name to inspect (or omit to inspect all profiles)."
+        }
+      }
+    }
+  },
+  {
+    "name": "dispatch_cancel",
+    "description": "Cancel a currently running dispatched task.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "force": {
+          "type": "boolean",
+          "description": "Force immediate termination (default false)."
+        },
+        "repo": {
+          "type": "string",
+          "description": "Optional repository path."
+        },
+        "task_id": {
+          "type": "string",
+          "description": "The unique ID of the task to cancel."
+        }
+      },
+      "required": [
+        "task_id"
+      ]
+    }
+  },
+  {
+    "name": "dispatch_list",
+    "description": "List dispatched tasks with optional filters by status, profile, or repository.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of tasks to return (default 20)."
+        },
+        "profile": {
+          "type": "string",
+          "description": "Filter tasks by profile name."
+        },
+        "repo": {
+          "type": "string",
+          "description": "Filter tasks by repository path."
+        },
+        "status": {
+          "type": "string",
+          "description": "Filter tasks by status ('pending', 'running', 'completed', 'failed', 'cancelled').",
+          "enum": [
+            "pending",
+            "running",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "dispatch_logs",
+    "description": "Retrieve terminal logs and output from a dispatched task.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Optional repository path."
+        },
+        "tail": {
+          "type": "integer",
+          "description": "Number of tail lines or bytes to retrieve (default 10000, 0 for all)."
+        },
+        "task_id": {
+          "type": "string",
+          "description": "The unique ID of the task."
+        }
+      },
+      "required": [
+        "task_id"
+      ]
+    }
+  },
+  {
+    "name": "dispatch_plan",
+    "description": "Execute a multi-agent execution plan with concurrent subtasks across isolated Git worktrees, aggregating diffs and validating disjoint scopes.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "base_branch": {
+          "type": "string",
+          "description": "Base branch to fork ephemeral worktrees from."
+        },
+        "base_commit": {
+          "type": "string",
+          "description": "Base commit hash to fork ephemeral worktrees from."
+        },
+        "plan_id": {
+          "type": "string",
+          "description": "Optional custom plan identifier. Auto-generated if omitted."
+        },
+        "repo": {
+          "type": "string",
+          "description": "Path to target Git repository. Defaults to current working directory."
+        },
+        "subtasks": {
+          "type": "array",
+          "description": "List of subtask specifications to execute in parallel worktrees.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "agent_type": {
+                "type": "string",
+                "description": "Agent runner type (e.g., 'claude', 'aider', 'opencode', 'agy', 'codex')."
+              },
+              "args": {
+                "type": "array",
+                "description": "Command arguments array.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "branch": {
+                "type": "string",
+                "description": "Custom branch name for this subtask's worktree."
+              },
+              "command": {
+                "type": "string",
+                "description": "Custom command or script to execute inside the worktree."
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables map for this subtask."
+              },
+              "id": {
+                "type": "string",
+                "description": "Unique subtask identifier."
+              },
+              "profile": {
+                "type": "string",
+                "description": "Target Antigravity profile for identity, quota, and credential isolation."
+              },
+              "prompt": {
+                "type": "string",
+                "description": "Prompt instruction for the worker agent."
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Global plan execution timeout (e.g., '10m', '30m')."
+        },
+        "workers": {
+          "type": "integer",
+          "description": "Maximum number of concurrent worker tasks executing simultaneously (default 4)."
+        }
+      },
+      "required": [
+        "subtasks"
+      ]
+    }
+  },
+  {
+    "name": "dispatch_status",
+    "description": "Get detailed execution status, runtime duration, exit code, and worktree info of a dispatched task.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Optional path to the Git repository containing the task."
+        },
+        "task_id": {
+          "type": "string",
+          "description": "The unique ID of the task."
+        }
+      },
+      "required": [
+        "task_id"
+      ]
+    }
+  },
+  {
+    "name": "dispatch_subagent",
+    "description": "Delegate an autonomous subagent prompt directly to an Antigravity worker using headless CLI invocation (agy -p / cascade) with quota-aware multi-profile routing and automatic failover.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "auto_failover": {
+          "type": "boolean",
+          "description": "Automatically fail over to secondary candidate profiles if the primary hits rate limits or quota exhaustion (default true)."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Working directory for subagent execution."
+        },
+        "dangerously_skip_permissions": {
+          "type": "boolean",
+          "description": "Bypass interactive confirmation prompts in headless mode (default true)."
+        },
+        "disable_slash_commands": {
+          "type": "boolean",
+          "description": "Disable interactive slash commands in headless execution (default true)."
+        },
+        "effort": {
+          "type": "string",
+          "description": "Reasoning effort level for the model: 'low', 'medium', or 'high'."
+        },
+        "env": {
+          "type": "object",
+          "description": "Custom environment variables to pass to the subagent session."
+        },
+        "max_failovers": {
+          "type": "integer",
+          "description": "Maximum number of secondary profile failovers to attempt (default 3)."
+        },
+        "model": {
+          "type": "string",
+          "description": "Target model for execution and quota routing (e.g. 'gemini-3.8-flash', 'gemini-3.8-pro', 'claude-3-7-sonnet')."
+        },
+        "profile": {
+          "type": "string",
+          "description": "Antigravity profile name for execution, or 'auto' for dynamic quota-aware routing (default 'auto')."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Subagent task prompt or instruction to execute autonomously."
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository path for subagent execution."
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Execution timeout in seconds (default 120)."
+        },
+        "trace_id": {
+          "type": "string",
+          "description": "Distributed trace identifier for log and token correlation."
+        },
+        "weight": {
+          "type": "string",
+          "description": "Task weight for quota threshold evaluation: 'light', 'medium', or 'heavy' (default 'medium')."
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    }
+  },
+  {
+    "name": "dispatch_task",
+    "description": "Dispatch an agent command or script within an isolated Git worktree or specified repository using a dedicated Antigravity profile.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_type": {
+          "type": "string",
+          "description": "Agent type for command resolution (e.g., 'claude', 'aider', 'opencode', 'agy', 'codex')."
+        },
+        "args": {
+          "type": "array",
+          "description": "Command arguments array. If provided, overrides automatic argument resolution.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "auto_spawn_headless": {
+          "type": "boolean",
+          "description": "Automatically awaken inactive profiles with on-demand headless server if needed."
+        },
+        "background": {
+          "type": "boolean",
+          "description": "Whether to dispatch detached in background and return immediately with the task ID (default false)."
+        },
+        "branch": {
+          "type": "string",
+          "description": "Branch name to create or use inside an isolated Git worktree."
+        },
+        "command": {
+          "type": "string",
+          "description": "Command or agent instruction to execute (e.g., 'claude -p \"fix bug\"' or shell script)."
+        },
+        "env": {
+          "type": "object",
+          "description": "Custom environment variables key-value map to pass into the task session."
+        },
+        "governance": {
+          "type": "boolean",
+          "description": "Inject project governance directives (AGENTS.md, TASK.md) into agent prompt and environment (defaults to false for MCP dispatch)."
+        },
+        "headless": {
+          "type": "boolean",
+          "description": "Execute task in headless agent mode."
+        },
+        "model": {
+          "type": "string",
+          "description": "Target model for quota-aware routing when profile is 'auto' (e.g. 'gemini-3.8-flash', 'claude-3-7-sonnet')."
+        },
+        "probe": {
+          "type": "boolean",
+          "description": "Whether to probe and awaken inactive secondary profiles when profile is 'auto' (default false)."
+        },
+        "profile": {
+          "type": "string",
+          "description": "Antigravity profile name for identity and credentials isolation (e.g. 'yegear', 'yegear2'), or 'auto' to dynamically route to the profile with the healthiest quota."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Prompt instruction for the agent command (e.g. passed as -p to agy or claude if args is not provided)."
+        },
+        "read_only": {
+          "type": "boolean",
+          "description": "Enforce strict read-only execution guard preventing file modifications."
+        },
+        "repo": {
+          "type": "string",
+          "description": "Path to target Git repository. Defaults to current directory or detected active workspace."
+        },
+        "retry": {
+          "type": "integer",
+          "description": "Maximum number of retries if verification fails (default 0)."
+        },
+        "role": {
+          "type": "string",
+          "description": "Agent execution role persona: 'developer', 'researcher', 'verifier', 'reviewer', or 'auditor'."
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Maximum seconds to wait when wait is true (default 120)."
+        },
+        "trace_id": {
+          "type": "string",
+          "description": "Distributed trace identifier (or MAESTRI_TRACE_ID) for VictoriaLogs token delta correlation."
+        },
+        "verify": {
+          "type": "string",
+          "description": "Verification command to execute inside worktree upon agent completion (e.g. 'go test ./...'). If non-zero exit code, marks task audit_failed."
+        },
+        "wait": {
+          "type": "boolean",
+          "description": "Wait synchronously for task execution to reach terminal status before returning result (default false)."
+        },
+        "weight": {
+          "type": "string",
+          "description": "Task weight for quota routing thresholds when profile is 'auto': 'light', 'medium', or 'heavy' (default 'medium')."
+        },
+        "workspace": {
+          "type": "string",
+          "description": "Workspace isolation mode: 'worktree' (isolated Git worktree), 'mirror' (lightweight mirror), or 'inherit' (zero-I/O in-place)."
+        },
+        "worktree": {
+          "type": "string",
+          "description": "Custom worktree path or reuse identifier. If empty and branch is given, an ephemeral worktree is created."
+        }
+      },
+      "required": [
+        "command",
+        "profile"
+      ]
+    }
+  },
+  {
+    "name": "doctor_diagnose",
+    "description": "Run Multigravity Doctor diagnostics to check IDE installations, language servers, toolchains, and environment health.",
+    "inputSchema": {
+      "type": "object"
+    }
+  },
+  {
+    "name": "prime_status",
+    "description": "Check AI quota priming status, scheduled watchdog timers, and last primed timestamps for profiles.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Optional target profile name."
+        }
+      }
+    }
+  },
+  {
+    "name": "prime_trigger",
+    "description": "Trigger proactive quota priming or 5-hour window warm-up for one or all profiles.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "check": {
+          "type": "boolean",
+          "description": "Dry-run check: verify if profiles can be primed without sending actual prompts."
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Force priming regardless of quota percentage or reset timing."
+        },
+        "profile": {
+          "type": "string",
+          "description": "Profile name to prime (omit to prime all eligible profiles)."
+        },
+        "warm_5h": {
+          "type": "boolean",
+          "description": "Proactively send a minimal 1-token prompt to start the rolling 5-hour window countdown."
+        }
+      }
+    }
+  },
+  {
+    "name": "profile_list",
+    "description": "List all Antigravity profiles with their execution state, running PID, ports, disk usage, and authentication mode.",
+    "inputSchema": {
+      "type": "object"
+    }
+  },
+  {
+    "name": "profile_status",
+    "description": "Retrieve detailed status, storage metrics, and sharing configurations for a specific Antigravity profile.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Name of the target profile."
+        }
+      },
+      "required": [
+        "profile"
+      ]
+    }
+  },
+  {
+    "name": "quota_history",
+    "description": "Retrieve historical time-series of quota percentages and token consumption for one or all profiles.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of history points to return (default 50)."
+        },
+        "profile": {
+          "type": "string",
+          "description": "Profile name (if omitted, aggregates history across all profiles)."
+        },
+        "since": {
+          "type": "string",
+          "description": "RFC3339 timestamp start filter."
+        },
+        "source": {
+          "type": "string",
+          "description": "Filter by source ('quota', 'gateway', 'headless').",
+          "enum": [
+            "quota",
+            "gateway",
+            "headless"
+          ]
+        },
+        "until": {
+          "type": "string",
+          "description": "RFC3339 timestamp end filter."
+        }
+      }
+    }
+  },
+  {
+    "name": "quota_summary",
+    "description": "Query live AI quota limits (5-hour sliding window and weekly limits, percentage remaining, reset countdown) from running Language Servers.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Optional target profile name. If omitted, queries all active profiles."
+        }
+      }
+    }
+  },
+  {
+    "name": "task_diff",
+    "description": "Inspect the Git diff generated by a dispatched task within its isolated worktree. Returns summary, changed files, hunks, or unified diff.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Optional repository path."
+        },
+        "structured": {
+          "type": "boolean",
+          "description": "Return structured JSON containing changed files, hunks, line additions and deletions (default true)."
+        },
+        "task_id": {
+          "type": "string",
+          "description": "The unique ID of the dispatched task."
+        }
+      },
+      "required": [
+        "task_id"
+      ]
+    }
+  },
+  {
+    "name": "workspace_list",
+    "description": "List detected project workspaces and active Git repositories across Antigravity profiles.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "active_only": {
+          "type": "boolean",
+          "description": "When true, returns only currently active workspaces in running profiles."
+        },
+        "profile": {
+          "type": "string",
+          "description": "Filter workspaces by profile name."
+        }
+      }
+    }
+  },
+  {
+    "name": "worktree_diff",
+    "description": "Inspect the Git diff of a specific ephemeral worktree compared against its base branch or commit.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Path to the base Git repository."
+        },
+        "worktree_id": {
+          "type": "string",
+          "description": "The ID of the worktree to inspect."
+        }
+      },
+      "required": [
+        "worktree_id"
+      ]
+    }
+  }
+]

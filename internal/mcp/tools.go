@@ -106,130 +106,50 @@ func RegisterDefaultTools(s *Server) {
 	// 1. Dispatch Tools
 	// ==========================================
 
-	s.RegisterTool(Tool{
-		Name:        "dispatch_task",
-		Description: "Dispatch an agent command or script within an isolated Git worktree or specified repository using a dedicated Antigravity profile.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"command": {
-					Type:        "string",
-					Description: "Command or agent instruction to execute (e.g., 'claude -p \"fix bug\"' or shell script).",
-				},
-				"args": {
-					Type:        "array",
-					Description: "Command arguments array. If provided, overrides automatic argument resolution.",
-					Items:       &PropertySchema{Type: "string"},
-				},
-				"prompt": {
-					Type:        "string",
-					Description: "Prompt instruction for the agent command (e.g. passed as -p to agy or claude if args is not provided).",
-				},
-				"profile": {
-					Type:        "string",
-					Description: "Antigravity profile name for identity and credentials isolation (e.g. 'yegear', 'yegear2'), or 'auto' to dynamically route to the profile with the healthiest quota.",
-				},
-				"model": {
-					Type:        "string",
-					Description: "Target model for quota-aware routing when profile is 'auto' (e.g. 'gemini-3.8-flash', 'claude-3-7-sonnet').",
-				},
-				"weight": {
-					Type:        "string",
-					Description: "Task weight for quota routing thresholds when profile is 'auto': 'light', 'medium', or 'heavy' (default 'medium').",
-				},
-				"probe": {
-					Type:        "boolean",
-					Description: "Whether to probe and awaken inactive secondary profiles when profile is 'auto' (default false).",
-				},
-				"wait": {
-					Type:        "boolean",
-					Description: "Wait synchronously for task execution to reach terminal status before returning result (default false).",
-				},
-				"timeout": {
-					Type:        "integer",
-					Description: "Maximum seconds to wait when wait is true (default 120).",
-				},
-				"repo": {
-					Type:        "string",
-					Description: "Path to target Git repository. Defaults to current directory or detected active workspace.",
-				},
-				"branch": {
-					Type:        "string",
-					Description: "Branch name to create or use inside an isolated Git worktree.",
-				},
-				"worktree": {
-					Type:        "string",
-					Description: "Custom worktree path or reuse identifier. If empty and branch is given, an ephemeral worktree is created.",
-				},
-				"agent_type": {
-					Type:        "string",
-					Description: "Agent type for command resolution (e.g., 'claude', 'aider', 'opencode', 'agy', 'codex').",
-				},
-				"background": {
-					Type:        "boolean",
-					Description: "Whether to dispatch detached in background and return immediately with the task ID (default false).",
-				},
-				"env": {
-					Type:        "object",
-					Description: "Custom environment variables key-value map to pass into the task session.",
-				},
-				"verify": {
-					Type:        "string",
-					Description: "Verification command to execute inside worktree upon agent completion (e.g. 'go test ./...'). If non-zero exit code, marks task audit_failed.",
-				},
-				"retry": {
-					Type:        "integer",
-					Description: "Maximum number of retries if verification fails (default 0).",
-				},
-				"governance": {
-					Type:        "boolean",
-					Description: "Inject project governance directives (AGENTS.md, TASK.md) into agent prompt and environment (defaults to false for MCP dispatch).",
-				},
-				"trace_id": {
-					Type:        "string",
-					Description: "Distributed trace identifier (or MAESTRI_TRACE_ID) for VictoriaLogs token delta correlation.",
-				},
-				"role": {
-					Type:        "string",
-					Description: "Agent execution role persona: 'developer', 'researcher', 'verifier', 'reviewer', or 'auditor'.",
-				},
-				"read_only": {
-					Type:        "boolean",
-					Description: "Enforce strict read-only execution guard preventing file modifications.",
-				},
-				"workspace": {
-					Type:        "string",
-					Description: "Workspace isolation mode: 'worktree' (isolated Git worktree), 'mirror' (lightweight mirror), or 'inherit' (zero-I/O in-place).",
-				},
-				"headless": {
-					Type:        "boolean",
-					Description: "Execute task in headless agent mode.",
-				},
-				"auto_spawn_headless": {
-					Type:        "boolean",
-					Description: "Automatically awaken inactive profiles with on-demand headless server if needed.",
-				},
-			},
-			Required: []string{"command", "profile"},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		cmdStr := getString(args, "command")
+	type dispatchTaskParams struct {
+		Command           string            `json:"command" description:"Command or agent instruction to execute (e.g., 'claude -p \"fix bug\"' or shell script)." required:"true"`
+		Profile           string            `json:"profile" description:"Antigravity profile name for identity and credentials isolation (e.g. 'yegear', 'yegear2'), or 'auto' to dynamically route to the profile with the healthiest quota." required:"true"`
+		AgentType         string            `json:"agent_type" description:"Agent type for command resolution (e.g., 'claude', 'aider', 'opencode', 'agy', 'codex')."`
+		Args              []string          `json:"args" description:"Command arguments array. If provided, overrides automatic argument resolution."`
+		AutoSpawnHeadless bool              `json:"auto_spawn_headless" description:"Automatically awaken inactive profiles with on-demand headless server if needed."`
+		Background        bool              `json:"background" description:"Whether to dispatch detached in background and return immediately with the task ID (default false)."`
+		Branch            string            `json:"branch" description:"Branch name to create or use inside an isolated Git worktree."`
+		Env               map[string]string `json:"env" description:"Custom environment variables key-value map to pass into the task session."`
+		Governance        bool              `json:"governance" description:"Inject project governance directives (AGENTS.md, TASK.md) into agent prompt and environment (defaults to false for MCP dispatch)."`
+		Headless          bool              `json:"headless" description:"Execute task in headless agent mode."`
+		Model             string            `json:"model" description:"Target model for quota-aware routing when profile is 'auto' (e.g. 'gemini-3.8-flash', 'claude-3-7-sonnet')."`
+		Probe             bool              `json:"probe" description:"Whether to probe and awaken inactive secondary profiles when profile is 'auto' (default false)."`
+		Prompt            string            `json:"prompt" description:"Prompt instruction for the agent command (e.g. passed as -p to agy or claude if args is not provided)."`
+		ReadOnly          bool              `json:"read_only" description:"Enforce strict read-only execution guard preventing file modifications."`
+		Repo              string            `json:"repo" description:"Path to target Git repository. Defaults to current directory or detected active workspace."`
+		Retry             *int              `json:"retry" description:"Maximum number of retries if verification fails (default 0)."`
+		Role              string            `json:"role" description:"Agent execution role persona: 'developer', 'researcher', 'verifier', 'reviewer', or 'auditor'."`
+		Timeout           *int              `json:"timeout" description:"Maximum seconds to wait when wait is true (default 120)."`
+		TraceID           string            `json:"trace_id" description:"Distributed trace identifier (or MAESTRI_TRACE_ID) for VictoriaLogs token delta correlation."`
+		Verify            string            `json:"verify" description:"Verification command to execute inside worktree upon agent completion (e.g. 'go test ./...'). If non-zero exit code, marks task audit_failed."`
+		Wait              bool              `json:"wait" description:"Wait synchronously for task execution to reach terminal status before returning result (default false)."`
+		Weight            string            `json:"weight" description:"Task weight for quota routing thresholds when profile is 'auto': 'light', 'medium', or 'heavy' (default 'medium')."`
+		Workspace         string            `json:"workspace" description:"Workspace isolation mode: 'worktree' (isolated Git worktree), 'mirror' (lightweight mirror), or 'inherit' (zero-I/O in-place)."`
+		Worktree          string            `json:"worktree" description:"Custom worktree path or reuse identifier. If empty and branch is given, an ephemeral worktree is created."`
+	}
+	RegisterTypedTool(s, "dispatch_task", "Dispatch an agent command or script within an isolated Git worktree or specified repository using a dedicated Antigravity profile.", func(ctx context.Context, params dispatchTaskParams) (*CallToolResult, error) {
+		cmdStr := params.Command
 		if cmdStr == "" {
 			return nil, fmt.Errorf("command is required")
 		}
 
-		prof := getString(args, "profile")
+		prof := params.Profile
 		if prof == "" {
 			return nil, fmt.Errorf("profile is required")
 		}
 
 		if strings.EqualFold(prof, "auto") {
-			weight := quota.NormalizeWeight(quota.RouteWeight(getString(args, "weight")))
-			model := getString(args, "model")
+			weight := quota.NormalizeWeight(quota.RouteWeight(params.Weight))
+			model := params.Model
 			if model == "" {
 				model = "gemini-3.8-flash"
 			}
-			if getBool(args, "probe") {
+			if params.Probe {
 				_, _ = quota.ProbeInactiveProfiles(nil)
 			}
 			resolvedProf := ""
@@ -279,7 +199,7 @@ func RegisterDefaultTools(s *Server) {
 			}
 		}
 
-		repo := getString(args, "repo")
+		repo := params.Repo
 		if repo == "" {
 			var err error
 			repo, err = os.Getwd()
@@ -288,31 +208,31 @@ func RegisterDefaultTools(s *Server) {
 			}
 		}
 
-		branch := getString(args, "branch")
-		wtID := getString(args, "worktree")
+		branch := params.Branch
+		wtID := params.Worktree
 		newWorktree := (wtID == "" && branch != "")
 
 		opts := dispatch.DispatchOptions{
 			Command:           cmdStr,
-			Args:              getStringSlice(args, "args"),
-			Prompt:            getString(args, "prompt"),
+			Args:              params.Args,
+			Prompt:            params.Prompt,
 			Profile:           prof,
 			RepoPath:          repo,
 			Branch:            branch,
 			WorktreeID:        wtID,
 			NewWorktree:       newWorktree,
-			AgentType:         getString(args, "agent_type"),
-			Detached:          getBool(args, "background"),
-			Env:               getStringMap(args, "env"),
-			Verify:            getString(args, "verify"),
-			Retry:             getInt(args, "retry", 0),
-			TraceID:           getString(args, "trace_id"),
-			NoGovernance:      !getBool(args, "governance"),
-			Role:              getString(args, "role"),
-			ReadOnly:          getBool(args, "read_only"),
-			Workspace:         getString(args, "workspace"),
-			Headless:          getBool(args, "headless"),
-			AutoSpawnHeadless: getBool(args, "auto_spawn_headless"),
+			AgentType:         params.AgentType,
+			Detached:          params.Background,
+			Env:               params.Env,
+			Verify:            params.Verify,
+			Retry:             intOr(params.Retry, 0),
+			TraceID:           params.TraceID,
+			NoGovernance:      !params.Governance,
+			Role:              params.Role,
+			ReadOnly:          params.ReadOnly,
+			Workspace:         params.Workspace,
+			Headless:          params.Headless,
+			AutoSpawnHeadless: params.AutoSpawnHeadless,
 		}
 
 		mgr := dispatch.GetDefaultTaskManager()
@@ -321,8 +241,8 @@ func RegisterDefaultTools(s *Server) {
 			return nil, fmt.Errorf("failed to dispatch task: %w", err)
 		}
 
-		if getBool(args, "wait") {
-			timeoutSec := getInt(args, "timeout", 120)
+		if params.Wait {
+			timeoutSec := intOr(params.Timeout, 120)
 			waitCtx, waitCancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 			defer waitCancel()
 			completedTask, waitErr := mgr.WaitForTask(waitCtx, repo, task.ID)
@@ -334,118 +254,69 @@ func RegisterDefaultTools(s *Server) {
 		return toJSONText(task)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "dispatch_subagent",
-		Description: "Delegate an autonomous subagent prompt directly to an Antigravity worker using headless CLI invocation (agy -p / cascade) with quota-aware multi-profile routing and automatic failover.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"prompt": {
-					Type:        "string",
-					Description: "Subagent task prompt or instruction to execute autonomously.",
-				},
-				"profile": {
-					Type:        "string",
-					Description: "Antigravity profile name for execution, or 'auto' for dynamic quota-aware routing (default 'auto').",
-				},
-				"model": {
-					Type:        "string",
-					Description: "Target model for execution and quota routing (e.g. 'gemini-3.8-flash', 'gemini-3.8-pro', 'claude-3-7-sonnet').",
-				},
-				"effort": {
-					Type:        "string",
-					Description: "Reasoning effort level for the model: 'low', 'medium', or 'high'.",
-				},
-				"weight": {
-					Type:        "string",
-					Description: "Task weight for quota threshold evaluation: 'light', 'medium', or 'heavy' (default 'medium').",
-				},
-				"auto_failover": {
-					Type:        "boolean",
-					Description: "Automatically fail over to secondary candidate profiles if the primary hits rate limits or quota exhaustion (default true).",
-				},
-				"max_failovers": {
-					Type:        "integer",
-					Description: "Maximum number of secondary profile failovers to attempt (default 3).",
-				},
-				"timeout": {
-					Type:        "integer",
-					Description: "Execution timeout in seconds (default 120).",
-				},
-				"cwd": {
-					Type:        "string",
-					Description: "Working directory for subagent execution.",
-				},
-				"repo": {
-					Type:        "string",
-					Description: "Repository path for subagent execution.",
-				},
-				"dangerously_skip_permissions": {
-					Type:        "boolean",
-					Description: "Bypass interactive confirmation prompts in headless mode (default true).",
-				},
-				"disable_slash_commands": {
-					Type:        "boolean",
-					Description: "Disable interactive slash commands in headless execution (default true).",
-				},
-				"trace_id": {
-					Type:        "string",
-					Description: "Distributed trace identifier for log and token correlation.",
-				},
-				"env": {
-					Type:        "object",
-					Description: "Custom environment variables to pass to the subagent session.",
-				},
-			},
-			Required: []string{"prompt"},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		prompt := getString(args, "prompt")
+	type dispatchSubagentParams struct {
+		Prompt                     string            `json:"prompt" description:"Subagent task prompt or instruction to execute autonomously." required:"true"`
+		AutoFailover               *bool             `json:"auto_failover" description:"Automatically fail over to secondary candidate profiles if the primary hits rate limits or quota exhaustion (default true)."`
+		Cwd                        string            `json:"cwd" description:"Working directory for subagent execution."`
+		DangerouslySkipPermissions *bool             `json:"dangerously_skip_permissions" description:"Bypass interactive confirmation prompts in headless mode (default true)."`
+		DisableSlashCommands       *bool             `json:"disable_slash_commands" description:"Disable interactive slash commands in headless execution (default true)."`
+		Effort                     string            `json:"effort" description:"Reasoning effort level for the model: 'low', 'medium', or 'high'."`
+		Env                        map[string]string `json:"env" description:"Custom environment variables to pass to the subagent session."`
+		MaxFailovers               *int              `json:"max_failovers" description:"Maximum number of secondary profile failovers to attempt (default 3)."`
+		Model                      string            `json:"model" description:"Target model for execution and quota routing (e.g. 'gemini-3.8-flash', 'gemini-3.8-pro', 'claude-3-7-sonnet')."`
+		Profile                    string            `json:"profile" description:"Antigravity profile name for execution, or 'auto' for dynamic quota-aware routing (default 'auto')."`
+		Repo                       string            `json:"repo" description:"Repository path for subagent execution."`
+		Timeout                    *int              `json:"timeout" description:"Execution timeout in seconds (default 120)."`
+		TraceID                    string            `json:"trace_id" description:"Distributed trace identifier for log and token correlation."`
+		Weight                     string            `json:"weight" description:"Task weight for quota threshold evaluation: 'light', 'medium', or 'heavy' (default 'medium')."`
+	}
+	RegisterTypedTool(s, "dispatch_subagent", "Delegate an autonomous subagent prompt directly to an Antigravity worker using headless CLI invocation (agy -p / cascade) with quota-aware multi-profile routing and automatic failover.", func(ctx context.Context, params dispatchSubagentParams) (*CallToolResult, error) {
+		prompt := params.Prompt
 		if prompt == "" {
 			return nil, fmt.Errorf("prompt is required")
 		}
 
-		prof := getString(args, "profile")
+		prof := params.Profile
 		if prof == "" {
 			prof = "auto"
 		}
 
-		model := getString(args, "model")
+		model := params.Model
 		if model == "" {
 			model = "gemini-3.8-flash"
 		}
 
-		timeoutSec := getInt(args, "timeout", 120)
+		timeoutSec := intOr(params.Timeout, 120)
 		autoFailover := true
-		if val, ok := args["auto_failover"]; ok && val != nil {
-			autoFailover = getBool(args, "auto_failover")
+		if params.AutoFailover != nil {
+			autoFailover = *params.AutoFailover
 		}
 
 		dangerouslySkipPermissions := true
-		if val, ok := args["dangerously_skip_permissions"]; ok && val != nil {
-			dangerouslySkipPermissions = getBool(args, "dangerously_skip_permissions")
+		if params.DangerouslySkipPermissions != nil {
+			dangerouslySkipPermissions = *params.DangerouslySkipPermissions
 		}
 
 		disableSlashCommands := true
-		if val, ok := args["disable_slash_commands"]; ok && val != nil {
-			disableSlashCommands = getBool(args, "disable_slash_commands")
+		if params.DisableSlashCommands != nil {
+			disableSlashCommands = *params.DisableSlashCommands
 		}
 
 		subOpts := agent.HeadlessSubagentOptions{
 			Profile:                    prof,
 			Prompt:                     prompt,
 			Model:                      model,
-			Effort:                     getString(args, "effort"),
-			Weight:                     getString(args, "weight"),
+			Effort:                     params.Effort,
+			Weight:                     params.Weight,
 			Timeout:                    time.Duration(timeoutSec) * time.Second,
-			Cwd:                        getString(args, "cwd"),
-			RepoPath:                   getString(args, "repo"),
+			Cwd:                        params.Cwd,
+			RepoPath:                   params.Repo,
 			DangerouslySkipPermissions: dangerouslySkipPermissions,
 			DisableSlashCommands:       disableSlashCommands,
-			TraceID:                    getString(args, "trace_id"),
-			Env:                        getStringMap(args, "env"),
+			TraceID:                    params.TraceID,
+			Env:                        params.Env,
 			AutoFailover:               autoFailover,
-			MaxFailovers:               getInt(args, "max_failovers", 3),
+			MaxFailovers:               intOr(params.MaxFailovers, 3),
 		}
 
 		res, err := agent.RunHeadlessSubagent(ctx, subOpts)
@@ -579,43 +450,27 @@ func RegisterDefaultTools(s *Server) {
 		return toJSONText(result)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "dispatch_list",
-		Description: "List dispatched tasks with optional filters by status, profile, or repository.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"status": {
-					Type:        "string",
-					Description: "Filter tasks by status ('pending', 'running', 'completed', 'failed', 'cancelled').",
-					Enum:        []string{"pending", "running", "completed", "failed", "cancelled"},
-				},
-				"profile": {
-					Type:        "string",
-					Description: "Filter tasks by profile name.",
-				},
-				"repo": {
-					Type:        "string",
-					Description: "Filter tasks by repository path.",
-				},
-				"limit": {
-					Type:        "integer",
-					Description: "Maximum number of tasks to return (default 20).",
-				},
-			},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		repo := getString(args, "repo")
+	type dispatchListParams struct {
+		Status  string `json:"status" description:"Filter tasks by status ('pending', 'running', 'completed', 'failed', 'cancelled')." enum:"pending,running,completed,failed,cancelled"`
+		Profile string `json:"profile" description:"Filter tasks by profile name."`
+		Repo    string `json:"repo" description:"Filter tasks by repository path."`
+		Limit   *int   `json:"limit" description:"Maximum number of tasks to return (default 20)."`
+	}
+	RegisterTypedTool(s, "dispatch_list", "List dispatched tasks with optional filters by status, profile, or repository.", func(ctx context.Context, params dispatchListParams) (*CallToolResult, error) {
+		repo := params.Repo
 		if repo == "" {
 			repo, _ = os.Getwd()
 		}
 
 		filter := dispatch.TaskFilter{
-			Status:  dispatch.TaskStatus(getString(args, "status")),
-			Profile: getString(args, "profile"),
+			Status:  dispatch.TaskStatus(params.Status),
+			Profile: params.Profile,
 		}
 
-		limit := getInt(args, "limit", 20)
+		limit := 20
+		if params.Limit != nil {
+			limit = *params.Limit
+		}
 
 		mgr := dispatch.GetDefaultTaskManager()
 		tasks, err := mgr.ListTasks(repo, filter)
@@ -632,102 +487,60 @@ func RegisterDefaultTools(s *Server) {
 		return toJSONText(tasks)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "dispatch_status",
-		Description: "Get detailed execution status, runtime duration, exit code, and worktree info of a dispatched task.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"task_id": {
-					Type:        "string",
-					Description: "The unique ID of the task.",
-				},
-				"repo": {
-					Type:        "string",
-					Description: "Optional path to the Git repository containing the task.",
-				},
-			},
-			Required: []string{"task_id"},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		taskID := getString(args, "task_id")
+	type dispatchStatusParams struct {
+		TaskID string `json:"task_id" description:"The unique ID of the task." required:"true"`
+		Repo   string `json:"repo" description:"Optional path to the Git repository containing the task."`
+	}
+	RegisterTypedTool(s, "dispatch_status", "Get detailed execution status, runtime duration, exit code, and worktree info of a dispatched task.", func(ctx context.Context, params dispatchStatusParams) (*CallToolResult, error) {
+		taskID := params.TaskID
 		if taskID == "" {
 			return nil, fmt.Errorf("task_id is required")
 		}
 
 		mgr := dispatch.GetDefaultTaskManager()
-		task, err := mgr.GetTask(getString(args, "repo"), taskID)
+		task, err := mgr.GetTask(params.Repo, taskID)
 		if err != nil {
 			return nil, err
 		}
 		return toJSONText(task)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "dispatch_cancel",
-		Description: "Cancel a currently running dispatched task.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"task_id": {
-					Type:        "string",
-					Description: "The unique ID of the task to cancel.",
-				},
-				"repo": {
-					Type:        "string",
-					Description: "Optional repository path.",
-				},
-				"force": {
-					Type:        "boolean",
-					Description: "Force immediate termination (default false).",
-				},
-			},
-			Required: []string{"task_id"},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		taskID := getString(args, "task_id")
+	type dispatchCancelParams struct {
+		TaskID string `json:"task_id" description:"The unique ID of the task to cancel." required:"true"`
+		Repo   string `json:"repo" description:"Optional repository path."`
+		Force  bool   `json:"force" description:"Force immediate termination (default false)."`
+	}
+	RegisterTypedTool(s, "dispatch_cancel", "Cancel a currently running dispatched task.", func(ctx context.Context, params dispatchCancelParams) (*CallToolResult, error) {
+		taskID := params.TaskID
 		if taskID == "" {
 			return nil, fmt.Errorf("task_id is required")
 		}
 
 		mgr := dispatch.GetDefaultTaskManager()
-		force := getBool(args, "force")
-		if err := mgr.CancelTask(getString(args, "repo"), taskID, force); err != nil {
+		force := params.Force
+		if err := mgr.CancelTask(params.Repo, taskID, force); err != nil {
 			return nil, err
 		}
 		return NewTextResult(fmt.Sprintf("Task %s successfully cancelled", taskID)), nil
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "dispatch_logs",
-		Description: "Retrieve terminal logs and output from a dispatched task.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"task_id": {
-					Type:        "string",
-					Description: "The unique ID of the task.",
-				},
-				"repo": {
-					Type:        "string",
-					Description: "Optional repository path.",
-				},
-				"tail": {
-					Type:        "integer",
-					Description: "Number of tail lines or bytes to retrieve (default 10000, 0 for all).",
-				},
-			},
-			Required: []string{"task_id"},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		taskID := getString(args, "task_id")
+	type dispatchLogsParams struct {
+		TaskID string `json:"task_id" description:"The unique ID of the task." required:"true"`
+		Repo   string `json:"repo" description:"Optional repository path."`
+		Tail   *int   `json:"tail" description:"Number of tail lines or bytes to retrieve (default 10000, 0 for all)."`
+	}
+	RegisterTypedTool(s, "dispatch_logs", "Retrieve terminal logs and output from a dispatched task.", func(ctx context.Context, params dispatchLogsParams) (*CallToolResult, error) {
+		taskID := params.TaskID
 		if taskID == "" {
 			return nil, fmt.Errorf("task_id is required")
 		}
 
 		mgr := dispatch.GetDefaultTaskManager()
-		tail := getInt(args, "tail", 10000)
-		logs, err := mgr.GetTaskLogs(getString(args, "repo"), taskID, tail)
+		tail := 10000
+		if params.Tail != nil {
+			tail = *params.Tail
+		}
+		logs, err := mgr.GetTaskLogs(params.Repo, taskID, tail)
 		if err != nil {
 			return nil, err
 		}
@@ -756,21 +569,11 @@ func RegisterDefaultTools(s *Server) {
 		return toJSONText(profiles)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "profile_status",
-		Description: "Retrieve detailed status, storage metrics, and sharing configurations for a specific Antigravity profile.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"profile": {
-					Type:        "string",
-					Description: "Name of the target profile.",
-				},
-			},
-			Required: []string{"profile"},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		name := getString(args, "profile")
+	type profileStatusParams struct {
+		Profile string `json:"profile" description:"Name of the target profile." required:"true"`
+	}
+	RegisterTypedTool(s, "profile_status", "Retrieve detailed status, storage metrics, and sharing configurations for a specific Antigravity profile.", func(ctx context.Context, params profileStatusParams) (*CallToolResult, error) {
+		name := params.Profile
 		if name == "" {
 			return nil, fmt.Errorf("profile name is required")
 		}
@@ -806,25 +609,13 @@ func RegisterDefaultTools(s *Server) {
 		return toJSONText(rep)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "workspace_list",
-		Description: "List detected project workspaces and active Git repositories across Antigravity profiles.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"profile": {
-					Type:        "string",
-					Description: "Filter workspaces by profile name.",
-				},
-				"active_only": {
-					Type:        "boolean",
-					Description: "When true, returns only currently active workspaces in running profiles.",
-				},
-			},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		prof := getString(args, "profile")
-		activeOnly := getBool(args, "active_only")
+	type workspaceListParams struct {
+		ActiveOnly bool   `json:"active_only" description:"When true, returns only currently active workspaces in running profiles."`
+		Profile    string `json:"profile" description:"Filter workspaces by profile name."`
+	}
+	RegisterTypedTool(s, "workspace_list", "List detected project workspaces and active Git repositories across Antigravity profiles.", func(ctx context.Context, params workspaceListParams) (*CallToolResult, error) {
+		prof := params.Profile
+		activeOnly := params.ActiveOnly
 
 		var workspaces []workspace.Workspace
 		var err error
@@ -847,20 +638,11 @@ func RegisterDefaultTools(s *Server) {
 		return toJSONText(workspaces)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "alerts_list",
-		Description: "Evaluate and report active system alerts including critical quota thresholds (<=5%), sudden quota drops, and dead headless processes.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"profile": {
-					Type:        "string",
-					Description: "Optional profile name to inspect (or omit to inspect all profiles).",
-				},
-			},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		prof := getString(args, "profile")
+	type alertsListParams struct {
+		Profile string `json:"profile" description:"Optional profile name to inspect (or omit to inspect all profiles)."`
+	}
+	RegisterTypedTool(s, "alerts_list", "Evaluate and report active system alerts including critical quota thresholds (<=5%), sudden quota drops, and dead headless processes.", func(ctx context.Context, params alertsListParams) (*CallToolResult, error) {
+		prof := params.Profile
 		report, err := alert.Evaluate(prof)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate alerts: %w", err)
@@ -872,20 +654,11 @@ func RegisterDefaultTools(s *Server) {
 	// 3. Quota & Priming Tools
 	// ==========================================
 
-	s.RegisterTool(Tool{
-		Name:        "quota_summary",
-		Description: "Query live AI quota limits (5-hour sliding window and weekly limits, percentage remaining, reset countdown) from running Language Servers.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"profile": {
-					Type:        "string",
-					Description: "Optional target profile name. If omitted, queries all active profiles.",
-				},
-			},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		prof := getString(args, "profile")
+	type quotaSummaryParams struct {
+		Profile string `json:"profile" description:"Optional target profile name. If omitted, queries all active profiles."`
+	}
+	RegisterTypedTool(s, "quota_summary", "Query live AI quota limits (5-hour sliding window and weekly limits, percentage remaining, reset countdown) from running Language Servers.", func(ctx context.Context, params quotaSummaryParams) (*CallToolResult, error) {
+		prof := params.Profile
 		if prof != "" {
 			if err := config.ValidateProfileName(prof); err != nil {
 				return nil, err
@@ -908,41 +681,19 @@ func RegisterDefaultTools(s *Server) {
 		return toJSONText(summary)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "quota_history",
-		Description: "Retrieve historical time-series of quota percentages and token consumption for one or all profiles.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"profile": {
-					Type:        "string",
-					Description: "Profile name (if omitted, aggregates history across all profiles).",
-				},
-				"source": {
-					Type:        "string",
-					Description: "Filter by source ('quota', 'gateway', 'headless').",
-					Enum:        []string{"quota", "gateway", "headless"},
-				},
-				"limit": {
-					Type:        "integer",
-					Description: "Maximum number of history points to return (default 50).",
-				},
-				"since": {
-					Type:        "string",
-					Description: "RFC3339 timestamp start filter.",
-				},
-				"until": {
-					Type:        "string",
-					Description: "RFC3339 timestamp end filter.",
-				},
-			},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		prof := getString(args, "profile")
-		since := getString(args, "since")
-		until := getString(args, "until")
-		source := getString(args, "source")
-		limit := getInt(args, "limit", 50)
+	type quotaHistoryParams struct {
+		Limit   *int   `json:"limit" description:"Maximum number of history points to return (default 50)."`
+		Profile string `json:"profile" description:"Profile name (if omitted, aggregates history across all profiles)."`
+		Since   string `json:"since" description:"RFC3339 timestamp start filter."`
+		Source  string `json:"source" description:"Filter by source ('quota', 'gateway', 'headless')." enum:"quota,gateway,headless"`
+		Until   string `json:"until" description:"RFC3339 timestamp end filter."`
+	}
+	RegisterTypedTool(s, "quota_history", "Retrieve historical time-series of quota percentages and token consumption for one or all profiles.", func(ctx context.Context, params quotaHistoryParams) (*CallToolResult, error) {
+		prof := params.Profile
+		since := params.Since
+		until := params.Until
+		source := params.Source
+		limit := intOr(params.Limit, 50)
 
 		query, err := quota.ParseHistoryQuery(since, until, source, strconv.Itoa(limit))
 		if err != nil {
@@ -967,20 +718,11 @@ func RegisterDefaultTools(s *Server) {
 		return toJSONText(series)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "prime_status",
-		Description: "Check AI quota priming status, scheduled watchdog timers, and last primed timestamps for profiles.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"profile": {
-					Type:        "string",
-					Description: "Optional target profile name.",
-				},
-			},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		prof := getString(args, "profile")
+	type primeStatusParams struct {
+		Profile string `json:"profile" description:"Optional target profile name."`
+	}
+	RegisterTypedTool(s, "prime_status", "Check AI quota priming status, scheduled watchdog timers, and last primed timestamps for profiles.", func(ctx context.Context, params primeStatusParams) (*CallToolResult, error) {
+		prof := params.Profile
 		if prof != "" {
 			st, err := prime.GetProfilePrimeStatus(prof)
 			if err != nil {
@@ -996,36 +738,18 @@ func RegisterDefaultTools(s *Server) {
 		return toJSONText(st)
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "prime_trigger",
-		Description: "Trigger proactive quota priming or 5-hour window warm-up for one or all profiles.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"profile": {
-					Type:        "string",
-					Description: "Profile name to prime (omit to prime all eligible profiles).",
-				},
-				"warm_5h": {
-					Type:        "boolean",
-					Description: "Proactively send a minimal 1-token prompt to start the rolling 5-hour window countdown.",
-				},
-				"force": {
-					Type:        "boolean",
-					Description: "Force priming regardless of quota percentage or reset timing.",
-				},
-				"check": {
-					Type:        "boolean",
-					Description: "Dry-run check: verify if profiles can be primed without sending actual prompts.",
-				},
-			},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
+	type primeTriggerParams struct {
+		Check   bool   `json:"check" description:"Dry-run check: verify if profiles can be primed without sending actual prompts."`
+		Force   bool   `json:"force" description:"Force priming regardless of quota percentage or reset timing."`
+		Profile string `json:"profile" description:"Profile name to prime (omit to prime all eligible profiles)."`
+		Warm5h  bool   `json:"warm_5h" description:"Proactively send a minimal 1-token prompt to start the rolling 5-hour window countdown."`
+	}
+	RegisterTypedTool(s, "prime_trigger", "Trigger proactive quota priming or 5-hour window warm-up for one or all profiles.", func(ctx context.Context, params primeTriggerParams) (*CallToolResult, error) {
 		opts := prime.PrimeOptions{
-			Profile:  getString(args, "profile"),
-			Warm5h:   getBool(args, "warm_5h"),
-			Force:    getBool(args, "force"),
-			Check:    getBool(args, "check"),
+			Profile:  params.Profile,
+			Warm5h:   params.Warm5h,
+			Force:    params.Force,
+			Check:    params.Check,
 			NoJitter: true,
 		}
 
@@ -1040,39 +764,23 @@ func RegisterDefaultTools(s *Server) {
 	// 4. Diff Inspection Tools
 	// ==========================================
 
-	s.RegisterTool(Tool{
-		Name:        "task_diff",
-		Description: "Inspect the Git diff generated by a dispatched task within its isolated worktree. Returns summary, changed files, hunks, or unified diff.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"task_id": {
-					Type:        "string",
-					Description: "The unique ID of the dispatched task.",
-				},
-				"repo": {
-					Type:        "string",
-					Description: "Optional repository path.",
-				},
-				"structured": {
-					Type:        "boolean",
-					Description: "Return structured JSON containing changed files, hunks, line additions and deletions (default true).",
-				},
-			},
-			Required: []string{"task_id"},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		taskID := getString(args, "task_id")
+	type taskDiffParams struct {
+		TaskID     string `json:"task_id" description:"The unique ID of the dispatched task." required:"true"`
+		Repo       string `json:"repo" description:"Optional repository path."`
+		Structured *bool  `json:"structured" description:"Return structured JSON containing changed files, hunks, line additions and deletions (default true)."`
+	}
+	RegisterTypedTool(s, "task_diff", "Inspect the Git diff generated by a dispatched task within its isolated worktree. Returns summary, changed files, hunks, or unified diff.", func(ctx context.Context, params taskDiffParams) (*CallToolResult, error) {
+		taskID := params.TaskID
 		if taskID == "" {
 			return nil, fmt.Errorf("task_id is required")
 		}
 
-		repo := getString(args, "repo")
+		repo := params.Repo
 		mgr := dispatch.GetDefaultTaskManager()
 
 		structured := true
-		if _, ok := args["structured"]; ok {
-			structured = getBool(args, "structured")
+		if params.Structured != nil {
+			structured = *params.Structured
 		}
 
 		if structured {
@@ -1090,30 +798,17 @@ func RegisterDefaultTools(s *Server) {
 		return NewTextResult(diff), nil
 	})
 
-	s.RegisterTool(Tool{
-		Name:        "worktree_diff",
-		Description: "Inspect the Git diff of a specific ephemeral worktree compared against its base branch or commit.",
-		InputSchema: ToolInputSchema{
-			Type: "object",
-			Properties: map[string]PropertySchema{
-				"worktree_id": {
-					Type:        "string",
-					Description: "The ID of the worktree to inspect.",
-				},
-				"repo": {
-					Type:        "string",
-					Description: "Path to the base Git repository.",
-				},
-			},
-			Required: []string{"worktree_id"},
-		},
-	}, func(ctx context.Context, args map[string]any) (*CallToolResult, error) {
-		wtID := getString(args, "worktree_id")
+	type worktreeDiffParams struct {
+		WorktreeID string `json:"worktree_id" description:"The ID of the worktree to inspect." required:"true"`
+		Repo       string `json:"repo" description:"Path to the base Git repository."`
+	}
+	RegisterTypedTool(s, "worktree_diff", "Inspect the Git diff of a specific ephemeral worktree compared against its base branch or commit.", func(ctx context.Context, params worktreeDiffParams) (*CallToolResult, error) {
+		wtID := params.WorktreeID
 		if wtID == "" {
 			return nil, fmt.Errorf("worktree_id is required")
 		}
 
-		repo := getString(args, "repo")
+		repo := params.Repo
 		if repo == "" {
 			var err error
 			repo, err = os.Getwd()

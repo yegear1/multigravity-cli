@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -784,5 +785,76 @@ func TestDispatchSubagent_ToolCall(t *testing.T) {
 	}
 	if !strings.Contains(resSub.Content[0].Text, "subagent-mcp-prof") {
 		t.Errorf("expected profile in response JSON: %s", resSub.Content[0].Text)
+	}
+}
+
+// TestToolSchemasGolden pins the public JSON schemas of every registered tool.
+// Regenerate with: UPDATE_GOLDEN=1 go test ./internal/mcp -run TestToolSchemasGolden
+func TestToolSchemasGolden(t *testing.T) {
+	got, err := json.MarshalIndent(NewDefaultServer().GetTools(), "", "  ")
+	if err != nil {
+		t.Fatalf("marshal tools: %v", err)
+	}
+	got = append(got, '\n')
+	golden := filepath.Join("testdata", "tools_schema.golden.json")
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(golden, got, 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("tool schemas drifted from %s (run with UPDATE_GOLDEN=1 only if intentional)", golden)
+	}
+}
+
+func TestRegisterTypedToolSchemaAndDecode(t *testing.T) {
+	type sub struct {
+		ID string `json:"id" description:"Sub id."`
+	}
+	type params struct {
+		Name    string            `json:"name" description:"Name." required:"true"`
+		Status  string            `json:"status" description:"Status." enum:"a,b"`
+		Count   int               `json:"count" description:"Count."`
+		Timeout *int              `json:"timeout" description:"Timeout."`
+		Flag    bool              `json:"flag" description:"Flag."`
+		Args    []string          `json:"args" description:"Args."`
+		Env     map[string]string `json:"env" description:"Env."`
+		Subs    []sub             `json:"subs" description:"Subs."`
+	}
+	srv := NewServer()
+	var got params
+	RegisterTypedTool(srv, "typed", "desc", func(ctx context.Context, p params) (*CallToolResult, error) {
+		got = p
+		return NewTextResult("ok"), nil
+	})
+	tools := srv.GetTools()
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(tools))
+	}
+	props := tools[0].InputSchema.Properties
+	if props["status"].Enum[1] != "b" || props["count"].Type != "integer" || props["args"].Items.Type != "string" ||
+		props["subs"].Items.Properties["id"].Description != "Sub id." || props["env"].Type != "object" {
+		t.Fatalf("unexpected schema: %+v", props)
+	}
+	if r := tools[0].InputSchema.Required; len(r) != 1 || r[0] != "name" {
+		t.Fatalf("unexpected required: %v", r)
+	}
+	raw := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"typed","arguments":{"name":"  x ","count":"7","timeout":0,"flag":"true","args":["a",1,null],"env":{"K":2},"subs":[{"id":"s1"}]}}}`
+	var req JSONRPCRequest
+	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+		t.Fatal(err)
+	}
+	srv.HandleRequest(context.Background(), &req)
+	if got.Name != "x" || got.Count != 7 || got.Timeout == nil || *got.Timeout != 0 || !got.Flag ||
+		strings.Join(got.Args, ",") != "a,1" || got.Env["K"] != "2" || len(got.Subs) != 1 || got.Subs[0].ID != "s1" {
+		t.Fatalf("unexpected decode: %+v", got)
+	}
+	srv.HandleRequest(context.Background(), &JSONRPCRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: json.RawMessage(`{"name":"typed"}`)})
+	if got.Timeout != nil || got.Env == nil {
+		t.Fatalf("absent args: timeout must be nil and env non-nil: %+v", got)
 	}
 }
