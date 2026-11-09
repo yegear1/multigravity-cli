@@ -16,18 +16,18 @@ Do not rename the Go module in this cycle: all imports already use `github.com/y
 
 ---
 
-## ⚖️ Rule Precedence Hierarchy
+## Priority Ranking & Precedence
 
-When requirements conflict, the agent MUST resolve them using the following strict priority:
-1. **Regression Prevention & Backward Compatibility:** Legacy APIs, profile data layouts, and external consumers MUST NOT break.
-2. **Secrets & Security Isolation:** NEVER export, sync, or commit unscrubbed credentials, OAuth tokens, or session keys across profiles or to logs.
-3. **Scope Confinement (Blast Radius):** ZERO opportunistic refactoring; modify ONLY lines required for the active task.
-4. **Strict Typing on New Code:** New/modified code MUST compile without unchecked types or bypassed error checks.
-5. **Code Style:** Preserve original indentation, quote styles, and neighboring lines to keep git blame intact.
+Resolve directive conflicts using the strict canonical precedence hierarchy:
 
-When a conflict cannot be resolved using this hierarchy, the agent MUST halt execution and request user clarification.
+| Priority | Tier | Rules & Invariants |
+| :---: | :--- | :--- |
+| **`[P0]`** | **Security & Blast Radius** | Zero credential exposure, prohibit destructive git operations (`--force`, `reset --hard`) and destructive docker data actions. |
+| **`[P1]`** | **Payload Invariants & Automated Contracts** | Single ADR diary (`docs/adr/decisions.md`), `NOTES.md` heading ban, schema contracts, strict typing (zero unchecked `any`). |
+| **`[P2]`** | **Architecture & Test Harness** | Domain logic separation, canonical test command pass, consultative dependencies. |
+| **`[P3]`** | **Style & Documentation** | Conventional Commits, Technical English for agent directives and commits. |
 
----
+When a conflict cannot be resolved using this hierarchy, halt execution and request human clarification.
 
 ## Modular Context Triggers
 
