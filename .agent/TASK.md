@@ -8,7 +8,7 @@
 ## Active Task
 
 ### [01.2] Next Milestone Planning & Triage
-- Status: READY FOR PLANNING
+- Status: Active Task
 - Priority: P2
 - Description: Triage next roadmap milestone or features for multigravity-cli.
 
@@ -27,7 +27,7 @@
 
 ## Backlog (Upcoming, in priority order)
 
-> Tag pre-approved tasks having strictly disjoint file scopes with `[APPROVED]` `[PARALLEL: W1]` and `Paths: ...` for concurrent `task-queue` execution.
+> Tag pre-approved tasks having strictly disjoint file scopes with `` `` and `Paths: ...` for concurrent `task-queue` execution.
 
 - [ ] *(Queue empty — awaiting next planning cycle)*
 

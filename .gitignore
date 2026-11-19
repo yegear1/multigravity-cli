@@ -18,3 +18,10 @@ Thumbs.db
 
 # Build artifacts
 bin/
+
+# Agent & dev-harness ephemeral state
+.worktrees/
+.maestri/
+.harness/queue/done/
+.harness/queue/escalated/
+.harness/worktrees/
